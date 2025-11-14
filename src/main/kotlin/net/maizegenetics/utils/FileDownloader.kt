@@ -68,8 +68,10 @@ object FileDownloader {
         return try {
             logger.info("Downloading tar file from: $url")
 
-            // Create a temporary file for the tar download
-            tempFile = createTempFile(suffix = ".tar.gz")
+            // Determine file extension and create appropriate temp file
+            val isGzipped = url.endsWith(".tar.gz") || url.endsWith(".tgz")
+            val suffix = if (isGzipped) ".tar.gz" else ".tar"
+            tempFile = createTempFile(suffix = suffix)
 
             // Download the file
             val urlObj = URI(url).toURL()
@@ -80,10 +82,11 @@ object FileDownloader {
             }
             logger.info("Download completed")
 
-            // Extract using tar command
+            // Extract using tar command with appropriate flags
             logger.info("Extracting tar file to: $destDir")
+            val tarFlags = if (isGzipped) "-xzf" else "-xf"
             val exitCode = ProcessRunner.runCommand(
-                "tar", "-xzf", tempFile.toString(),
+                "tar", tarFlags, tempFile.toString(),
                 "-C", destDir.toString(),
                 logger = logger
             )

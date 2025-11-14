@@ -17,7 +17,7 @@ object Constants {
 
     // Download URLs
     const val MLIMPUTE_URL = "https://github.com/maize-genetics/MLImpute/archive/refs/heads/main.zip"
-    const val BIOKOTLIN_TOOLS_URL = "https://github.com/maize-genetics/biokotlin-tools/releases/latest/download/biokotlin-tools.tar.gz"
+    const val BIOKOTLIN_TOOLS_URL = "https://github.com/maize-genetics/biokotlin-tools/releases/download/0.2.1/BioKotlinTools-v0.2.tar"
 
     // Directory names for downloaded tools
     const val MLIMPUTE_DIR = "MLImpute"
