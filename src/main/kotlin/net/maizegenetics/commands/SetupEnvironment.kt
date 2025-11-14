@@ -8,6 +8,9 @@ import net.maizegenetics.utils.FileDownloader
 import net.maizegenetics.utils.ProcessRunner
 import org.apache.logging.log4j.LogManager
 import org.apache.logging.log4j.Logger
+import org.apache.logging.log4j.core.LoggerContext
+import org.apache.logging.log4j.core.appender.FileAppender
+import org.apache.logging.log4j.core.layout.PatternLayout
 import java.io.File
 import java.nio.file.Path
 import kotlin.io.path.createDirectories
@@ -23,16 +26,49 @@ class SetupEnvironment : CliktCommand(name = "setup-environment") {
     ).path(mustExist = false, canBeFile = false, canBeDir = true)
         .default(Path.of("seq_sim_work"))
 
-    override fun run() {
-        logger.info("Starting environment setup")
-        logger.info("Working directory: $workDir")
+    private fun setupFileLogging() {
+        val logsDir = workDir.resolve("logs")
+        if (!logsDir.exists()) {
+            logsDir.createDirectories()
+        }
 
+        val logFile = logsDir.resolve("setup_environment.log").toFile()
+        val context = LogManager.getContext(false) as LoggerContext
+        val config = context.configuration
+
+        val layout = PatternLayout.newBuilder()
+            .withConfiguration(config)
+            .withPattern("%d{yyyy-MM-dd HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n")
+            .build()
+
+        val appender = FileAppender.newBuilder()
+            .withFileName(logFile.absolutePath)
+            .withAppend(true)
+            .withLocking(false)
+            .setName("WorkDirFileLogger")
+            .setLayout(layout)
+            .setConfiguration(config)
+            .build()
+
+        appender.start()
+        config.addAppender(appender)
+        config.rootLogger.addAppender(appender, null, null)
+        context.updateLoggers()
+
+        logger.info("Logging to file: $logFile")
+    }
+
+    override fun run() {
         // Create working directory if it doesn't exist
         if (!workDir.exists()) {
-            logger.debug("Creating working directory: $workDir")
             workDir.createDirectories()
-            logger.info("Working directory created: $workDir")
         }
+
+        // Configure file logging to working directory
+        setupFileLogging()
+
+        logger.info("Starting environment setup")
+        logger.info("Working directory: $workDir")
 
         // Copy pixi.toml from resources to working directory
         val pixiTomlFile = workDir.resolve("pixi.toml").toFile()
