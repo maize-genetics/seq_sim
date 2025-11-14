@@ -34,14 +34,14 @@ class SetupEnvironment : CliktCommand(name = "setup-environment") {
             logger.info("Working directory created: $workDir")
         }
 
-        // Copy pixi.toml from resources to current directory
-        val pixiTomlFile = File("pixi.toml")
+        // Copy pixi.toml from resources to working directory
+        val pixiTomlFile = workDir.resolve("pixi.toml").toFile()
         if (!FileDownloader.copyResourceToFile("/pixi.toml", pixiTomlFile, logger)) {
             exitProcess(1)
         }
 
-        // Install pixi environment
-        val pixiExitCode = ProcessRunner.runCommand("pixi", "install", logger = logger)
+        // Install pixi environment in working directory
+        val pixiExitCode = ProcessRunner.runCommand("pixi", "install", workingDir = workDir.toFile(), logger = logger)
         if (pixiExitCode != 0) {
             logger.error("pixi install failed with exit code $pixiExitCode")
             logger.error("Make sure pixi is installed. Visit: https://pixi.sh/")

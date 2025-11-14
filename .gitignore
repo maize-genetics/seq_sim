@@ -50,6 +50,12 @@ logs/
 
 ### LLM IDE extensions ###
 CLAUDE.md
+.claude/
 
 ### Project specific ###
 seq_sim_work/
+scripts/align25pairs.sh
+
+### Pixi environment ###
+pixi.lock
+pixi.toml
