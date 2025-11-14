@@ -20,6 +20,7 @@ class AlignAssemblies : CliktCommand(name = "align-assemblies") {
         private const val LOG_FILE_NAME = "align_assemblies.log"
         private const val OUTPUT_DIR = "output"
         private const val ANCHORWAVE_RESULTS_DIR = "anchorwave_results"
+        private const val MAF_PATHS_FILE = "maf_file_paths.txt"
 
         // minimap2 parameters
         private const val MINIMAP2_PRESET = "splice"
@@ -200,19 +201,33 @@ class AlignAssemblies : CliktCommand(name = "align-assemblies") {
         // Step 3: Process each query file
         var successCount = 0
         var failureCount = 0
+        val mafFilePaths = mutableListOf<Path>()
+
         queryFiles.forEachIndexed { index, queryFasta ->
             logger.info("=".repeat(80))
             logger.info("Processing query ${index + 1}/${queryFiles.size}: ${queryFasta.name}")
             logger.info("=".repeat(80))
 
             try {
-                alignQuery(queryFasta, refBase, refSam, cdsFile, baseOutputDir)
+                val mafPath = alignQuery(queryFasta, refBase, refSam, cdsFile, baseOutputDir)
+                mafFilePaths.add(mafPath)
                 successCount++
                 logger.info("Successfully completed alignment for: ${queryFasta.name}")
             } catch (e: Exception) {
                 failureCount++
                 logger.error("Failed to align query: ${queryFasta.name}", e)
                 logger.error("Continuing with next query...")
+            }
+        }
+
+        // Write MAF file paths to text file
+        if (mafFilePaths.isNotEmpty()) {
+            val mafPathsFile = baseOutputDir.resolve(MAF_PATHS_FILE)
+            try {
+                mafPathsFile.writeLines(mafFilePaths.map { it.toString() })
+                logger.info("MAF file paths written to: $mafPathsFile")
+            } catch (e: Exception) {
+                logger.error("Failed to write MAF paths file: ${e.message}", e)
             }
         }
 
@@ -224,7 +239,7 @@ class AlignAssemblies : CliktCommand(name = "align-assemblies") {
         logger.info("Output directory: $baseOutputDir")
     }
 
-    private fun alignQuery(queryFasta: Path, refBase: String, refSam: Path, cdsFile: Path, baseOutputDir: Path) {
+    private fun alignQuery(queryFasta: Path, refBase: String, refSam: Path, cdsFile: Path, baseOutputDir: Path): Path {
         val queryName = queryFasta.nameWithoutExtension
 
         // Create query-specific output directory
@@ -287,5 +302,8 @@ class AlignAssemblies : CliktCommand(name = "align-assemblies") {
         logger.info("  Anchors: $anchorsFile")
         logger.info("  MAF: $mafFile")
         logger.info("  Filtered MAF: $fMafFile")
+
+        // Return the MAF file path (not the filtered one)
+        return mafFile
     }
 }

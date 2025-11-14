@@ -19,6 +19,7 @@ class MafToGvcf : CliktCommand(name = "maf-to-gvcf") {
         private const val LOG_FILE_NAME = "maf_to_gvcf.log"
         private const val OUTPUT_DIR = "output"
         private const val GVCF_RESULTS_DIR = "gvcf_results"
+        private const val GVCF_PATHS_FILE = "gvcf_file_paths.txt"
         private const val BIOKOTLIN_EXECUTABLE = "biokotlin-tools"
         private const val MAF_TO_GVCF_COMMAND = "maf-to-gvcf-converter"
     }
@@ -158,19 +159,33 @@ class MafToGvcf : CliktCommand(name = "maf-to-gvcf") {
         // Process each MAF file
         var successCount = 0
         var failureCount = 0
+        val gvcfFilePaths = mutableListOf<Path>()
+
         mafFiles.forEachIndexed { index, mafFile ->
             logger.info("=".repeat(80))
             logger.info("Processing MAF ${index + 1}/${mafFiles.size}: ${mafFile.name}")
             logger.info("=".repeat(80))
 
             try {
-                convertMafToGvcf(mafFile, biokotlinPath, outputDir, mafFiles.size == 1)
+                val gvcfPath = convertMafToGvcf(mafFile, biokotlinPath, outputDir, mafFiles.size == 1)
+                gvcfFilePaths.add(gvcfPath)
                 successCount++
                 logger.info("Successfully converted: ${mafFile.name}")
             } catch (e: Exception) {
                 failureCount++
                 logger.error("Failed to convert MAF: ${mafFile.name}", e)
                 logger.error("Continuing with next MAF file...")
+            }
+        }
+
+        // Write GVCF file paths to text file
+        if (gvcfFilePaths.isNotEmpty()) {
+            val gvcfPathsFile = outputDir.resolve(GVCF_PATHS_FILE)
+            try {
+                gvcfPathsFile.writeLines(gvcfFilePaths.map { it.toString() })
+                logger.info("GVCF file paths written to: $gvcfPathsFile")
+            } catch (e: Exception) {
+                logger.error("Failed to write GVCF paths file: ${e.message}", e)
             }
         }
 
@@ -182,7 +197,7 @@ class MafToGvcf : CliktCommand(name = "maf-to-gvcf") {
         logger.info("Output directory: $outputDir")
     }
 
-    private fun convertMafToGvcf(mafFile: Path, biokotlinPath: Path, outputDir: Path, isSingleMaf: Boolean) {
+    private fun convertMafToGvcf(mafFile: Path, biokotlinPath: Path, outputDir: Path, isSingleMaf: Boolean): Path {
         val mafBaseName = mafFile.nameWithoutExtension
 
         // Determine sample name (use provided or default to MAF base name)
@@ -218,5 +233,8 @@ class MafToGvcf : CliktCommand(name = "maf-to-gvcf") {
         }
 
         logger.info("Conversion completed for: ${mafFile.name}")
+
+        // Return the GVCF file path
+        return fullOutputPath
     }
 }
