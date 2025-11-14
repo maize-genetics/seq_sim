@@ -4,6 +4,7 @@ import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.core.main
 import com.github.ajalt.clikt.core.subcommands
 import net.maizegenetics.commands.AlignAssemblies
+import net.maizegenetics.commands.MafToGvcf
 import net.maizegenetics.commands.SetupEnvironment
 
 class SeqSim : CliktCommand() {
@@ -11,5 +12,5 @@ class SeqSim : CliktCommand() {
 }
 
 fun main(args: Array<String>) = SeqSim()
-    .subcommands(SetupEnvironment(), AlignAssemblies())
+    .subcommands(SetupEnvironment(), AlignAssemblies(), MafToGvcf())
     .main(args)

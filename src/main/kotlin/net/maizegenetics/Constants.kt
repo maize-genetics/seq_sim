@@ -11,6 +11,8 @@ object Constants {
 
     // File extensions
     val FASTA_EXTENSIONS = setOf("fa", "fasta", "fna")
+    val MAF_EXTENSIONS = setOf("maf")
+    val GVCF_EXTENSIONS = setOf("gvcf", "gvcf.gz")
     const val TEXT_FILE_EXTENSION = "txt"
 
     // Download URLs
