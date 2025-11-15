@@ -55,6 +55,7 @@ CLAUDE.md
 ### Project specific ###
 seq_sim_work/
 scripts/align25pairs.sh
+data/
 
 ### Pixi environment ###
 pixi.lock
