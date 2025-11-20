@@ -30,7 +30,8 @@ data class PipelineConfig(
     val pick_crossovers: PickCrossoversConfig? = null,
     val create_chain_files: CreateChainFilesConfig? = null,
     val convert_coordinates: ConvertCoordinatesConfig? = null,
-    val generate_recombined_sequences: GenerateRecombinedSequencesConfig? = null
+    val generate_recombined_sequences: GenerateRecombinedSequencesConfig? = null,
+    val format_recombined_fastas: FormatRecombinedFastasConfig? = null
 )
 
 data class AlignAssembliesConfig(
@@ -77,6 +78,11 @@ data class GenerateRecombinedSequencesConfig(
     val assembly_list: String,
     val chromosome_list: String,
     val assembly_dir: String
+)
+
+data class FormatRecombinedFastasConfig(
+    val line_width: Int? = null,
+    val threads: Int? = null
 )
 
 class Orchestrate : CliktCommand(name = "orchestrate") {
@@ -263,6 +269,16 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 )
             }
 
+            // Parse format_recombined_fastas
+            @Suppress("UNCHECKED_CAST")
+            val formatRecombinedFastasMap = configMap["format_recombined_fastas"] as? Map<String, Any>
+            val formatRecombinedFastas = formatRecombinedFastasMap?.let {
+                FormatRecombinedFastasConfig(
+                    line_width = it["line_width"] as? Int,
+                    threads = it["threads"] as? Int
+                )
+            }
+
             return PipelineConfig(
                 work_dir = workDir,
                 run_steps = runSteps,
@@ -274,7 +290,8 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 pick_crossovers = pickCrossovers,
                 create_chain_files = createChainFiles,
                 convert_coordinates = convertCoordinates,
-                generate_recombined_sequences = generateRecombinedSequences
+                generate_recombined_sequences = generateRecombinedSequences,
+                format_recombined_fastas = formatRecombinedFastas
             )
         } catch (e: Exception) {
             logger.error("Failed to parse configuration file: ${e.message}", e)
@@ -330,6 +347,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
         var chainOutputDir: Path? = null
         var coordinatesOutputDir: Path? = null
         var recombinedFastasDir: Path? = null
+        var formattedFastasDir: Path? = null
 
         try {
             // Step 1: Align Assemblies (if configured and should run)
@@ -853,6 +871,63 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                     }
                 } else {
                     logger.info("Skipping generate-recombined-sequences (not configured)")
+                }
+                logger.info("")
+            }
+
+            // Step 10: Format Recombined Fastas (if configured and should run)
+            if (config.format_recombined_fastas != null && shouldRunStep("format_recombined_fastas", config)) {
+                logger.info("=".repeat(80))
+                logger.info("STEP 10: Format Recombined Fastas")
+                logger.info("=".repeat(80))
+
+                if (recombinedFastasDir == null) {
+                    throw RuntimeException("Cannot run format-recombined-fastas: generate-recombined-sequences output not available")
+                }
+
+                val args = buildList {
+                    add("format-recombined-fastas")
+                    add("--work-dir=${workDir}")
+                    add("--fasta-input=${recombinedFastasDir}")
+                    if (config.format_recombined_fastas.line_width != null) {
+                        add("--line-width=${config.format_recombined_fastas.line_width}")
+                    }
+                    if (config.format_recombined_fastas.threads != null) {
+                        add("--threads=${config.format_recombined_fastas.threads}")
+                    }
+                }
+
+                val exitCode = ProcessRunner.runCommand(
+                    "./gradlew", "run", "--args=${args.joinToString(" ")}",
+                    workingDir = File("."),
+                    logger = logger
+                )
+
+                if (exitCode != 0) {
+                    throw RuntimeException("format-recombined-fastas failed with exit code $exitCode")
+                }
+
+                // Get output directory
+                formattedFastasDir = workDir.resolve("output")
+                    .resolve("10_formatted_fastas")
+
+                logger.info("Step 10 completed successfully")
+                logger.info("")
+            } else {
+                if (config.format_recombined_fastas != null) {
+                    logger.info("Skipping format-recombined-fastas (not in run_steps)")
+
+                    // Try to use outputs from previous run
+                    val previousFormattedDir = workDir.resolve("output")
+                        .resolve("10_formatted_fastas")
+                    if (previousFormattedDir.exists()) {
+                        formattedFastasDir = previousFormattedDir
+                        logger.info("Using previous format-recombined-fastas outputs: $formattedFastasDir")
+                    } else {
+                        logger.warn("Previous format-recombined-fastas outputs not found.")
+                    }
+                } else {
+                    logger.info("Skipping format-recombined-fastas (not configured)")
                 }
                 logger.info("")
             }

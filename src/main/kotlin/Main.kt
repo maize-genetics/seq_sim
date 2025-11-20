@@ -10,6 +10,7 @@ import net.maizegenetics.commands.ConvertToFasta
 import net.maizegenetics.commands.CreateChainFiles
 import net.maizegenetics.commands.DownsampleGvcf
 import net.maizegenetics.commands.ExtractChromIds
+import net.maizegenetics.commands.FormatRecombinedFastas
 import net.maizegenetics.commands.GenerateRecombinedSequences
 import net.maizegenetics.commands.MafToGvcf
 import net.maizegenetics.commands.Orchestrate
@@ -33,6 +34,7 @@ fun main(args: Array<String>) = SeqSim()
         CreateChainFiles(),
         ConvertCoordinates(),
         GenerateRecombinedSequences(),
+        FormatRecombinedFastas(),
         ExtractChromIds()
     )
     .main(args)
