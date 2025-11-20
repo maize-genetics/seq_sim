@@ -6,13 +6,21 @@
 # ============================================================================
 # seqSim v0.1 PIPELINE OVERVIEW
 # ============================================================================
-# This pipeline consists of 5 sequential steps:
+# This pipeline consists of two main workflows:
 #
+# MAIN PIPELINE (Variant Simulation):
 # 1. align-assemblies:          Align query assemblies to reference using AnchorWave
 # 2. maf-to-gvcf:               Convert MAF alignment files to compressed GVCF format
 # 3. downsample-gvcf:           Downsample variants at specified rates per chromosome
 # 4. convert-to-fasta:          Generate FASTA files from downsampled variants
 # 5. align-mutated-assemblies:  Realign mutated FASTA files back to reference
+#
+# RECOMBINATION PIPELINE (Generate Recombinant Genomes):
+# 6. pick-crossovers:           Simulate crossover events in reference coordinates
+# 7. create-chain-files:        Convert MAF files to chain format for coordinate conversion
+# 8. convert-coordinates:       Convert crossover points to assembly coordinates
+# 9. generate-recombined-sequences: Create recombined FASTA files from parent assemblies
+# 10. format-recombined-fastas: Format recombined FASTA files with consistent line widths
 #
 # NOTE: Environment setup is automatic! The orchestrate command will automatically
 #       detect if the working directory and required tools (MLImpute, biokotlin-tools)
@@ -27,11 +35,23 @@ work_dir: "seq_sim_work"
 # If omitted, all configured steps will be executed
 # To skip a step, comment it out with '#' at the beginning of the line
 run_steps:
-  - align_assemblies           # Step 1: Align original assemblies
-  - maf_to_gvcf                # Step 2: Convert alignments to GVCF
-  - downsample_gvcf            # Step 3: Downsample variants
-  - convert_to_fasta           # Step 4: Generate mutated FASTA files
-  - align_mutated_assemblies   # Step 5: Realign mutated sequences
+  # Main Pipeline (Variant Simulation)
+  - align_assemblies               # Step 01: Align original assemblies
+  - maf_to_gvcf                    # Step 02: Convert alignments to GVCF
+  - downsample_gvcf                # Step 03: Downsample variants
+  - convert_to_fasta               # Step 04: Generate mutated FASTA files
+  - align_mutated_assemblies       # Step 05: Realign mutated sequences
+
+  # Recombination Pipeline (Generate Recombinant Genomes)
+  - pick_crossovers                # Step 06: Pick crossover points
+  - create_chain_files             # Step 07: Create coordinate conversion chains
+  - convert_coordinates            # Step 08: Convert coordinates to assembly space
+  - generate_recombined_sequences  # Step 09: Generate recombined sequences
+  - format_recombined_fastas       # Step 10: Format recombined FASTA files
+
+# ============================================================================
+# MAIN PIPELINE CONFIGURATION (Steps 1-5)
+# ============================================================================
 
 # Step 1: Align Assemblies
 # Aligns query assemblies to a reference using AnchorWave and minimap2
@@ -73,6 +93,58 @@ align_mutated_assemblies:
   threads: 1                             # Optional: Number of threads (default: 1)
 
 # ============================================================================
+# RECOMBINATION PIPELINE CONFIGURATION (Steps 6-10)
+# ============================================================================
+
+# Step 6: Pick Crossovers
+# Simulates crossover events to generate recombination breakpoints
+# Uses MLImpute's pick_crossovers.py to simulate synthetic recombinant genomes
+# Generates two populations: landrace (1250 rounds) and two-parent cross (1 round)
+pick_crossovers:
+  assembly_list: "path/to/assembly_list.txt"  # Required: Tab-separated file with assembly paths and names
+                                              # Format: <path><TAB><name> (one per line)
+                                              # Example:
+                                              # /path/to/assembly1.fa<TAB>parent1
+                                              # /path/to/assembly2.fa<TAB>parent2
+
+# Step 7: Create Chain Files
+# Converts MAF alignment files to UCSC chain format for coordinate conversion
+# Automatically uses MAF files from align_assemblies (step 1)
+# Uses maf-convert tool (automatically downloaded if missing)
+create_chain_files:
+  jobs: 8                                # Optional: Number of parallel jobs (default: 8)
+
+# Step 8: Convert Coordinates
+# Converts crossover breakpoints from reference coordinates to assembly coordinates
+# Automatically uses refkey files from pick_crossovers and chain files from create_chain_files
+# Uses CrossMap for coordinate conversion via chain files
+convert_coordinates:
+  assembly_list: "path/to/assembly_list.txt"  # Required: Same assembly list as pick_crossovers
+
+# Step 9: Generate Recombined Sequences
+# Creates recombined FASTA sequences by concatenating segments from parent assemblies
+# Automatically uses founder key files from convert_coordinates
+# Each founder gets its own recombined FASTA file
+generate_recombined_sequences:
+  assembly_list: "path/to/assembly_list.txt"      # Required: Same assembly list as above
+  chromosome_list: "path/to/chromosome_list.txt"  # Required: Text file with chromosome names (one per line)
+                                                  # Example:
+                                                  # chr1
+                                                  # chr2
+                                                  # chr3
+  assembly_dir: "path/to/parent_assemblies/"      # Required: Directory containing parent assembly FASTA files
+                                                  # Files should be named to match assembly_list names
+                                                  # Example: parent1.fa, parent2.fa
+
+# Step 10: Format Recombined Fastas
+# Reformats recombined FASTA files to have consistent line widths using seqkit
+# Automatically uses recombined FASTA files from generate_recombined_sequences
+# Ensures compatibility with downstream tools
+format_recombined_fastas:
+  line_width: 60                         # Optional: Characters per line (default: 60)
+  threads: 8                             # Optional: Number of threads (default: 8)
+
+# ============================================================================
 # Usage Examples:
 # ============================================================================
 #
@@ -80,21 +152,27 @@ align_mutated_assemblies:
 #    ./gradlew run --args="orchestrate --config pipeline_config.yaml"
 #    Note: Environment setup runs automatically if needed on first run!
 #
-# 2. Run only specific steps (comment out steps you don't want):
+# 2. Run only the main pipeline (variant simulation, steps 1-5):
 #    run_steps:
 #      - align_assemblies
 #      - maf_to_gvcf
-#      # - downsample_gvcf          # Commented out - will skip
-#      # - convert_to_fasta         # Commented out - will skip
-#      # - align_mutated_assemblies # Commented out - will skip
+#      - downsample_gvcf
+#      - convert_to_fasta
+#      - align_mutated_assemblies
+#      # Comment out recombination steps
 #
-# 3. Rerun only the last step (requires previous outputs):
+# 3. Run only the recombination pipeline (steps 1, 6-10):
 #    run_steps:
-#      # - align_assemblies
-#      # - maf_to_gvcf
+#      - align_assemblies          # Required for MAF files
+#      # - maf_to_gvcf              # Skip GVCF steps
 #      # - downsample_gvcf
 #      # - convert_to_fasta
-#      - align_mutated_assemblies   # Only this will run
+#      # - align_mutated_assemblies
+#      - pick_crossovers
+#      - create_chain_files
+#      - convert_coordinates
+#      - generate_recombined_sequences
+#      - format_recombined_fastas
 #
 # 4. Run steps 1-2-4-5 (skip downsampling):
 #    run_steps:
@@ -103,5 +181,38 @@ align_mutated_assemblies:
 #      # - downsample_gvcf          # Commented out
 #      - convert_to_fasta           # Will use maf_to_gvcf outputs
 #      - align_mutated_assemblies
+#
+# 5. Rerun only format step (requires previous outputs):
+#    run_steps:
+#      # Comment out all previous steps
+#      - format_recombined_fastas   # Only this will run
+#
+# ============================================================================
+# IMPORTANT NOTES:
+# ============================================================================
+#
+# Assembly List Format:
+# - Tab-separated file with two columns: path and name
+# - Must have an EVEN number of assemblies (for parent pairing)
+# - Example:
+#   /data/assemblies/B73.fa<TAB>B73
+#   /data/assemblies/Mo17.fa<TAB>Mo17
+#   /data/assemblies/W22.fa<TAB>W22
+#   /data/assemblies/PH207.fa<TAB>PH207
+#
+# Chromosome List Format:
+# - Plain text file with one chromosome name per line
+# - Names should match chromosome names in assemblies
+# - Example:
+#   chr1
+#   chr2
+#   chr3
+#
+# Recombination Pipeline Dependencies:
+# - Step 6 (pick_crossovers) requires: ref_fasta from step 1
+# - Step 7 (create_chain_files) requires: MAF files from step 1
+# - Step 8 (convert_coordinates) requires: outputs from steps 6 and 7
+# - Step 9 (generate_recombined_sequences) requires: output from step 8
+# - Step 10 (format_recombined_fastas) requires: output from step 9
 #
 # ============================================================================
