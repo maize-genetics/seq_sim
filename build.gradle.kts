@@ -1,5 +1,7 @@
 plugins {
     kotlin("jvm") version "2.2.20"
+    kotlin("multiplatform") version "2.2.20" apply false
+    kotlin("plugin.serialization") version "2.2.20" apply false
     application
 }
 
@@ -8,6 +10,13 @@ version = "0.1"
 
 repositories {
     mavenCentral()
+}
+
+// Configure repositories for all subprojects
+subprojects {
+    repositories {
+        mavenCentral()
+    }
 }
 
 dependencies {

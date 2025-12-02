@@ -1,0 +1,31 @@
+# Pipeline Configuration for seq_sim orchestrate command
+
+work_dir: "seq_sim_work"
+
+run_steps:
+  - align_assemblies
+  - maf_to_gvcf
+  - downsample_gvcf
+  - convert_to_fasta
+  - align_mutated_assemblies
+
+align_assemblies:
+  ref_gff: ""
+  ref_fasta: ""
+  query_fasta: ""
+  threads: 2
+
+maf_to_gvcf:
+
+downsample_gvcf:
+  rates: "0.01,0.05,0.1,0.15,0.2"
+  keep_ref: true
+  min_ref_block_size: 20
+
+convert_to_fasta:
+  missing_records_as: "asRef"
+  missing_genotype_as: "asN"
+
+align_mutated_assemblies:
+  threads: 1
+

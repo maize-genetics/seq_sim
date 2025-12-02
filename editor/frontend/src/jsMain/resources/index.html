@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pipeline Configuration Editor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        html, body, #root {
+            height: 100%;
+            width: 100%;
+        }
+        body {
+            font-family: 'Roboto', -apple-system, BlinkMacSystemFont, sans-serif;
+            /* Material 3 Light Theme - Surface */
+            background: #FEF7FF;
+            color: #1D1B20;
+        }
+        /* Material 3 CSS Variables */
+        :root {
+            /* Primary */
+            --md-sys-color-primary: #6750A4;
+            --md-sys-color-on-primary: #FFFFFF;
+            --md-sys-color-primary-container: #EADDFF;
+            --md-sys-color-on-primary-container: #21005D;
+            /* Secondary */
+            --md-sys-color-secondary: #625B71;
+            --md-sys-color-on-secondary: #FFFFFF;
+            --md-sys-color-secondary-container: #E8DEF8;
+            --md-sys-color-on-secondary-container: #1D192B;
+            /* Tertiary */
+            --md-sys-color-tertiary: #7D5260;
+            --md-sys-color-on-tertiary: #FFFFFF;
+            --md-sys-color-tertiary-container: #FFD8E4;
+            --md-sys-color-on-tertiary-container: #31111D;
+            /* Error */
+            --md-sys-color-error: #B3261E;
+            --md-sys-color-on-error: #FFFFFF;
+            --md-sys-color-error-container: #F9DEDC;
+            --md-sys-color-on-error-container: #410E0B;
+            /* Surface */
+            --md-sys-color-surface: #FEF7FF;
+            --md-sys-color-on-surface: #1D1B20;
+            --md-sys-color-surface-variant: #E7E0EC;
+            --md-sys-color-on-surface-variant: #49454F;
+            /* Outline */
+            --md-sys-color-outline: #79747E;
+            --md-sys-color-outline-variant: #CAC4D0;
+            /* Inverse */
+            --md-sys-color-inverse-surface: #322F35;
+            --md-sys-color-inverse-on-surface: #F5EFF7;
+            --md-sys-color-inverse-primary: #D0BCFF;
+            /* Shadow */
+            --md-sys-color-shadow: #000000;
+            /* Surface Tint */
+            --md-sys-color-surface-tint: #6750A4;
+            /* Success (custom) */
+            --md-sys-color-success: #386A1F;
+            --md-sys-color-success-container: #B8F397;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    <script src="frontend.js"></script>
+</body>
+</html>
