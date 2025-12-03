@@ -105,6 +105,31 @@ class SetupEnvironment : CliktCommand(name = "setup-environment") {
             }
         }
 
+        // Download and extract PHGv2 latest release
+        val phgv2Dir = srcDir.resolve(Constants.PHGV2_DIR).toFile()
+
+        if (phgv2Dir.exists()) {
+            logger.info("PHGv2 directory already exists: $phgv2Dir")
+        } else {
+            if (!FileDownloader.downloadLatestGitHubReleaseTar(Constants.PHGV2_API_URL, srcDir, logger)) {
+                exitProcess(1)
+            }
+
+            // Find extracted directory and rename to standard name
+            val extractedDir = srcDir.toFile().listFiles { file ->
+                file.isDirectory && file.name.startsWith("phg") && file.name != Constants.PHGV2_DIR
+            }?.firstOrNull()
+
+            if (extractedDir != null) {
+                logger.info("Renaming ${extractedDir.name} to ${Constants.PHGV2_DIR}")
+                if (!extractedDir.renameTo(phgv2Dir)) {
+                    logger.warn("Failed to rename PHGv2 directory, will use extracted name: ${extractedDir.name}")
+                }
+            } else {
+                logger.warn("Could not find extracted PHGv2 directory")
+            }
+        }
+
         logger.info("Environment setup completed successfully")
         logger.info("To activate the environment, run: pixi shell")
     }
