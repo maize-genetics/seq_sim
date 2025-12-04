@@ -52,7 +52,7 @@ object LoggingUtils {
 
         val appender = FileAppender.newBuilder()
             .withFileName(logFile.absolutePath)
-            .withAppend(true)
+            .withAppend(false)
             .withLocking(false)
             .setName(appenderName)
             .setLayout(layout)

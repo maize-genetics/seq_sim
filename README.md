@@ -7,6 +7,7 @@ Sequence simulator pipeline and orchestrator for MLImpute - A comprehensive bioi
 - Java 21
 - Gradle (included via wrapper)
 - [pixi](https://pixi.sh/) for managing the virtual environment
+- [conda](https://anaconda.org) for managing PHGv2's virtual environment
 
 ## Quick Start
 
