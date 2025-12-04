@@ -25,6 +25,7 @@
 # PS4G CREATION (PHG Indexing for Genotype Imputation):
 # 11. rope-bwt-chr-index:       Create PHGv2 ropebwt3 index from recombined FASTA files
 # 12. ropebwt-mem:              Align FASTQ reads to ropebwt3 index and generate BED files
+# 13. build-spline-knots:       Build spline knots from hVCF or gVCF files for imputation
 #
 # NOTE: Environment setup is automatic! The orchestrate command will automatically
 #       detect if the working directory and required tools (MLImpute, biokotlin-tools, PHGv2)
@@ -56,6 +57,7 @@ run_steps:
   # PS4G Creation (PHG Indexing for Genotype Imputation)
   - rope_bwt_chr_index             # Step 11: Create PHGv2 ropebwt3 index
   - ropebwt_mem                    # Step 12: Align FASTQ reads to index
+  - build_spline_knots             # Step 13: Build spline knots from VCF files
 
 # ============================================================================
 # MAIN PIPELINE CONFIGURATION (Steps 1-5)
@@ -172,7 +174,7 @@ format_recombined_fastas:
   # output: "/custom/formatted/output/"  # Optional: Custom output directory
 
 # ============================================================================
-# PS4G CREATION CONFIGURATION (Steps 11-12)
+# PS4G CREATION CONFIGURATION (Steps 11-13)
 # ============================================================================
 
 # Step 11: PHG Rope-BWT-Chr Index
@@ -203,6 +205,19 @@ ropebwt_mem:
   # l_value: 100                         # Optional: The -l parameter (auto-calculated as 2 × FASTA count from step 11)
   # output: "/custom/bed/output/"        # Optional: Custom output directory
 
+# Step 13: Build Spline Knots
+# Builds spline knots from hVCF or gVCF files for PHGv2 machine learning imputation
+# This is an independent step that does not depend on previous pipeline outputs
+# Used to create spline representations for downstream imputation tasks
+build_spline_knots:
+  vcf_dir: "path/to/vcf_files/"          # Required: Directory containing hVCF or gVCF files
+  vcf_type: "hvcf"                       # Optional: Type of VCFs (hvcf or gvcf, default: hvcf)
+  min_indel_length: 10                   # Optional: Min indel length for gVCF (default: 10)
+  num_bps_per_knot: 50000                # Optional: Max base pairs per knot (default: 50000)
+  random_seed: 12345                     # Optional: Random seed for reproducibility (default: 12345)
+  # contig_list: "chr1,chr2,chr3"        # Optional: Comma-separated chromosome list (default: all)
+  # output: "/custom/spline/output/"     # Optional: Custom output directory (default: work_dir/output/13_spline_knots_results)
+
 # ============================================================================
 # Usage Examples:
 # ============================================================================
@@ -220,7 +235,7 @@ ropebwt_mem:
 #      - align_mutated_assemblies
 #      # Comment out recombination steps
 #
-# 3. Run only the recombination pipeline with PS4G creation (steps 1, 6-12):
+# 3. Run only the recombination pipeline with PS4G creation (steps 1, 6-13):
 #    run_steps:
 #      - align_assemblies          # Required for MAF files
 #      # - maf_to_gvcf             # Skip GVCF steps
@@ -234,6 +249,7 @@ ropebwt_mem:
 #      - format_recombined_fastas
 #      - rope_bwt_chr_index        # Create PHG index
 #      - ropebwt_mem               # Align FASTQ reads
+#      - build_spline_knots        # Build spline knots
 #
 # 4. Run steps 1-2-4-5 (skip downsampling):
 #    run_steps:
@@ -298,6 +314,23 @@ ropebwt_mem:
 #      p_value: 200
 #      threads: 40
 #      output: "/custom/bed/output/"
+#
+# 12. Run build-spline-knots as an independent step:
+#    run_steps:
+#      - build_spline_knots
+#    build_spline_knots:
+#      vcf_dir: "/path/to/vcf_files/"
+#      vcf_type: "gvcf"
+#      num_bps_per_knot: 100000
+#
+# 13. Run build-spline-knots with specific chromosomes:
+#    run_steps:
+#      - build_spline_knots
+#    build_spline_knots:
+#      vcf_dir: "/path/to/vcf_files/"
+#      vcf_type: "hvcf"
+#      contig_list: "chr1,chr2,chr3,chr4,chr5"
+#      output: "/custom/spline/output/"
 #
 # ============================================================================
 # IMPORTANT NOTES:

@@ -5,6 +5,7 @@ import com.github.ajalt.clikt.core.main
 import com.github.ajalt.clikt.core.subcommands
 import net.maizegenetics.commands.AlignAssemblies
 import net.maizegenetics.commands.AlignMutatedAssemblies
+import net.maizegenetics.commands.BuildSplineKnots
 import net.maizegenetics.commands.ConvertCoordinates
 import net.maizegenetics.commands.ConvertToFasta
 import net.maizegenetics.commands.CreateChainFiles
@@ -39,6 +40,7 @@ fun main(args: Array<String>) = SeqSim()
         FormatRecombinedFastas(),
         RopeBwtChrIndex(),
         RopeBwtMem(),
+        BuildSplineKnots(),
         ExtractChromIds()
     )
     .main(args)

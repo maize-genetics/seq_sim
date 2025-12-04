@@ -272,7 +272,6 @@ class RopeBwtChrIndex : CliktCommand(name = "rope-bwt-chr-index") {
         // Run PHG rope-bwt-chr-index command
         logger.info("Running PHG rope-bwt-chr-index...")
         val exitCode = ProcessRunner.runCommand(
-            "pixi", "run",
             phgBinary.toString(),
             "rope-bwt-chr-index",
             "--keyfile", actualKeyfile.toString(),
