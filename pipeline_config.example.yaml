@@ -1,35 +1,35 @@
 # Example Pipeline Configuration for seq_sim orchestrate command
 # This file demonstrates all available configuration options
 
-# NOTE: Only edit values, please!
-
 # ============================================================================
 # seqSim v0.1 PIPELINE OVERVIEW
 # ============================================================================
 # This pipeline consists of two main workflows:
 #
 # MAIN PIPELINE (Variant Simulation):
-# 1. align-assemblies:          Align query assemblies to reference using AnchorWave
-# 2. maf-to-gvcf:               Convert MAF alignment files to compressed GVCF format
-# 3. downsample-gvcf:           Downsample variants at specified rates per chromosome
-# 4. convert-to-fasta:          Generate FASTA files from downsampled variants
-# 5. align-mutated-assemblies:  Realign mutated FASTA files back to reference
+# 01. align-assemblies:              Align query assemblies to reference using AnchorWave
+# 02. maf-to-gvcf:                   Convert MAF alignment files to compressed GVCF format
+# 03. downsample-gvcf:               Downsample variants at specified rates per chromosome
+# 04. convert-to-fasta:              Generate FASTA files from downsampled variants
+# 05. align-mutated-assemblies:      Realign mutated FASTA files back to reference
 #
 # RECOMBINATION PIPELINE (Generate Recombinant Genomes):
-# 6. pick-crossovers:           Simulate crossover events in reference coordinates
-# 7. create-chain-files:        Convert MAF files to chain format for coordinate conversion
-# 8. convert-coordinates:       Convert crossover points to assembly coordinates
-# 9. generate-recombined-sequences: Create recombined FASTA files from parent assemblies
-# 10. format-recombined-fastas: Format recombined FASTA files with consistent line widths
+# 06. pick-crossovers:               Simulate crossover events in reference coordinates
+# 07. create-chain-files:            Convert MAF files to chain format for coordinate conversion
+# 08. convert-coordinates:           Convert crossover points to assembly coordinates
+# 09. generate-recombined-sequences: Create recombined FASTA files from parent assemblies
+# 10. format-recombined-fastas:      Format recombined FASTA files with consistent line widths
 #
 # PS4G CREATION (PHG Indexing for Genotype Imputation):
-# 11. rope-bwt-chr-index:       Create PHGv2 ropebwt3 index from recombined FASTA files
-# 12. ropebwt-mem:              Align FASTQ reads to ropebwt3 index and generate BED files
-# 13. build-spline-knots:       Build spline knots from hVCF or gVCF files for imputation
+# 11. rope-bwt-chr-index:            Create PHGv2 ropebwt3 index from recombined FASTA files
+# 12. ropebwt-mem:                   Align FASTQ reads to ropebwt3 index and generate BED files
+# 13. build-spline-knots:            Build spline knots from hVCF or gVCF files for imputation
 #
-# NOTE: Environment setup is automatic! The orchestrate command will automatically
+# NOTE (1): Environment setup is automatic! The orchestrate command will automatically
 #       detect if the working directory and required tools (MLImpute, biokotlin-tools, PHGv2)
 #       are missing and run setup-environment for you. No manual setup required!
+#
+# NOTE (2): Only edit values in fields, please!
 # ============================================================================
 
 # Optional: Working directory for the pipeline (defaults to "seq_sim_work")
