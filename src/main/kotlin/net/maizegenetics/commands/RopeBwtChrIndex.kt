@@ -47,9 +47,8 @@ class RopeBwtChrIndex : CliktCommand(name = "rope-bwt-chr-index") {
 
     private val outputDirOption by option(
         "--output-dir", "-o",
-        help = "Output directory for index files"
+        help = "Output directory for index files (default: work_dir/output/11_rope_bwt_index_results)"
     ).path(mustExist = false, canBeFile = false, canBeDir = true)
-        .required()
 
     private val indexFilePrefix by option(
         "--index-file-prefix", "-p",
@@ -245,16 +244,18 @@ class RopeBwtChrIndex : CliktCommand(name = "rope-bwt-chr-index") {
 
         logger.info("Starting PHG rope-bwt-chr indexing")
         logger.info("Working directory: $workDir")
-        logger.info("Output directory: $outputDirOption")
+
+        // Create output directory (use custom or default)
+        val outputDir = outputDirOption ?: workDir.resolve(OUTPUT_DIR).resolve(ROPE_BWT_RESULTS_DIR)
+        logger.info("Output directory: $outputDir")
         logger.info("Index file prefix: $indexFilePrefix")
         logger.info("Threads: $threads")
         logger.info("Delete FMR index: $deleteFmrIndex")
 
-        // Create output directory
-        if (!outputDirOption.exists()) {
-            logger.debug("Creating output directory: $outputDirOption")
-            outputDirOption.createDirectories()
-            logger.info("Output directory created: $outputDirOption")
+        if (!outputDir.exists()) {
+            logger.debug("Creating output directory: $outputDir")
+            outputDir.createDirectories()
+            logger.info("Output directory created: $outputDir")
         }
 
         // Determine keyfile to use
@@ -265,7 +266,7 @@ class RopeBwtChrIndex : CliktCommand(name = "rope-bwt-chr-index") {
         } else {
             val fastaFiles = collectFastaFiles()
             logger.info("Collected ${fastaFiles.size} FASTA file(s)")
-            generateKeyfile(fastaFiles, outputDirOption)
+            generateKeyfile(fastaFiles, outputDir)
         }
 
         // Run PHG rope-bwt-chr-index command
@@ -275,7 +276,7 @@ class RopeBwtChrIndex : CliktCommand(name = "rope-bwt-chr-index") {
             phgBinary.toString(),
             "rope-bwt-chr-index",
             "--keyfile", actualKeyfile.toString(),
-            "--output-dir", outputDirOption.toString(),
+            "--output-dir", outputDir.toString(),
             "--index-file-prefix", indexFilePrefix,
             "--threads", threads.toString(),
             "--delete-fmr-index", deleteFmrIndex.toString(),
@@ -286,7 +287,7 @@ class RopeBwtChrIndex : CliktCommand(name = "rope-bwt-chr-index") {
         if (exitCode == 0) {
             logger.info("PHG rope-bwt-chr indexing completed successfully")
             logger.info("Index files created with prefix: $indexFilePrefix")
-            logger.info("Output directory: $outputDirOption")
+            logger.info("Output directory: $outputDir")
         } else {
             logger.error("PHG rope-bwt-chr indexing failed with exit code $exitCode")
             exitProcess(1)

@@ -16,6 +16,7 @@ import net.maizegenetics.commands.MafToGvcf
 import net.maizegenetics.commands.Orchestrate
 import net.maizegenetics.commands.PickCrossovers
 import net.maizegenetics.commands.RopeBwtChrIndex
+import net.maizegenetics.commands.RopeBwtMem
 import net.maizegenetics.commands.SetupEnvironment
 
 class SeqSim : CliktCommand() {
@@ -37,6 +38,7 @@ fun main(args: Array<String>) = SeqSim()
         GenerateRecombinedSequences(),
         FormatRecombinedFastas(),
         RopeBwtChrIndex(),
+        RopeBwtMem(),
         ExtractChromIds()
     )
     .main(args)

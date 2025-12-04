@@ -13,6 +13,7 @@ object Constants {
     val FASTA_EXTENSIONS = setOf("fa", "fasta", "fna")
     val MAF_EXTENSIONS = setOf("maf")
     val GVCF_EXTENSIONS = setOf("gvcf", "gvcf.gz", "g.vcf", "g.vcf.gz")
+    val FASTQ_EXTENSIONS = setOf("fq", "fastq", "fq.gz", "fastq.gz")
     const val TEXT_FILE_EXTENSION = "txt"
 
     // Download URLs
