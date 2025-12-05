@@ -6,8 +6,10 @@ import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.types.int
 import com.github.ajalt.clikt.parameters.types.path
 import net.maizegenetics.Constants
+import net.maizegenetics.utils.FileUtils
 import net.maizegenetics.utils.LoggingUtils
 import net.maizegenetics.utils.ProcessRunner
+import net.maizegenetics.utils.ValidationUtils
 import org.apache.logging.log4j.LogManager
 import org.apache.logging.log4j.Logger
 import java.nio.file.Path
@@ -65,75 +67,12 @@ class RopeBwtMem : CliktCommand(name = "ropebwt-mem") {
     ).path(mustExist = false, canBeFile = false, canBeDir = true)
 
     private fun collectFastqFiles(): List<Path> {
-        val fastqFiles = mutableListOf<Path>()
-
-        if (fastqInput == null) {
-            logger.error("FASTQ input is required. Please specify --fastq-input")
-            exitProcess(1)
-        }
-
-        val actualInput = fastqInput!!
-
-        if (!actualInput.exists()) {
-            logger.error("Input path not found: $actualInput")
-            exitProcess(1)
-        }
-
-        when {
-            actualInput.isDirectory() -> {
-                logger.info("Collecting FASTQ files from directory: $actualInput")
-                actualInput.listDirectoryEntries().forEach { file ->
-                    if (file.isRegularFile() && isFastqFile(file)) {
-                        fastqFiles.add(file)
-                    }
-                }
-                if (fastqFiles.isEmpty()) {
-                    logger.error("No FASTQ files found in directory: $actualInput")
-                    exitProcess(1)
-                }
-                logger.info("Found ${fastqFiles.size} FASTQ file(s) in directory")
-            }
-            actualInput.isRegularFile() -> {
-                if (actualInput.extension == Constants.TEXT_FILE_EXTENSION) {
-                    logger.info("Reading FASTQ file paths from: $actualInput")
-                    actualInput.readLines().forEach { line ->
-                        val trimmedLine = line.trim()
-                        if (trimmedLine.isNotEmpty() && !trimmedLine.startsWith("#")) {
-                            val fastqFile = Path(trimmedLine)
-                            if (fastqFile.exists() && fastqFile.isRegularFile()) {
-                                fastqFiles.add(fastqFile)
-                            } else {
-                                logger.warn("FASTQ file not found or not a file: $trimmedLine")
-                            }
-                        }
-                    }
-                    if (fastqFiles.isEmpty()) {
-                        logger.error("No valid FASTQ files found in list file: $actualInput")
-                        exitProcess(1)
-                    }
-                    logger.info("Found ${fastqFiles.size} FASTQ file(s) in list")
-                } else if (isFastqFile(actualInput)) {
-                    logger.info("Using single FASTQ file: $actualInput")
-                    fastqFiles.add(actualInput)
-                } else {
-                    logger.error("FASTQ file must have .fq, .fastq, .fq.gz, or .fastq.gz extension, or be a .txt file with paths: $actualInput")
-                    exitProcess(1)
-                }
-            }
-            else -> {
-                logger.error("FASTQ input is neither a file nor a directory: $actualInput")
-                exitProcess(1)
-            }
-        }
-
-        return fastqFiles
-    }
-
-    private fun isFastqFile(file: Path): Boolean {
-        val fileName = file.fileName.toString()
-        return Constants.FASTQ_EXTENSIONS.any { ext ->
-            fileName.endsWith(".$ext")
-        }
+        return FileUtils.collectFiles(
+            fastqInput,
+            Constants.FASTQ_EXTENSIONS,
+            "FASTQ",
+            logger
+        )
     }
 
     private fun calculateLValue(): Int {

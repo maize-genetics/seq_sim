@@ -7,8 +7,10 @@ import com.github.ajalt.clikt.parameters.options.required
 import com.github.ajalt.clikt.parameters.types.int
 import com.github.ajalt.clikt.parameters.types.path
 import net.maizegenetics.Constants
+import net.maizegenetics.utils.FileUtils
 import net.maizegenetics.utils.LoggingUtils
 import net.maizegenetics.utils.ProcessRunner
+import net.maizegenetics.utils.ValidationUtils
 import org.apache.logging.log4j.LogManager
 import org.apache.logging.log4j.Logger
 import java.nio.file.Path
@@ -74,27 +76,12 @@ class BuildSplineKnots : CliktCommand(name = "build-spline-knots") {
         .default(DEFAULT_RANDOM_SEED)
 
     override fun run() {
-        // Validate working directory exists
-        if (!workDir.exists()) {
-            logger.error("Working directory does not exist: $workDir")
-            logger.error("Please run 'setup-environment' command first")
-            exitProcess(1)
-        }
+        // Validate working directory and PHG binary
+        val phgBinary = ValidationUtils.validatePhgSetup(workDir, logger)
 
         // Validate VCF type
         if (vcfType !in setOf("hvcf", "gvcf")) {
             logger.error("Invalid VCF type: $vcfType. Must be 'hvcf' or 'gvcf'")
-            exitProcess(1)
-        }
-
-        // Validate PHG is available
-        val phgBinary = workDir.resolve(Constants.SRC_DIR)
-            .resolve(Constants.PHGV2_DIR)
-            .resolve("bin")
-            .resolve("phg")
-        if (!phgBinary.exists()) {
-            logger.error("PHG binary not found: $phgBinary")
-            logger.error("Please run 'setup-environment' command first")
             exitProcess(1)
         }
 
@@ -115,14 +102,9 @@ class BuildSplineKnots : CliktCommand(name = "build-spline-knots") {
         }
 
         // Create output directory (use custom or default)
-        val outputDir = outputDirOption ?: workDir.resolve(OUTPUT_DIR).resolve(SPLINE_KNOTS_RESULTS_DIR)
+        val outputDir = FileUtils.resolveOutputDirectory(workDir, outputDirOption, SPLINE_KNOTS_RESULTS_DIR)
         logger.info("Output directory: $outputDir")
-
-        if (!outputDir.exists()) {
-            logger.debug("Creating output directory: $outputDir")
-            outputDir.createDirectories()
-            logger.info("Output directory created: $outputDir")
-        }
+        FileUtils.createOutputDirectory(outputDir, logger)
 
         // Build command arguments
         val commandArgs = mutableListOf(

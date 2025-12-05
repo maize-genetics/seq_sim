@@ -6,8 +6,10 @@ import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.types.int
 import com.github.ajalt.clikt.parameters.types.path
 import net.maizegenetics.Constants
+import net.maizegenetics.utils.FileUtils
 import net.maizegenetics.utils.LoggingUtils
 import net.maizegenetics.utils.ProcessRunner
+import net.maizegenetics.utils.ValidationUtils
 import org.apache.logging.log4j.LogManager
 import org.apache.logging.log4j.Logger
 import java.nio.file.Path
@@ -61,106 +63,37 @@ class ConvertRopebwt2Ps4g : CliktCommand(name = "convert-ropebwt2ps4g") {
         .default(DEFAULT_MAX_NUM_HITS)
 
     private fun collectBedFiles(): List<Path> {
-        val bedFiles = mutableListOf<Path>()
-
         // If no input specified, try to auto-detect from step 12
         val actualInput = bedInput ?: run {
             logger.info("No BED input specified, attempting to auto-detect from step 12")
-            val step12OutputDir = workDir.resolve(OUTPUT_DIR).resolve("12_ropebwt_mem_results")
-            if (!step12OutputDir.exists()) {
-                logger.error("Cannot auto-detect BED files: step 12 output directory not found at $step12OutputDir")
-                logger.error("Please specify --bed-input or ensure step 12 (ropebwt-mem) has been run")
-                exitProcess(1)
-            }
-            step12OutputDir
+            FileUtils.autoDetectStepOutput(
+                workDir,
+                "12_ropebwt_mem_results",
+                logger,
+                "Please specify --bed-input or ensure step 12 (ropebwt-mem) has been run"
+            )
         }
 
-        if (!actualInput.exists()) {
-            logger.error("Input path not found: $actualInput")
-            exitProcess(1)
-        }
-
-        when {
-            actualInput.isDirectory() -> {
-                logger.info("Collecting BED files from directory: $actualInput")
-                actualInput.listDirectoryEntries().forEach { file ->
-                    if (file.isRegularFile() && file.extension == BED_EXTENSION) {
-                        bedFiles.add(file)
-                    }
-                }
-                if (bedFiles.isEmpty()) {
-                    logger.error("No BED files found in directory: $actualInput")
-                    exitProcess(1)
-                }
-                logger.info("Found ${bedFiles.size} BED file(s) in directory")
-            }
-            actualInput.isRegularFile() -> {
-                if (actualInput.extension == Constants.TEXT_FILE_EXTENSION) {
-                    logger.info("Reading BED file paths from: $actualInput")
-                    actualInput.readLines().forEach { line ->
-                        val trimmedLine = line.trim()
-                        if (trimmedLine.isNotEmpty() && !trimmedLine.startsWith("#")) {
-                            val bedFile = Path(trimmedLine)
-                            if (bedFile.exists() && bedFile.isRegularFile()) {
-                                bedFiles.add(bedFile)
-                            } else {
-                                logger.warn("BED file not found or not a file: $trimmedLine")
-                            }
-                        }
-                    }
-                    if (bedFiles.isEmpty()) {
-                        logger.error("No valid BED files found in list file: $actualInput")
-                        exitProcess(1)
-                    }
-                    logger.info("Found ${bedFiles.size} BED file(s) in list")
-                } else if (actualInput.extension == BED_EXTENSION) {
-                    logger.info("Using single BED file: $actualInput")
-                    bedFiles.add(actualInput)
-                } else {
-                    logger.error("BED file must have .bed extension, or be a .txt file with paths: $actualInput")
-                    exitProcess(1)
-                }
-            }
-            else -> {
-                logger.error("BED input is neither a file nor a directory: $actualInput")
-                exitProcess(1)
-            }
-        }
-
-        return bedFiles
+        return FileUtils.collectFiles(
+            actualInput,
+            setOf(BED_EXTENSION),
+            "BED",
+            logger
+        )
     }
 
     private fun findSplineKnotDir(): Path {
-        val step13OutputDir = workDir.resolve(OUTPUT_DIR).resolve("13_spline_knots_results")
-
-        if (!step13OutputDir.exists()) {
-            logger.error("Cannot auto-detect spline knot directory: step 13 output directory not found at $step13OutputDir")
-            logger.error("Please specify --spline-knot-dir manually or ensure step 13 (build-spline-knots) has been run")
-            exitProcess(1)
-        }
-
-        logger.info("Auto-detected spline knot directory: $step13OutputDir")
-        return step13OutputDir
+        return FileUtils.autoDetectStepOutput(
+            workDir,
+            "13_spline_knots_results",
+            logger,
+            "Please specify --spline-knot-dir manually or ensure step 13 (build-spline-knots) has been run"
+        )
     }
 
     override fun run() {
-        // Validate working directory exists
-        if (!workDir.exists()) {
-            logger.error("Working directory does not exist: $workDir")
-            logger.error("Please run 'setup-environment' command first")
-            exitProcess(1)
-        }
-
-        // Validate PHG is available
-        val phgBinary = workDir.resolve(Constants.SRC_DIR)
-            .resolve(Constants.PHGV2_DIR)
-            .resolve("bin")
-            .resolve("phg")
-        if (!phgBinary.exists()) {
-            logger.error("PHG binary not found: $phgBinary")
-            logger.error("Please run 'setup-environment' command first")
-            exitProcess(1)
-        }
+        // Validate working directory and PHG binary
+        val phgBinary = ValidationUtils.validatePhgSetup(workDir, logger)
 
         // Configure file logging to working directory
         LoggingUtils.setupFileLogging(workDir, LOG_FILE_NAME, logger)
@@ -185,12 +118,8 @@ class ConvertRopebwt2Ps4g : CliktCommand(name = "convert-ropebwt2ps4g") {
         logger.info("Max num hits: $maxNumHits")
 
         // Create output directory (use custom or default)
-        val outputDir = outputDirOption ?: workDir.resolve(OUTPUT_DIR).resolve(CONVERT_RESULTS_DIR)
-        if (!outputDir.exists()) {
-            logger.debug("Creating output directory: $outputDir")
-            outputDir.createDirectories()
-            logger.info("Output directory created: $outputDir")
-        }
+        val outputDir = FileUtils.resolveOutputDirectory(workDir, outputDirOption, CONVERT_RESULTS_DIR)
+        FileUtils.createOutputDirectory(outputDir, logger)
 
         // Process each BED file with PHG convert-ropebwt2ps4g-file
         var successCount = 0
@@ -233,16 +162,13 @@ class ConvertRopebwt2Ps4g : CliktCommand(name = "convert-ropebwt2ps4g") {
         logger.info("PHG convert-ropebwt2ps4g-file completed")
         logger.info("Success: $successCount, Failures: $failureCount")
 
-        if (ps4gFiles.isNotEmpty()) {
-            // Write PS4G file paths to text file
-            val ps4gFilePathsFile = outputDir.resolve(PS4G_FILE_PATHS_FILE)
-            try {
-                ps4gFilePathsFile.writeLines(ps4gFiles.map { it.toString() })
-                logger.info("PS4G file paths written to: $ps4gFilePathsFile")
-            } catch (e: Exception) {
-                logger.error("Failed to write PS4G paths file: ${e.message}", e)
-            }
-        }
+        // Write PS4G file paths to text file
+        FileUtils.writeFilePaths(
+            ps4gFiles,
+            outputDir.resolve(PS4G_FILE_PATHS_FILE),
+            logger,
+            "PS4G file"
+        )
 
         logger.info("Output directory: $outputDir")
 
