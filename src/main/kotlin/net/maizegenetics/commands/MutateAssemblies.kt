@@ -44,12 +44,7 @@ data class SimpleVariant(val refStart: Position, val refEnd: Position,
 
 @OptIn(kotlin.io.path.ExperimentalPathApi::class)
 class MutateAssemblies : CliktCommand(name = "mutate-assemblies") {
-
-
-    private val referenceFasta by option(
-        help = "Reference fasta file"
-    ).path(mustExist = true, canBeFile = true, canBeDir = false)
-        .required()
+    
 
     private val founderGvcf by option(
         help = "Founder GVCF to mutate (.gvcf or .g.vcf.gz)"
@@ -72,13 +67,11 @@ class MutateAssemblies : CliktCommand(name = "mutate-assemblies") {
             outputDir.createDirectories()
         }
 
-        introduceMutations(referenceFasta.toFile(), founderGvcf.toFile(), nonFounderGvcf.toFile(), outputDir.toFile())
+        introduceMutations(founderGvcf.toFile(), nonFounderGvcf.toFile(), outputDir.toFile())
 
     }
 
-    fun introduceMutations(referenceFasta: File, founderGvcf: File, mutationGvcf: File, outputDir: File) {
-        val refSeq = NucSeqIO(referenceFasta.toString()).readAll()
-
+    fun introduceMutations(founderGvcf: File, mutationGvcf: File, outputDir: File) {
         //walk through the two gvcf files
         //From one  pull the mutations left
 
@@ -170,7 +163,8 @@ class MutateAssemblies : CliktCommand(name = "mutate-assemblies") {
             //SNP case, we can just replace it
             founderVariantMap.put(Range.closed(variant.refStart, variant.refEnd), variant)
         }
-        else if(existingVariant.refEnd.position > existingVariant.refStart.position && variant.refAllele.length == 1) {
+        else if( existingVariant.refAllele.length == 1 && existingVariant.altAllele == "<NON_REF>"  //This checks that the existing variant is a refBlock
+            && variant.refAllele.length == 1 && variant.altAllele.length == 1 ) { //This means current variant is a SNP
             //This is a refBlock case that fully covers the new variant
             val splitVariants = splitRefBlock(existingVariant, variant)
 
