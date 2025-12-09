@@ -1,12 +1,13 @@
 package net.maizegenetics.commands
 
-import apple.laf.JRSUIConstants
 import com.google.common.collect.Range
 import com.google.common.collect.RangeMap
 import com.google.common.collect.TreeRangeMap
+import htsjdk.variant.vcf.VCFFileReader
 import net.maizegenetics.net.maizegenetics.commands.MutateAssemblies
 import net.maizegenetics.net.maizegenetics.commands.Position
 import net.maizegenetics.net.maizegenetics.commands.SimpleVariant
+import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -111,7 +112,54 @@ class MutateAssembliesTest {
         assertEquals(SimpleVariant(Position("chr1", 176), Position("chr1", 200), "T", "<NON_REF>"), rightRefBlock)
 
 
+//        //add an indel that is fully contained within an existing indel
+//        val newIndelVariant = SimpleVariant(Position("chr1", 405), Position("chr1", 407), "GGG", "G")
+//        mutateAssemblies.updateOverlappingVariant(founderVariantMap, newIndelVariant)
+//        assertEquals(initialSize, founderVariantMap.asMapOfRanges().size)//Should stay the same size
+//        //The first ref block should be extended
+//        val firstRefBlock = founderVariantMap.get(Position("chr1", 401))
+//        assertEquals(SimpleVariant(Position("chr1", 302), Position("chr1", 404), "T", "<NON_REF>"), firstRefBlock)
+//        //The new indel should be present
+//        val retrievedIndel = founderVariantMap.get(Position("chr1", 405))
+//        assertEquals(newIndelVariant, retrievedIndel)
+//        //The last ref block should be extended
+//        val lastRefBlock = founderVariantMap.get(Position("chr1", 408))
+//        assertEquals(SimpleVariant(Position("chr1", 408), Position("chr1", 500), "G", "<NON_REF>"), lastRefBlock)
+
     }
+
+    @Test
+    fun testWriteMutatedGVCF() {
+        val mutateAssemblies = MutateAssemblies()
+
+        val homeDir = System.getProperty("user.home").replace('\\', '/')
+
+        val outputDir = "$homeDir/temp/seq_sim/mutated_gvcf_test/"
+
+        File(outputDir).mkdirs()
+
+        //need a range map to work with
+        val founderVariantMap = createSimpleFounderMap()
+
+        mutateAssemblies.writeMutatedGVCF(File(outputDir), "testSample", founderVariantMap)
+
+        //load in the GVCF and check to make sure the variants match
+        VCFFileReader(File("${outputDir}testSample_mutated.g.vcf"), false).use { vcfReader ->
+            val variants = vcfReader.iterator().asSequence().toList()
+
+            //should be 7 variants
+            assertEquals(7, variants.size)
+
+            //check a few variants
+            val variant150 = variants.find { it.contig == "chr1" && it.start == 150 }
+            assertEquals("G", variant150!!.genotypes.get(0).alleles[0].displayString)
+
+            val variant301 = variants.find { it.contig == "chr1" && it.start == 301 }
+            assertEquals("C", variant301!!.genotypes.get(0).alleles[0].displayString)
+        }
+
+    }
+
 
     private fun createSimpleFounderMap(): RangeMap<Position, SimpleVariant> {
         val rangeMap = TreeRangeMap.create<Position, SimpleVariant>()
@@ -124,7 +172,8 @@ class MutateAssembliesTest {
         rangeMap.put(Range.closed(Position("chr1", 301), Position("chr1", 301)), SimpleVariant(Position("chr1", 301), Position("chr1", 301), "G", "C"))
         rangeMap.put(Range.closed(Position("chr1", 302), Position("chr1", 400)), SimpleVariant(Position("chr1", 302), Position("chr1", 400), "T", "<NON_REF>"))
 
-
+//        rangeMap.put(Range.closed(Position("chr1",401), Position("chr1",410)), SimpleVariant(Position("chr1",401), Position("chr1",410), "GGGGGGGGGG", "G"))
+//        rangeMap.put(Range.closed(Position("chr1",411), Position("chr1",500)), SimpleVariant(Position("chr1",411), Position("chr1",500), "C", "<NON_REF>"))
         return rangeMap
     }
 }

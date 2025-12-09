@@ -9,8 +9,21 @@ import com.github.ajalt.clikt.parameters.types.path
 import com.google.common.collect.Range
 import com.google.common.collect.RangeMap
 import com.google.common.collect.TreeRangeMap
+import htsjdk.variant.variantcontext.Allele
+import htsjdk.variant.variantcontext.GenotypeBuilder
+import htsjdk.variant.variantcontext.VariantContextBuilder
+import htsjdk.variant.variantcontext.writer.Options
+import htsjdk.variant.variantcontext.writer.VariantContextWriter
+import htsjdk.variant.variantcontext.writer.VariantContextWriterBuilder
 import htsjdk.variant.vcf.VCFFileReader
+import htsjdk.variant.vcf.VCFFormatHeaderLine
+import htsjdk.variant.vcf.VCFHeader
+import htsjdk.variant.vcf.VCFHeaderLine
+import htsjdk.variant.vcf.VCFHeaderLineCount
+import htsjdk.variant.vcf.VCFHeaderLineType
+import htsjdk.variant.vcf.VCFInfoHeaderLine
 import java.io.File
+import java.util.HashSet
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
 
@@ -76,17 +89,20 @@ class MutateAssemblies : CliktCommand(name = "mutate-assemblies") {
         //From one  pull the mutations left
 
         //Loop through the founderGVCF and build a RangeMap of Position to Variant
-        val founderVariantMap = buildFounderVariantMap(founderGvcf)
+        val (sampleName, founderVariantMap) = buildFounderVariantMap(founderGvcf)
 
         addNewVariants(mutationGvcf, founderVariantMap)
+
+        writeMutatedGVCF(outputDir, sampleName, founderVariantMap)
     }
 
-    fun buildFounderVariantMap(founderGvcf: File) : RangeMap<Position, SimpleVariant> {
+    fun buildFounderVariantMap(founderGvcf: File) : Pair<String,RangeMap<Position, SimpleVariant>> {
         //Loop through the founderGVCF and build a RangeMap of Position to Variant
         val variantReader = VCFFileReader(founderGvcf)
 
         val iterator = variantReader.iterator()
 
+        val sampleName = variantReader.header.sampleNamesInOrder.first()
         val rangeMap = TreeRangeMap.create<Position,SimpleVariant>()
 
         while(iterator.hasNext()) {
@@ -104,7 +120,7 @@ class MutateAssemblies : CliktCommand(name = "mutate-assemblies") {
 
         }
 
-        return rangeMap
+        return Pair(sampleName,rangeMap)
     }
 
     fun addNewVariants(mutationGvcf: File, founderVariantMap: RangeMap<Position, SimpleVariant>) {
@@ -175,16 +191,16 @@ class MutateAssemblies : CliktCommand(name = "mutate-assemblies") {
         }
         //We also need to handle a complex edge case where we have an indel overlapping another indel.
     // If the new indel is fully covered we can remove the existing, add potentially 2 refBlocks surrounding
-        //TODO check this logic
-        else if( variant.refStart >= existingVariant.refStart && variant.refEnd <= existingVariant.refEnd ) {
-            //The new variant is fully contained within the existing variant
-            val splitVariants = splitRefBlock(existingVariant, variant)
-
-            founderVariantMap.remove(overlappingEntry.key)
-            for(sv in splitVariants) {
-                founderVariantMap.put(Range.closed(sv.refStart, sv.refEnd), sv)
-            }
-        }
+        //TODO make this work with indel edge cases
+//        else if( variant.refStart >= existingVariant.refStart && variant.refEnd <= existingVariant.refEnd ) {
+//            //The new variant is fully contained within the existing variant
+//            val splitVariants = splitRefBlock(existingVariant, variant)
+//
+//            founderVariantMap.remove(overlappingEntry.key)
+//            for(sv in splitVariants) {
+//                founderVariantMap.put(Range.closed(sv.refStart, sv.refEnd), sv)
+//            }
+//        }
 
 
     }
@@ -222,6 +238,79 @@ class MutateAssemblies : CliktCommand(name = "mutate-assemblies") {
             splitVariants.add(rightVariant)
         }
         return splitVariants
+    }
+
+    fun writeMutatedGVCF(outputDir: File, sampleName: String, founderVariantMap: RangeMap<Position, SimpleVariant>) {
+        val outputGvcfFile = File(outputDir, "${sampleName}_mutated.g.vcf")
+        VariantContextWriterBuilder()
+            .unsetOption(Options.INDEX_ON_THE_FLY)
+            .setOutputFile(outputGvcfFile)
+            .setOutputFileType(VariantContextWriterBuilder.OutputType.VCF)
+            .setOption(Options.ALLOW_MISSING_FIELDS_IN_HEADER)
+            .build().use { writer ->
+
+                writer.writeHeader(createGenericHeader(listOf(sampleName), emptySet()))
+
+                val sortedVariants = founderVariantMap.asMapOfRanges().toList().sortedBy { it.first.lowerEndpoint() }
+
+                for ((range, variant) in sortedVariants) {
+                    val vcBuilder = VariantContextBuilder()
+                    vcBuilder.chr(variant.refStart.contig)
+                    vcBuilder.start(variant.refStart.position.toLong())
+                    vcBuilder.stop(variant.refEnd.position.toLong())
+                    vcBuilder.id(".")
+                    vcBuilder.alleles(
+                        listOf(
+                            Allele.create(variant.refAllele, true),
+                            Allele.create(variant.altAllele, false)
+                        )
+                    )
+                    vcBuilder.attribute("END", variant.refEnd.position)
+                    val genotypeBuilder = GenotypeBuilder(sampleName)
+                    val alleles = if (variant.altAllele == "<NON_REF>") {
+                        listOf(Allele.create(variant.refAllele, true), Allele.create(variant.refAllele, true))
+                    } else {
+                        listOf(Allele.create(variant.altAllele, false), Allele.create(variant.altAllele, false))
+                    }
+                    genotypeBuilder.alleles(
+                        alleles
+                    )
+                    vcBuilder.genotypes(genotypeBuilder.make())
+
+                    writer.add(vcBuilder.make())
+                }
+
+            }
+    }
+
+    fun createGenericHeader(taxaNames: List<String>, altLines:Set<VCFHeaderLine>): VCFHeader {
+        val headerLines = createGenericHeaderLineSet() as MutableSet<VCFHeaderLine>
+        headerLines.addAll(altLines)
+        return VCFHeader(headerLines, taxaNames)
+    }
+
+    fun createGenericHeaderLineSet(): Set<VCFHeaderLine> {
+        val headerLines: MutableSet<VCFHeaderLine> = HashSet()
+        headerLines.add(VCFFormatHeaderLine("AD", 3, VCFHeaderLineType.Integer, "Allelic depths for the ref and alt alleles in the order listed"))
+        headerLines.add(
+            VCFFormatHeaderLine("DP", 1, VCFHeaderLineType.Integer, "Read Depth (only filtered reads used for calling)")
+        )
+        headerLines.add(VCFFormatHeaderLine("GQ", 1, VCFHeaderLineType.Integer, "Genotype Quality"))
+        headerLines.add(VCFFormatHeaderLine("GT", 1, VCFHeaderLineType.String, "Genotype"))
+        headerLines.add(
+            VCFFormatHeaderLine("PL", VCFHeaderLineCount.G, VCFHeaderLineType.Integer, "Normalized, Phred-scaled likelihoods for genotypes as defined in the VCF specification")
+        )
+        headerLines.add(VCFInfoHeaderLine("DP", 1, VCFHeaderLineType.Integer, "Total Depth"))
+        headerLines.add(VCFInfoHeaderLine("NS", 1, VCFHeaderLineType.Integer, "Number of Samples With Data"))
+        headerLines.add(VCFInfoHeaderLine("AF", 3, VCFHeaderLineType.Integer, "Allele Frequency"))
+        headerLines.add(VCFInfoHeaderLine("END", 1, VCFHeaderLineType.Integer, "Stop position of the interval"))
+        // These last 4 are needed for assembly g/hvcfs, but not for reference.  I am keeping them in as header
+        // lines but they will only be added to the data lines if they are present in the VariantContext.
+        headerLines.add(VCFInfoHeaderLine("ASM_Chr", 1, VCFHeaderLineType.String, "Assembly chromosome"))
+        headerLines.add(VCFInfoHeaderLine("ASM_Start", 1, VCFHeaderLineType.Integer, "Assembly start position"))
+        headerLines.add(VCFInfoHeaderLine("ASM_End", 1, VCFHeaderLineType.Integer, "Assembly end position"))
+        headerLines.add(VCFInfoHeaderLine("ASM_Strand", 1, VCFHeaderLineType.String, "Assembly strand"))
+        return headerLines
     }
 
 }
