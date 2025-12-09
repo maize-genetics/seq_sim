@@ -6,8 +6,10 @@ import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.options.required
 import com.github.ajalt.clikt.parameters.types.path
 import net.maizegenetics.Constants
+import net.maizegenetics.utils.FileUtils
 import net.maizegenetics.utils.LoggingUtils
 import net.maizegenetics.utils.ProcessRunner
+import net.maizegenetics.utils.ValidationUtils
 import org.apache.logging.log4j.LogManager
 import org.apache.logging.log4j.Logger
 import java.nio.file.Path
@@ -17,7 +19,6 @@ import kotlin.system.exitProcess
 class PickCrossovers : CliktCommand(name = "pick-crossovers") {
     companion object {
         private const val LOG_FILE_NAME = "06_pick_crossovers.log"
-        private const val OUTPUT_DIR = "output"
         private const val CROSSOVERS_RESULTS_DIR = "06_crossovers_results"
         private const val REFKEY_PATHS_FILE = "refkey_file_paths.txt"
         private const val PYTHON_SCRIPT = "src/python/cross/pick_crossovers.py"
@@ -50,11 +51,7 @@ class PickCrossovers : CliktCommand(name = "pick-crossovers") {
 
     override fun run() {
         // Validate working directory exists
-        if (!workDir.exists()) {
-            logger.error("Working directory does not exist: $workDir")
-            logger.error("Please run 'setup-environment' command first")
-            exitProcess(1)
-        }
+        ValidationUtils.validateWorkingDirectory(workDir, logger)
 
         // Configure file logging to working directory
         LoggingUtils.setupFileLogging(workDir, LOG_FILE_NAME, logger)
@@ -66,11 +63,7 @@ class PickCrossovers : CliktCommand(name = "pick-crossovers") {
 
         // Validate MLImpute directory exists
         val mlimputeDir = workDir.resolve(Constants.SRC_DIR).resolve(Constants.MLIMPUTE_DIR)
-        if (!mlimputeDir.exists()) {
-            logger.error("MLImpute directory not found: $mlimputeDir")
-            logger.error("Please run 'setup-environment' command first")
-            exitProcess(1)
-        }
+        ValidationUtils.validateBinaryExists(mlimputeDir, "MLImpute", logger)
 
         // Validate Python script exists
         val pythonScript = mlimputeDir.resolve(PYTHON_SCRIPT)
@@ -80,12 +73,8 @@ class PickCrossovers : CliktCommand(name = "pick-crossovers") {
         }
 
         // Create output directory (use custom or default)
-        val outputDir = outputDirOption ?: workDir.resolve(OUTPUT_DIR).resolve(CROSSOVERS_RESULTS_DIR)
-        if (!outputDir.exists()) {
-            logger.debug("Creating output directory: $outputDir")
-            outputDir.createDirectories()
-            logger.info("Output directory created: $outputDir")
-        }
+        val outputDir = FileUtils.resolveOutputDirectory(workDir, outputDirOption, CROSSOVERS_RESULTS_DIR)
+        FileUtils.createOutputDirectory(outputDir, logger)
 
         // Run pick_crossovers.py
         logger.info("Running pick_crossovers.py")
@@ -117,13 +106,12 @@ class PickCrossovers : CliktCommand(name = "pick-crossovers") {
             refkeyFiles.forEach { logger.info("  $it") }
 
             // Write refkey file paths to text file
-            val refkeyPathsFile = outputDir.resolve(REFKEY_PATHS_FILE)
-            try {
-                refkeyPathsFile.writeLines(refkeyFiles.map { it.toString() })
-                logger.info("Refkey file paths written to: $refkeyPathsFile")
-            } catch (e: Exception) {
-                logger.error("Failed to write refkey paths file: ${e.message}", e)
-            }
+            FileUtils.writeFilePaths(
+                refkeyFiles,
+                outputDir.resolve(REFKEY_PATHS_FILE),
+                logger,
+                "Refkey file"
+            )
         }
 
         logger.info("Output directory: $outputDir")

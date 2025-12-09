@@ -6,8 +6,10 @@ import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.options.required
 import com.github.ajalt.clikt.parameters.types.path
 import net.maizegenetics.Constants
+import net.maizegenetics.utils.FileUtils
 import net.maizegenetics.utils.LoggingUtils
 import net.maizegenetics.utils.ProcessRunner
+import net.maizegenetics.utils.ValidationUtils
 import org.apache.logging.log4j.LogManager
 import org.apache.logging.log4j.Logger
 import java.nio.file.Path
@@ -17,11 +19,11 @@ import kotlin.system.exitProcess
 class ConvertCoordinates : CliktCommand(name = "convert-coordinates") {
     companion object {
         private const val LOG_FILE_NAME = "08_convert_coordinates.log"
-        private const val OUTPUT_DIR = "output"
         private const val COORDS_RESULTS_DIR = "08_coordinates_results"
         private const val KEY_PATHS_FILE = "key_file_paths.txt"
         private const val FOUNDER_KEY_PATHS_FILE = "founder_key_file_paths.txt"
         private const val PYTHON_SCRIPT = "src/python/cross/convert_coords.py"
+        private const val DEFAULT_REFKEY_DIR = "06_crossovers_results"
     }
 
     private val logger: Logger = LogManager.getLogger(ConvertCoordinates::class.java)
@@ -56,11 +58,7 @@ class ConvertCoordinates : CliktCommand(name = "convert-coordinates") {
 
     override fun run() {
         // Validate working directory exists
-        if (!workDir.exists()) {
-            logger.error("Working directory does not exist: $workDir")
-            logger.error("Please run 'setup-environment' command first")
-            exitProcess(1)
-        }
+        ValidationUtils.validateWorkingDirectory(workDir, logger)
 
         // Configure file logging to working directory
         LoggingUtils.setupFileLogging(workDir, LOG_FILE_NAME, logger)
@@ -72,11 +70,7 @@ class ConvertCoordinates : CliktCommand(name = "convert-coordinates") {
 
         // Validate MLImpute directory exists
         val mlimputeDir = workDir.resolve(Constants.SRC_DIR).resolve(Constants.MLIMPUTE_DIR)
-        if (!mlimputeDir.exists()) {
-            logger.error("MLImpute directory not found: $mlimputeDir")
-            logger.error("Please run 'setup-environment' command first")
-            exitProcess(1)
-        }
+        ValidationUtils.validateBinaryExists(mlimputeDir, "MLImpute", logger)
 
         // Validate Python script exists
         val pythonScript = mlimputeDir.resolve(PYTHON_SCRIPT)
@@ -86,21 +80,17 @@ class ConvertCoordinates : CliktCommand(name = "convert-coordinates") {
         }
 
         // Determine refkey directory
-        val actualRefkeyDir = refkeyDir ?: workDir.resolve(OUTPUT_DIR).resolve("06_crossovers_results")
-        if (!actualRefkeyDir.exists()) {
-            logger.error("Refkey directory not found: $actualRefkeyDir")
-            logger.error("Please run 'pick-crossovers' command first or specify --refkey-dir")
-            exitProcess(1)
-        }
+        val actualRefkeyDir = refkeyDir ?: FileUtils.autoDetectStepOutput(
+            workDir,
+            DEFAULT_REFKEY_DIR,
+            logger,
+            "Please run 'pick-crossovers' command first or specify --refkey-dir"
+        )
         logger.info("Refkey directory: $actualRefkeyDir")
 
         // Create output directory (use custom or default)
-        val outputDir = outputDirOption ?: workDir.resolve(OUTPUT_DIR).resolve(COORDS_RESULTS_DIR)
-        if (!outputDir.exists()) {
-            logger.debug("Creating output directory: $outputDir")
-            outputDir.createDirectories()
-            logger.info("Output directory created: $outputDir")
-        }
+        val outputDir = FileUtils.resolveOutputDirectory(workDir, outputDirOption, COORDS_RESULTS_DIR)
+        FileUtils.createOutputDirectory(outputDir, logger)
 
         // Copy refkey BED files to output directory if they're not already there
         logger.info("Preparing refkey BED files")
@@ -156,13 +146,12 @@ class ConvertCoordinates : CliktCommand(name = "convert-coordinates") {
                 keyFiles.forEach { logger.info("  $it") }
 
                 // Write key file paths to text file
-                val keyPathsFile = outputDir.resolve(KEY_PATHS_FILE)
-                try {
-                    keyPathsFile.writeLines(keyFiles.map { it.toString() })
-                    logger.info("Assembly key file paths written to: $keyPathsFile")
-                } catch (e: Exception) {
-                    logger.error("Failed to write key paths file: ${e.message}", e)
-                }
+                FileUtils.writeFilePaths(
+                    keyFiles,
+                    outputDir.resolve(KEY_PATHS_FILE),
+                    logger,
+                    "Assembly key file"
+                )
             }
 
             if (founderKeyFiles.isNotEmpty()) {
@@ -170,13 +159,12 @@ class ConvertCoordinates : CliktCommand(name = "convert-coordinates") {
                 founderKeyFiles.forEach { logger.info("  $it") }
 
                 // Write founder key file paths to text file
-                val founderKeyPathsFile = outputDir.resolve(FOUNDER_KEY_PATHS_FILE)
-                try {
-                    founderKeyPathsFile.writeLines(founderKeyFiles.map { it.toString() })
-                    logger.info("Founder key file paths written to: $founderKeyPathsFile")
-                } catch (e: Exception) {
-                    logger.error("Failed to write founder key paths file: ${e.message}", e)
-                }
+                FileUtils.writeFilePaths(
+                    founderKeyFiles,
+                    outputDir.resolve(FOUNDER_KEY_PATHS_FILE),
+                    logger,
+                    "Founder key file"
+                )
             }
         }
 

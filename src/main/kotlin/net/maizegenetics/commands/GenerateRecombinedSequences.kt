@@ -6,8 +6,10 @@ import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.options.required
 import com.github.ajalt.clikt.parameters.types.path
 import net.maizegenetics.Constants
+import net.maizegenetics.utils.FileUtils
 import net.maizegenetics.utils.LoggingUtils
 import net.maizegenetics.utils.ProcessRunner
+import net.maizegenetics.utils.ValidationUtils
 import org.apache.logging.log4j.LogManager
 import org.apache.logging.log4j.Logger
 import java.nio.file.Path
@@ -17,11 +19,11 @@ import kotlin.system.exitProcess
 class GenerateRecombinedSequences : CliktCommand(name = "generate-recombined-sequences") {
     companion object {
         private const val LOG_FILE_NAME = "09_generate_recombined_sequences.log"
-        private const val OUTPUT_DIR = "output"
         private const val RECOMBINED_RESULTS_DIR = "09_recombined_sequences"
         private const val RECOMBINED_FASTAS_DIR = "recombinate_fastas"
         private const val FASTA_PATHS_FILE = "recombined_fasta_paths.txt"
         private const val PYTHON_SCRIPT = "src/python/cross/write_fastas.py"
+        private const val DEFAULT_FOUNDER_KEY_DIR = "08_coordinates_results"
     }
 
     private val logger: Logger = LogManager.getLogger(GenerateRecombinedSequences::class.java)
@@ -62,11 +64,7 @@ class GenerateRecombinedSequences : CliktCommand(name = "generate-recombined-seq
 
     override fun run() {
         // Validate working directory exists
-        if (!workDir.exists()) {
-            logger.error("Working directory does not exist: $workDir")
-            logger.error("Please run 'setup-environment' command first")
-            exitProcess(1)
-        }
+        ValidationUtils.validateWorkingDirectory(workDir, logger)
 
         // Configure file logging to working directory
         LoggingUtils.setupFileLogging(workDir, LOG_FILE_NAME, logger)
@@ -79,11 +77,7 @@ class GenerateRecombinedSequences : CliktCommand(name = "generate-recombined-seq
 
         // Validate MLImpute directory exists
         val mlimputeDir = workDir.resolve(Constants.SRC_DIR).resolve(Constants.MLIMPUTE_DIR)
-        if (!mlimputeDir.exists()) {
-            logger.error("MLImpute directory not found: $mlimputeDir")
-            logger.error("Please run 'setup-environment' command first")
-            exitProcess(1)
-        }
+        ValidationUtils.validateBinaryExists(mlimputeDir, "MLImpute", logger)
 
         // Validate Python script exists
         val pythonScript = mlimputeDir.resolve(PYTHON_SCRIPT)
@@ -93,12 +87,12 @@ class GenerateRecombinedSequences : CliktCommand(name = "generate-recombined-seq
         }
 
         // Determine founder key directory
-        val actualFounderKeyDir = founderKeyDir ?: workDir.resolve(OUTPUT_DIR).resolve("08_coordinates_results")
-        if (!actualFounderKeyDir.exists()) {
-            logger.error("Founder key directory not found: $actualFounderKeyDir")
-            logger.error("Please run 'convert-coordinates' command first or specify --founder-key-dir")
-            exitProcess(1)
-        }
+        val actualFounderKeyDir = founderKeyDir ?: FileUtils.autoDetectStepOutput(
+            workDir,
+            DEFAULT_FOUNDER_KEY_DIR,
+            logger,
+            "Please run 'convert-coordinates' command first or specify --founder-key-dir"
+        )
         logger.info("Founder key directory: $actualFounderKeyDir")
 
         // Validate founder key files exist
@@ -112,12 +106,8 @@ class GenerateRecombinedSequences : CliktCommand(name = "generate-recombined-seq
         logger.info("Found ${founderKeyFiles.size} founder key file(s)")
 
         // Create output directory (use custom or default)
-        val outputDir = outputDirOption ?: workDir.resolve(OUTPUT_DIR).resolve(RECOMBINED_RESULTS_DIR)
-        if (!outputDir.exists()) {
-            logger.debug("Creating output directory: $outputDir")
-            outputDir.createDirectories()
-            logger.info("Output directory created: $outputDir")
-        }
+        val outputDir = FileUtils.resolveOutputDirectory(workDir, outputDirOption, RECOMBINED_RESULTS_DIR)
+        FileUtils.createOutputDirectory(outputDir, logger)
 
         // Copy founder key BED files to output directory if they're not already there
         logger.info("Preparing founder key BED files")
@@ -166,13 +156,12 @@ class GenerateRecombinedSequences : CliktCommand(name = "generate-recombined-seq
             recombinedFastas.forEach { logger.info("  $it") }
 
             // Write recombined FASTA file paths to text file
-            val fastaPathsFile = outputDir.resolve(FASTA_PATHS_FILE)
-            try {
-                fastaPathsFile.writeLines(recombinedFastas.map { it.toString() })
-                logger.info("Recombined FASTA file paths written to: $fastaPathsFile")
-            } catch (e: Exception) {
-                logger.error("Failed to write FASTA paths file: ${e.message}", e)
-            }
+            FileUtils.writeFilePaths(
+                recombinedFastas,
+                outputDir.resolve(FASTA_PATHS_FILE),
+                logger,
+                "Recombined FASTA file"
+            )
         }
 
         logger.info("Output directory: $outputDir")

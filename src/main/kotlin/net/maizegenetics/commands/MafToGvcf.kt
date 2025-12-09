@@ -6,8 +6,10 @@ import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.options.required
 import com.github.ajalt.clikt.parameters.types.path
 import net.maizegenetics.Constants
+import net.maizegenetics.utils.FileUtils
 import net.maizegenetics.utils.LoggingUtils
 import net.maizegenetics.utils.ProcessRunner
+import net.maizegenetics.utils.ValidationUtils
 import org.apache.logging.log4j.LogManager
 import org.apache.logging.log4j.Logger
 import java.nio.file.Path
@@ -60,69 +62,17 @@ class MafToGvcf : CliktCommand(name = "maf-to-gvcf") {
     ).path(mustExist = false, canBeFile = false, canBeDir = true)
 
     private fun collectMafFiles(): List<Path> {
-        val mafFiles = mutableListOf<Path>()
-
-        when {
-            mafInput.isDirectory() -> {
-                // Collect all MAF files from directory
-                logger.info("Collecting MAF files from directory: $mafInput")
-                mafInput.listDirectoryEntries().forEach { file ->
-                    if (file.isRegularFile() && file.extension in Constants.MAF_EXTENSIONS) {
-                        mafFiles.add(file)
-                    }
-                }
-                if (mafFiles.isEmpty()) {
-                    logger.error("No MAF files (*.maf) found in directory: $mafInput")
-                    exitProcess(1)
-                }
-                logger.info("Found ${mafFiles.size} MAF file(s) in directory")
-            }
-            mafInput.isRegularFile() -> {
-                // Check if it's a .txt file with paths or a single MAF file
-                if (mafInput.extension == Constants.TEXT_FILE_EXTENSION) {
-                    // It's a text file with paths
-                    logger.info("Reading MAF file paths from: $mafInput")
-                    mafInput.readLines().forEach { line ->
-                        val trimmedLine = line.trim()
-                        if (trimmedLine.isNotEmpty() && !trimmedLine.startsWith("#")) {
-                            val mafFile = Path(trimmedLine)
-                            if (mafFile.exists() && mafFile.isRegularFile()) {
-                                mafFiles.add(mafFile)
-                            } else {
-                                logger.warn("MAF file not found or not a file: $trimmedLine")
-                            }
-                        }
-                    }
-                    if (mafFiles.isEmpty()) {
-                        logger.error("No valid MAF files found in list file: $mafInput")
-                        exitProcess(1)
-                    }
-                    logger.info("Found ${mafFiles.size} MAF file(s) in list")
-                } else if (mafInput.extension in Constants.MAF_EXTENSIONS) {
-                    // It's a single MAF file
-                    logger.info("Using single MAF file: $mafInput")
-                    mafFiles.add(mafInput)
-                } else {
-                    logger.error("MAF file must have a valid MAF extension (.maf) or be a .txt file with paths: $mafInput")
-                    exitProcess(1)
-                }
-            }
-            else -> {
-                logger.error("MAF input is neither a file nor a directory: $mafInput")
-                exitProcess(1)
-            }
-        }
-
-        return mafFiles
+        return FileUtils.collectFiles(
+            mafInput,
+            Constants.MAF_EXTENSIONS,
+            "MAF",
+            logger
+        )
     }
 
     override fun run() {
-        // Validate working directory exists
-        if (!workDir.exists()) {
-            logger.error("Working directory does not exist: $workDir")
-            logger.error("Please run 'setup-environment' command first")
-            exitProcess(1)
-        }
+        // Validate working directory
+        ValidationUtils.validateWorkingDirectory(workDir, logger)
 
         // Configure file logging to working directory
         LoggingUtils.setupFileLogging(workDir, LOG_FILE_NAME, logger)
@@ -141,25 +91,11 @@ class MafToGvcf : CliktCommand(name = "maf-to-gvcf") {
         }
 
         // Create output directory (use custom or default)
-        val outputDir = outputDirOption ?: workDir.resolve(OUTPUT_DIR).resolve(GVCF_RESULTS_DIR)
-        if (!outputDir.exists()) {
-            logger.debug("Creating output directory: $outputDir")
-            outputDir.createDirectories()
-            logger.info("Output directory created: $outputDir")
-        }
+        val outputDir = FileUtils.resolveOutputDirectory(workDir, outputDirOption, GVCF_RESULTS_DIR)
+        FileUtils.createOutputDirectory(outputDir, logger)
 
-        // Construct path to biokotlin-tools executable
-        val biokotlinPath = workDir.resolve(Constants.SRC_DIR)
-            .resolve(Constants.BIOKOTLIN_TOOLS_DIR)
-            .resolve("bin")
-            .resolve(BIOKOTLIN_EXECUTABLE)
-
-        // Validate biokotlin-tools exists
-        if (!biokotlinPath.exists()) {
-            logger.error("biokotlin-tools executable not found at: $biokotlinPath")
-            logger.error("Please run 'setup-environment' command first")
-            exitProcess(1)
-        }
+        // Validate biokotlin-tools
+        val biokotlinPath = ValidationUtils.validateBiokotlinSetup(workDir, logger)
 
         // Process each MAF file
         var successCount = 0
@@ -184,15 +120,12 @@ class MafToGvcf : CliktCommand(name = "maf-to-gvcf") {
         }
 
         // Write GVCF file paths to text file
-        if (gvcfFilePaths.isNotEmpty()) {
-            val gvcfPathsFile = outputDir.resolve(GVCF_PATHS_FILE)
-            try {
-                gvcfPathsFile.writeLines(gvcfFilePaths.map { it.toString() })
-                logger.info("GVCF file paths written to: $gvcfPathsFile")
-            } catch (e: Exception) {
-                logger.error("Failed to write GVCF paths file: ${e.message}", e)
-            }
-        }
+        FileUtils.writeFilePaths(
+            gvcfFilePaths,
+            outputDir.resolve(GVCF_PATHS_FILE),
+            logger,
+            "GVCF file"
+        )
 
         logger.info("=".repeat(80))
         logger.info("All conversions completed!")

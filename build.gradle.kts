@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "net.maizegenetics"
-version = "0.1"
+version = "0.2"
 
 repositories {
     mavenCentral()
@@ -25,6 +25,7 @@ application {
 tasks.test {
     useJUnitPlatform()
 }
+
 kotlin {
     jvmToolchain(21)
 }
