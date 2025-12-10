@@ -66,14 +66,17 @@ data class ConvertToFastaConfig(
 )
 
 data class AlignMutatedAssembliesConfig(
+    val ref_gff: String? = null,      // Optional: Reference GFF (uses align_assemblies.ref_gff if not specified)
+    val ref_fasta: String? = null,    // Optional: Reference FASTA (uses matching ref from step 4 output if not specified)
+    val fasta_input: String? = null,  // Optional: Query FASTA input (uses non-ref files from step 4 if not specified)
     val threads: Int? = null,
-    val input: String? = null,   // Custom FASTA input file/directory
-    val output: String? = null   // Custom output directory
+    val output: String? = null        // Custom output directory
 )
 
 data class PickCrossoversConfig(
     val assembly_list: String,
-    val output: String? = null   // Custom output directory
+    val ref_fasta: String? = null,  // Optional: Reference FASTA (uses align_assemblies.ref_fasta if not specified)
+    val output: String? = null      // Custom output directory
 )
 
 data class CreateChainFilesConfig(
@@ -253,8 +256,10 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
             val alignMutatedAssembliesMap = configMap["align_mutated_assemblies"] as? Map<String, Any>
             val alignMutatedAssemblies = alignMutatedAssembliesMap?.let {
                 AlignMutatedAssembliesConfig(
+                    ref_gff = it["ref_gff"] as? String,
+                    ref_fasta = it["ref_fasta"] as? String,
+                    fasta_input = it["fasta_input"] as? String,
                     threads = it["threads"] as? Int,
-                    input = it["input"] as? String,
                     output = it["output"] as? String
                 )
             }
@@ -265,6 +270,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
             val pickCrossovers = pickCrossoversMap?.let {
                 PickCrossoversConfig(
                     assembly_list = it["assembly_list"] as? String ?: throw IllegalArgumentException("pick_crossovers.assembly_list is required"),
+                    ref_fasta = it["ref_fasta"] as? String,
                     output = it["output"] as? String
                 )
             }
@@ -381,6 +387,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
         var fastaOutputDir: Path? = null
         var refFasta: Path? = null
         var refGff: Path? = null
+        var mutatedRefFasta: Path? = null  // Mutated reference FASTA from step 5
         var refkeyOutputDir: Path? = null
         var chainOutputDir: Path? = null
         var coordinatesOutputDir: Path? = null
@@ -682,16 +689,68 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 logger.info("STEP 5: Align Mutated Assemblies")
                 logger.info("=".repeat(80))
 
-                // Determine input (custom or from previous step)
-                val fastaInput = config.align_mutated_assemblies.input?.let { Path.of(it) } ?: fastaOutputDir
-                if (fastaInput == null) {
-                    throw RuntimeException("Cannot run align-mutated-assemblies: no FASTA input available (specify 'input' in config or run convert-to-fasta first)")
+                // Determine ref_gff (config value or from step 1)
+                val step5RefGff = config.align_mutated_assemblies.ref_gff?.let { Path.of(it) } ?: refGff
+                if (step5RefGff == null) {
+                    throw RuntimeException("Cannot run align-mutated-assemblies: reference GFF not available (specify 'ref_gff' in config or run align_assemblies first)")
                 }
-                if (refFasta == null) {
-                    throw RuntimeException("Cannot run align-mutated-assemblies: reference FASTA not available")
+
+                // Determine ref_fasta and fasta_input from step 4 output
+                // If fastaOutputDir exists, find the reference FASTA (matching original ref name) and query FASTAs
+                var step5RefFasta: Path? = config.align_mutated_assemblies.ref_fasta?.let { Path.of(it) }
+                var step5FastaInput: Path? = config.align_mutated_assemblies.fasta_input?.let { Path.of(it) }
+
+                // If not explicitly specified, try to derive from step 4 output
+                if (step5RefFasta == null || step5FastaInput == null) {
+                    if (fastaOutputDir != null && fastaOutputDir.exists()) {
+                        // Get the reference FASTA filename (without path) to match against step 4 output
+                        val refFastaName = refFasta?.fileName?.toString()?.replace(Regex("\\.(fa|fasta|fna)(\\.gz)?$"), "")
+
+                        if (refFastaName != null) {
+                            // Find all FASTA files in the output directory
+                            val allFastaFiles = fastaOutputDir.toFile().listFiles { file ->
+                                file.isFile && file.name.matches(Regex(".*\\.(fa|fasta|fna)(\\.gz)?$"))
+                            }?.map { it.toPath() } ?: emptyList()
+
+                            // Find the reference FASTA (filename contains the ref name)
+                            val matchingRefFasta = allFastaFiles.find { path ->
+                                path.fileName.toString().contains(refFastaName, ignoreCase = true)
+                            }
+
+                            // Get non-reference FASTAs
+                            val queryFastas = allFastaFiles.filter { path ->
+                                !path.fileName.toString().contains(refFastaName, ignoreCase = true)
+                            }
+
+                            if (step5RefFasta == null && matchingRefFasta != null) {
+                                step5RefFasta = matchingRefFasta
+                                logger.info("Auto-detected reference FASTA from step 4: $step5RefFasta")
+                            }
+
+                            if (step5FastaInput == null && queryFastas.isNotEmpty()) {
+                                // Create a text file listing the query FASTAs
+                                val queryListFile = fastaOutputDir.resolve("query_fastas.txt")
+                                queryListFile.writeText(queryFastas.joinToString("\n") { it.toAbsolutePath().toString() })
+                                step5FastaInput = queryListFile
+                                logger.info("Auto-detected ${queryFastas.size} query FASTA files from step 4")
+                            }
+                        }
+                    }
+
+                    // Fall back to original behavior if auto-detection failed
+                    if (step5RefFasta == null) {
+                        step5RefFasta = refFasta
+                    }
+                    if (step5FastaInput == null) {
+                        step5FastaInput = fastaOutputDir
+                    }
                 }
-                if (refGff == null) {
-                    throw RuntimeException("Cannot run align-mutated-assemblies: reference GFF not available")
+
+                if (step5FastaInput == null) {
+                    throw RuntimeException("Cannot run align-mutated-assemblies: no FASTA input available (specify 'fasta_input' in config or run convert-to-fasta first)")
+                }
+                if (step5RefFasta == null) {
+                    throw RuntimeException("Cannot run align-mutated-assemblies: reference FASTA not available (specify 'ref_fasta' in config or run convert-to-fasta first)")
                 }
 
                 // Determine output directory (custom or default)
@@ -700,9 +759,9 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 val args = buildList {
                     add("align-mutated-assemblies")
                     add("--work-dir=${workDir}")
-                    add("--ref-gff=${refGff}")
-                    add("--ref-fasta=${refFasta}")
-                    add("--fasta-input=${fastaInput}")
+                    add("--ref-gff=${step5RefGff}")
+                    add("--ref-fasta=${step5RefFasta}")
+                    add("--fasta-input=${step5FastaInput}")
                     if (config.align_mutated_assemblies.threads != null) {
                         add("--threads=${config.align_mutated_assemblies.threads}")
                     }
@@ -721,11 +780,33 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                     throw RuntimeException("align-mutated-assemblies failed with exit code $exitCode")
                 }
 
+                // Save the mutated reference FASTA for use in step 6
+                mutatedRefFasta = step5RefFasta
+
                 logger.info("Step 5 completed successfully")
                 logger.info("")
             } else {
                 if (config.align_mutated_assemblies != null) {
                     logger.info("Skipping align-mutated-assemblies (not in run_steps)")
+
+                    // Try to recover mutated ref FASTA from step 5 config or step 4 output
+                    if (config.align_mutated_assemblies.ref_fasta != null) {
+                        mutatedRefFasta = Path.of(config.align_mutated_assemblies.ref_fasta)
+                        logger.info("Using configured mutated reference FASTA: $mutatedRefFasta")
+                    } else if (fastaOutputDir != null && fastaOutputDir.exists()) {
+                        // Try to auto-detect from step 4 output
+                        val refFastaName = refFasta?.fileName?.toString()?.replace(Regex("\\.(fa|fasta|fna)(\\.gz)?$"), "")
+                        if (refFastaName != null) {
+                            val matchingRefFasta = fastaOutputDir.toFile().listFiles { file ->
+                                file.isFile && file.name.matches(Regex(".*\\.(fa|fasta|fna)(\\.gz)?$")) &&
+                                file.name.contains(refFastaName, ignoreCase = true)
+                            }?.firstOrNull()?.toPath()
+                            if (matchingRefFasta != null) {
+                                mutatedRefFasta = matchingRefFasta
+                                logger.info("Auto-detected mutated reference FASTA: $mutatedRefFasta")
+                            }
+                        }
+                    }
                 } else {
                     logger.info("Skipping align-mutated-assemblies (not configured)")
                 }
@@ -738,8 +819,13 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 logger.info("STEP 6: Pick Crossovers")
                 logger.info("=".repeat(80))
 
-                if (refFasta == null) {
-                    throw RuntimeException("Cannot run pick-crossovers: reference FASTA not available")
+                // Use pick_crossovers.ref_fasta if specified, otherwise use mutated ref FASTA from step 5, 
+                // finally fall back to original ref FASTA from step 1
+                val pickCrossoversRefFasta = config.pick_crossovers.ref_fasta?.let { Path.of(it) } 
+                    ?: mutatedRefFasta 
+                    ?: refFasta
+                if (pickCrossoversRefFasta == null) {
+                    throw RuntimeException("Cannot run pick-crossovers: reference FASTA not available (specify 'ref_fasta' in pick_crossovers config, run align_mutated_assemblies, or run align_assemblies first)")
                 }
 
                 // Determine output directory (custom or default)
@@ -748,7 +834,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 val args = buildList {
                     add("pick-crossovers")
                     add("--work-dir=${workDir}")
-                    add("--ref-fasta=${refFasta}")
+                    add("--ref-fasta=${pickCrossoversRefFasta}")
                     add("--assembly-list=${config.pick_crossovers.assembly_list}")
                     if (customOutput != null) {
                         add("--output-dir=${customOutput}")
