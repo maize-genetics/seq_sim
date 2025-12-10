@@ -11,6 +11,7 @@ import com.google.common.collect.RangeMap
 import com.google.common.collect.TreeRangeMap
 import htsjdk.variant.variantcontext.Allele
 import htsjdk.variant.variantcontext.GenotypeBuilder
+import htsjdk.variant.variantcontext.VariantContext
 import htsjdk.variant.variantcontext.VariantContextBuilder
 import htsjdk.variant.variantcontext.writer.Options
 import htsjdk.variant.variantcontext.writer.VariantContextWriter
@@ -131,34 +132,44 @@ class MutateAssemblies : CliktCommand(name = "mutate-assemblies") {
         while(iterator.hasNext()) {
             val vc = iterator.next()
 
-            val refChr = vc.contig
-            val refStart = vc.start
-            val refEnd = vc.end
+            extractVCAndAddToRangeMap(vc, founderVariantMap)
 
-            val refAllele = vc.reference.displayString
-            val altAllele = vc.alternateAlleles.map { it.displayString }.first()
+        }
+    }
 
-            val variantPosition = Position(refChr, refStart)
+    fun extractVCAndAddToRangeMap(
+        vc: VariantContext,
+        founderVariantMap: RangeMap<Position, SimpleVariant>
+    ) {
+        val refChr = vc.contig
+        val refStart = vc.start
+        val refEnd = vc.end
 
-            val currentSimpleVariant = SimpleVariant(Position(refChr, refStart), Position(refChr, refEnd), refAllele, altAllele, true)
+        val refAllele = vc.reference.displayString
+        val altAllele = vc.alternateAlleles.map { it.displayString }.first()
 
-            val overlappingVariantSt = founderVariantMap.get(variantPosition)
-            val overlappingVariantEnd = founderVariantMap.get(Position(refChr, refEnd))
+        val variantPosition = Position(refChr, refStart)
 
-            if(overlappingVariantSt == overlappingVariantEnd) {
-                //skip as it will be tricky/slow to handle
-                continue //TODO figure out a way to handle this well
-            }
+        val currentSimpleVariant =
+            SimpleVariant(Position(refChr, refStart), Position(refChr, refEnd), refAllele, altAllele, true)
 
-            if(overlappingVariantSt == null) {
-                //This is a new variant we can add as it does not overlap with an existing variant
-                founderVariantMap.put(Range.closed(Position(refChr, refStart), Position(refChr, refEnd)), currentSimpleVariant)
-            }
-            else {
-                //we need to split out the existing and add the new variant
-                updateOverlappingVariant(founderVariantMap, currentSimpleVariant)
-            }
+        val overlappingVariantSt = founderVariantMap.get(variantPosition)
+        val overlappingVariantEnd = founderVariantMap.get(Position(refChr, refEnd))
 
+        if (overlappingVariantSt == overlappingVariantEnd) {
+            //skip as it will be tricky/slow to handle
+            return //TODO figure out a way to handle this well
+        }
+
+        if (overlappingVariantSt == null) {
+            //This is a new variant we can add as it does not overlap with an existing variant
+            founderVariantMap.put(
+                Range.closed(Position(refChr, refStart), Position(refChr, refEnd)),
+                currentSimpleVariant
+            )
+        } else {
+            //we need to split out the existing and add the new variant
+            updateOverlappingVariant(founderVariantMap, currentSimpleVariant)
         }
     }
 

@@ -156,6 +156,12 @@ class MutateAssembliesTest {
 
             val variant301 = variants.find { it.contig == "chr1" && it.start == 301 }
             assertEquals("C", variant301!!.genotypes.get(0).alleles[0].displayString)
+
+            //check one of the indels position 201
+            val variant201 = variants.find { it.contig == "chr1" && it.start == 201 }
+            assertEquals("GGGGG", variant201!!.reference.baseString)
+            assertEquals("G", variant201!!.genotypes.get(0).alleles[0].displayString)
+
         }
 
     }
