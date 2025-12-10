@@ -90,7 +90,7 @@ downsample_gvcf:
   ignore_contig: ""                      # Optional: Comma-separated patterns to ignore
   rates: "0.01,0.05,0.1,0.15,0.2"        # Optional: Comma-separated downsampling rates
   seed: 42                               # Optional: Random seed for reproducibility
-  keep_ref: true                         # Optional: Keep reference blocks (default: true)
+  keep_ref: true                         # Optional: Keep reference blocks (true/false, default: true)
   min_ref_block_size: 20                 # Optional: Minimum ref block size (default: 20)
   # input: "/custom/gvcf/directory/"     # Optional: Custom GVCF input directory
   # output: "/custom/downsample/output/" # Optional: Custom output directory
@@ -194,7 +194,7 @@ format_recombined_fastas:
 rope_bwt_chr_index:
   index_file_prefix: "phgIndex"          # Optional: Prefix for index files (default: "phgIndex")
   threads: 20                            # Optional: Number of threads (default: 20)
-  delete_fmr_index: true                 # Optional: Delete .fmr files after conversion (default: true)
+  delete_fmr_index: true                 # Optional: Delete .fmr files after conversion (true/false, default: true)
   # input: "/custom/fasta/input/"        # Optional: Custom FASTA input (file, directory, or text list)
   # output: "/custom/phg_index/"         # Optional: Custom output directory (default: work_dir/output/11_rope_bwt_index_results)
   # keyfile: "/path/to/keyfile.txt"      # Optional: Pre-made keyfile (mutually exclusive with input)

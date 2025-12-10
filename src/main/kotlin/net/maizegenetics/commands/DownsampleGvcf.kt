@@ -5,6 +5,7 @@ import com.github.ajalt.clikt.parameters.options.default
 import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.options.required
+import com.github.ajalt.clikt.parameters.types.boolean
 import com.github.ajalt.clikt.parameters.types.int
 import com.github.ajalt.clikt.parameters.types.path
 import net.maizegenetics.Constants
@@ -61,7 +62,7 @@ class DownsampleGvcf : CliktCommand(name = "downsample-gvcf") {
     private val keepRef by option(
         "--keep-ref",
         help = "Keep reference blocks"
-    ).flag(default = true)
+    ).boolean().default(true)
 
     private val minRefBlockSize by option(
         "--min-ref-block-size",
