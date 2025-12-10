@@ -3,6 +3,8 @@ package net.maizegenetics.commands
 import com.google.common.collect.Range
 import com.google.common.collect.RangeMap
 import com.google.common.collect.TreeRangeMap
+import htsjdk.variant.variantcontext.Allele
+import htsjdk.variant.variantcontext.VariantContextBuilder
 import htsjdk.variant.vcf.VCFFileReader
 import net.maizegenetics.net.maizegenetics.commands.MutateAssemblies
 import net.maizegenetics.net.maizegenetics.commands.Position
@@ -166,6 +168,93 @@ class MutateAssembliesTest {
 
     }
 
+
+    @Test
+    fun testExtractVCAndAddToRangeMap() {
+        val mutateAssemblies = MutateAssemblies()
+
+        //need a range map to work with
+        val founderVariantMap = createSimpleFounderMap()
+
+        val testVariantContextSNPBuilder = VariantContextBuilder()
+            .chr("chr1")
+            .start(150)
+            .stop(150)
+            .alleles(listOf(Allele.create("C", true), Allele.create("A", false))).make()
+
+        mutateAssemblies.extractVCAndAddToRangeMap(testVariantContextSNPBuilder, founderVariantMap)
+
+        //Size should stay the same, the variant should be different
+        assertEquals(7, founderVariantMap.asMapOfRanges().size)
+        val variant150 = founderVariantMap.get(Position("chr1", 150))
+        assertEquals("A", variant150!!.altAllele)
+
+        //Split a ref block with a SNP
+        val testVariantContextSNP2Builder = VariantContextBuilder()
+            .chr("chr1")
+            .start(175)
+            .stop(175)
+            .alleles(listOf(Allele.create("A", true), Allele.create("T", false))).make()
+
+        mutateAssemblies.extractVCAndAddToRangeMap(testVariantContextSNP2Builder, founderVariantMap)
+        //Size should increase by 2, 1 for new SNP and 1 for trailing ref block
+        assertEquals(9, founderVariantMap.asMapOfRanges().size)
+        val variant175 = founderVariantMap.get(Position("chr1", 175))
+        assertEquals("T", variant175!!.altAllele)
+
+
+        //Introduce a RefBlock overlapping a SNP  This should skip
+        val testVariantContextRefBlockBuilder = VariantContextBuilder()
+            .chr("chr1")
+            .start(150)
+            .stop(200)
+            .alleles(listOf(Allele.create("C", true), Allele.create("<NON_REF>", false))).make()
+        mutateAssemblies.extractVCAndAddToRangeMap(testVariantContextRefBlockBuilder, founderVariantMap)
+        //Size should keep same size as we skip introducing a ref blocks
+        assertEquals(9, founderVariantMap.asMapOfRanges().size)
+
+        //add in a completely new variant
+        val testVariantContextNewSNPBuilder = VariantContextBuilder()
+            .chr("chr1")
+            .start(500)
+            .stop(500)
+            .alleles(listOf(Allele.create("A", true), Allele.create("G", false))).make()
+        mutateAssemblies.extractVCAndAddToRangeMap(testVariantContextNewSNPBuilder, founderVariantMap)
+        //Size should increase by 2, 1 for new SNP and 1 for trailing ref block
+        assertEquals(10, founderVariantMap.asMapOfRanges().size)
+        val variant250 = founderVariantMap.get(Position("chr1", 500))
+        assertEquals("G", variant250!!.altAllele)
+
+        //Try to add an overlapping indel
+        val testVariantContextIndelBuilder = VariantContextBuilder()
+            .chr("chr1")
+            .start(201)
+            .stop(203)
+            .alleles(listOf(Allele.create("GGG", true), Allele.create("G", false))).make()
+        mutateAssemblies.extractVCAndAddToRangeMap(testVariantContextIndelBuilder, founderVariantMap)
+        //Size should stay the same
+        assertEquals(10, founderVariantMap.asMapOfRanges().size)
+        val variant201 = founderVariantMap.get(Position("chr1", 201))
+        assertEquals("G", variant201!!.altAllele)
+
+    }
+
+    @Test
+    fun testIsIndel() {
+        val mutateAssemblies = MutateAssemblies()
+
+        val refBlockVariant = SimpleVariant(Position("chr1", 100), Position("chr1", 150), "A", "<NON_REF>")
+        assert(!mutateAssemblies.isIndel(refBlockVariant))
+
+        val snpVariant = SimpleVariant(Position("chr1", 150), Position("chr1", 150), "C", "G")
+        assert(!mutateAssemblies.isIndel(snpVariant))
+
+        val insertionVariant = SimpleVariant(Position("chr1", 200), Position("chr1", 200), "A", "AGG")
+        assert(mutateAssemblies.isIndel(insertionVariant))
+
+        val deletionVariant = SimpleVariant(Position("chr1", 201), Position("chr1", 205), "GGGGG", "G")
+        assert(mutateAssemblies.isIndel(deletionVariant))
+    }
 
     private fun createSimpleFounderMap(): RangeMap<Position, SimpleVariant> {
         val rangeMap = TreeRangeMap.create<Position, SimpleVariant>()

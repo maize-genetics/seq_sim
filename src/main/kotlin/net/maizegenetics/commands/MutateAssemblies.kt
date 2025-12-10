@@ -1,7 +1,5 @@
 package net.maizegenetics.net.maizegenetics.commands
 
-import apple.laf.JRSUIConstants
-import biokotlin.seqIO.NucSeqIO
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.options.required
@@ -14,7 +12,6 @@ import htsjdk.variant.variantcontext.GenotypeBuilder
 import htsjdk.variant.variantcontext.VariantContext
 import htsjdk.variant.variantcontext.VariantContextBuilder
 import htsjdk.variant.variantcontext.writer.Options
-import htsjdk.variant.variantcontext.writer.VariantContextWriter
 import htsjdk.variant.variantcontext.writer.VariantContextWriterBuilder
 import htsjdk.variant.vcf.VCFFileReader
 import htsjdk.variant.vcf.VCFFormatHeaderLine
@@ -153,15 +150,19 @@ class MutateAssemblies : CliktCommand(name = "mutate-assemblies") {
         val currentSimpleVariant =
             SimpleVariant(Position(refChr, refStart), Position(refChr, refEnd), refAllele, altAllele, true)
 
-        val overlappingVariantSt = founderVariantMap.get(variantPosition)
-        val overlappingVariantEnd = founderVariantMap.get(Position(refChr, refEnd))
+        val overlappingVariant = founderVariantMap.get(variantPosition)
 
-        if (overlappingVariantSt == overlappingVariantEnd) {
+        //Skip if refBlock
+        if(currentSimpleVariant.refAllele.length == 1 && currentSimpleVariant.altAllele == "<NON_REF>") {
+            return
+        }
+
+        if (isIndel(currentSimpleVariant) && isIndel(overlappingVariant)) {
             //skip as it will be tricky/slow to handle
             return //TODO figure out a way to handle this well
         }
 
-        if (overlappingVariantSt == null) {
+        if (overlappingVariant == null) {
             //This is a new variant we can add as it does not overlap with an existing variant
             founderVariantMap.put(
                 Range.closed(Position(refChr, refStart), Position(refChr, refEnd)),
@@ -322,6 +323,12 @@ class MutateAssemblies : CliktCommand(name = "mutate-assemblies") {
         headerLines.add(VCFInfoHeaderLine("ASM_End", 1, VCFHeaderLineType.Integer, "Assembly end position"))
         headerLines.add(VCFInfoHeaderLine("ASM_Strand", 1, VCFHeaderLineType.String, "Assembly strand"))
         return headerLines
+    }
+
+    fun isIndel(variant: SimpleVariant?): Boolean {
+        if(variant == null) return false
+        return !((variant.refAllele.length == 1 && variant.altAllele.length == 1) || //SNP
+                (variant.refAllele.length == 1 && variant.altAllele == "<NON_REF>")) //RefBlock
     }
 
 }
