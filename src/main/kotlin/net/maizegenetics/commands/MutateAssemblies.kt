@@ -96,7 +96,7 @@ class MutateAssemblies : CliktCommand(name = "mutate-assemblies") {
 
     fun buildFounderVariantMap(founderGvcf: File) : Pair<String,RangeMap<Position, SimpleVariant>> {
         //Loop through the founderGVCF and build a RangeMap of Position to Variant
-        val variantReader = VCFFileReader(founderGvcf)
+        val variantReader = VCFFileReader(founderGvcf, false)
 
         val iterator = variantReader.iterator()
 
@@ -122,7 +122,7 @@ class MutateAssemblies : CliktCommand(name = "mutate-assemblies") {
     }
 
     fun addNewVariants(mutationGvcf: File, founderVariantMap: RangeMap<Position, SimpleVariant>) {
-        val variantReader = VCFFileReader(mutationGvcf)
+        val variantReader = VCFFileReader(mutationGvcf, false)
 
         val iterator = variantReader.iterator()
 
@@ -130,7 +130,6 @@ class MutateAssemblies : CliktCommand(name = "mutate-assemblies") {
             val vc = iterator.next()
 
             extractVCAndAddToRangeMap(vc, founderVariantMap)
-
         }
     }
 
@@ -192,7 +191,7 @@ class MutateAssemblies : CliktCommand(name = "mutate-assemblies") {
             founderVariantMap.put(Range.closed(variant.refStart, variant.refEnd), variant)
         }
         else if( existingVariant.refAllele.length == 1 && existingVariant.altAllele == "<NON_REF>"  //This checks that the existing variant is a refBlock
-            && variant.refAllele.length == 1 && variant.altAllele.length == 1 ) { //This means current variant is a SNP
+            && variant.refAllele.length == 1 ) { //This means current variant is a SNP or single BP insertion which can be treated like a normal SNP as it only covers 1 ref BP
             //This is a refBlock case that fully covers the new variant
             val splitVariants = splitRefBlock(existingVariant, variant)
 

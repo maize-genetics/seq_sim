@@ -16,6 +16,56 @@ import kotlin.test.assertFailsWith
 
 class MutateAssembliesTest {
 
+    val homeDir = System.getProperty("user.home").replace('\\', '/')
+
+    val outputDir = "$homeDir/temp/seq_sim/mutated_gvcf_test/"
+
+    @Test
+    fun testBuildFounderVariantMap() {
+        val mutateAssemblies = MutateAssemblies()
+
+        val founderVariantMap = createSimpleFounderMap()
+
+        //load back in with
+        val loadedMap = mutateAssemblies.buildFounderVariantMap(File("data/MutateAssemblies/founder.g.vcf"))
+
+        //Should match the original map
+        assertEquals(founderVariantMap.asMapOfRanges().size, loadedMap.second.asMapOfRanges().size)
+        for(entry in founderVariantMap.asMapOfRanges().entries) {
+            val loadedVariant = loadedMap.second.get(entry.key.lowerEndpoint())
+            assertEquals(entry.value, loadedVariant)
+        }
+    }
+
+    @Test
+    fun testAddNewVariants() {
+        val mutateAssemblies = MutateAssemblies()
+
+        val (sampleName,founderVariantMap) = mutateAssemblies.buildFounderVariantMap(File("data/MutateAssemblies/founder.g.vcf"))
+
+        mutateAssemblies.addNewVariants(File("data/MutateAssemblies/nonFounder.g.vcf"), founderVariantMap)
+
+        //This should match the founderMap but we have new variants
+        assertEquals(11, founderVariantMap.asMapOfRanges().size)
+
+        //Here are the three additions:
+        //chr1    125    .	T	A	.	.	END=125	GT	1/1
+        //chr1    175 .  C   TTTT   .   .   END=175 GT  1/1
+        //chr1    500 .  A   T   .   .   END=500 GT  1/1
+        val variant125 = founderVariantMap.get(Position("chr1", 125))
+        assertEquals(SimpleVariant(Position("chr1", 125), Position("chr1",
+    125), "T", "A",true), variant125)
+
+        val variant175 = founderVariantMap.get(Position("chr1", 175))
+        assertEquals(SimpleVariant(Position("chr1", 175), Position("chr1", 175), "C", "TTTT", true), variant175)
+
+        val variant500 = founderVariantMap.get(Position("chr1", 500))
+        assertEquals(SimpleVariant(Position("chr1", 500), Position("chr1", 500), "A", "T", true), variant500)
+
+
+
+    }
+
     @Test
     fun splitRefBlockTest() {
         val mutateAssemblies = MutateAssemblies()
@@ -114,6 +164,7 @@ class MutateAssembliesTest {
         assertEquals(SimpleVariant(Position("chr1", 176), Position("chr1", 200), "T", "<NON_REF>"), rightRefBlock)
 
 
+        //Leaving this in for now as I may want to re-implement this functionality later
 //        //add an indel that is fully contained within an existing indel
 //        val newIndelVariant = SimpleVariant(Position("chr1", 405), Position("chr1", 407), "GGG", "G")
 //        mutateAssemblies.updateOverlappingVariant(founderVariantMap, newIndelVariant)
@@ -134,9 +185,6 @@ class MutateAssembliesTest {
     fun testWriteMutatedGVCF() {
         val mutateAssemblies = MutateAssemblies()
 
-        val homeDir = System.getProperty("user.home").replace('\\', '/')
-
-        val outputDir = "$homeDir/temp/seq_sim/mutated_gvcf_test/"
 
         File(outputDir).mkdirs()
 
@@ -236,6 +284,20 @@ class MutateAssembliesTest {
         assertEquals(10, founderVariantMap.asMapOfRanges().size)
         val variant201 = founderVariantMap.get(Position("chr1", 201))
         assertEquals("G", variant201!!.altAllele)
+
+        //Try to add a snp at an indel... this should not add anything
+        val testVariantContextSNPAtIndelBuilder = VariantContextBuilder()
+            .chr("chr1")
+            .start(202)
+            .stop(202)
+            .alleles(listOf(Allele.create("G", true), Allele.create("A", false))).make()
+        mutateAssemblies.extractVCAndAddToRangeMap(testVariantContextSNPAtIndelBuilder, founderVariantMap)
+        //Size should stay the same
+        assertEquals(10, founderVariantMap.asMapOfRanges().size)
+        val variant202 = founderVariantMap.get(Position("chr1", 202))
+        assertEquals("G", variant202!!.altAllele)
+
+
 
     }
 
