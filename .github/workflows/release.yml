@@ -5,6 +5,9 @@ on:
     branches:
       - main
       - master
+    paths:
+      - 'src/**'
+      - 'build.gradle.kts'
   workflow_dispatch:
 
 permissions:
@@ -13,7 +16,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -39,14 +42,14 @@ jobs:
         run: |
           VERSION="${{ steps.get_version.outputs.version }}"
           CURRENT="${{ steps.get_current_tag.outputs.current_tag }}"
-          
+
           # Check if this version tag already exists
           if git rev-parse "$VERSION" >/dev/null 2>&1; then
             echo "Version $VERSION already released, skipping"
             echo "skip_release=true" >> $GITHUB_OUTPUT
             exit 0
           fi
-          
+
           echo "skip_release=false" >> $GITHUB_OUTPUT
           echo "New version $VERSION will be released"
 
@@ -76,23 +79,22 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           PREVIOUS_TAG="${{ steps.get_current_tag.outputs.current_tag }}"
-          
-          # Get the date of the previous tag, or use epoch if no previous tag
+
+          # Get commits between previous tag and HEAD to find associated PRs
           if [ -n "$PREVIOUS_TAG" ] && [ "$PREVIOUS_TAG" != "v0.0.0" ]; then
-            SINCE_DATE=$(git log -1 --format=%aI "$PREVIOUS_TAG")
+            # Get merge commits since the previous tag
+            MERGE_COMMITS=$(git log "$PREVIOUS_TAG"..HEAD --merges --pretty=format:"%H" 2>/dev/null || echo "")
           else
-            SINCE_DATE="1970-01-01T00:00:00Z"
+            # No previous tag, get all merge commits
+            MERGE_COMMITS=$(git log --merges --pretty=format:"%H" 2>/dev/null || echo "")
           fi
-          
-          # Fetch merged PRs since the previous tag
-          PR_BODIES=$(gh pr list --state merged --search "merged:>=$SINCE_DATE" --json body --jq '.[].body // ""')
-          
+
           # Initialize section collectors
           FEATURES=""
           BUG_FIXES=""
           BREAKING_CHANGES=""
           SUMMARIES=""
-          
+
           # Function to extract section content from PR body
           extract_section() {
             local body="$1"
@@ -107,11 +109,47 @@ jobs:
               in_section && /^- .+/ { print }
             '
           }
-          
-          # Process each PR body
-          while IFS= read -r body; do
+
+          # Fetch all merged PRs as JSON array and save to file
+          gh pr list --state merged --limit 100 --json number,body,mergeCommit > /tmp/prs.json
+
+          # Get PR numbers that were merged since the previous tag
+          PR_NUMBERS=""
+          if [ -n "$MERGE_COMMITS" ]; then
+            for commit in $MERGE_COMMITS; do
+              # Find PR number for this merge commit
+              pr_num=$(jq -r --arg commit "$commit" '.[] | select(.mergeCommit.oid == $commit) | .number' /tmp/prs.json)
+              if [ -n "$pr_num" ]; then
+                PR_NUMBERS="$PR_NUMBERS $pr_num"
+              fi
+            done
+          fi
+
+          # If no PRs found via merge commits, try to get PRs merged since tag date
+          if [ -z "$PR_NUMBERS" ]; then
+            echo "No PRs found via merge commits, trying date-based search..."
+            if [ -n "$PREVIOUS_TAG" ] && [ "$PREVIOUS_TAG" != "v0.0.0" ]; then
+              SINCE_DATE=$(git log -1 --format=%Y-%m-%d "$PREVIOUS_TAG" 2>/dev/null || echo "1970-01-01")
+            else
+              SINCE_DATE="1970-01-01"
+            fi
+            # Get all PR numbers from the JSON file
+            PR_NUMBERS=$(jq -r '.[].number' /tmp/prs.json | tr '\n' ' ')
+          fi
+
+          echo "Processing PRs: $PR_NUMBERS"
+
+          # Process each PR
+          for pr_num in $PR_NUMBERS; do
+            [ -z "$pr_num" ] && continue
+
+            # Extract the body for this PR from the JSON
+            body=$(jq -r --argjson num "$pr_num" '.[] | select(.number == $num) | .body // ""' /tmp/prs.json)
+
             [ -z "$body" ] && continue
-            
+
+            echo "Processing PR #$pr_num"
+
             # Extract Summary (single paragraph after ## Summary)
             summary=$(echo "$body" | awk '
               BEGIN { in_section=0 }
@@ -121,32 +159,41 @@ jobs:
               in_section && /^[^<]/ && !/^$/ { print; exit }
             ')
             [ -n "$summary" ] && SUMMARIES="${SUMMARIES}${summary}"$'\n'
-            
+
             # Extract Features
             features=$(extract_section "$body" "Features")
             [ -n "$features" ] && FEATURES="${FEATURES}${features}"$'\n'
-            
+
             # Extract Bug Fixes
             bugfixes=$(extract_section "$body" "Bug Fixes")
             [ -n "$bugfixes" ] && BUG_FIXES="${BUG_FIXES}${bugfixes}"$'\n'
-            
+
             # Extract Breaking Changes
             breaking=$(extract_section "$body" "Breaking Changes")
             [ -n "$breaking" ] && BREAKING_CHANGES="${BREAKING_CHANGES}${breaking}"$'\n'
-            
-          done <<< "$PR_BODIES"
-          
+
+          done
+
           # Set defaults if empty
           [ -z "$SUMMARIES" ] && SUMMARIES="See individual changes below."
           [ -z "$FEATURES" ] && FEATURES="- None"
           [ -z "$BUG_FIXES" ] && BUG_FIXES="- None"
           [ -z "$BREAKING_CHANGES" ] && BREAKING_CHANGES="- None"
-          
+
           # Write to temp files (handles multiline content)
           echo "$SUMMARIES" > /tmp/summaries.txt
           echo "$FEATURES" > /tmp/features.txt
           echo "$BUG_FIXES" > /tmp/bugfixes.txt
           echo "$BREAKING_CHANGES" > /tmp/breaking.txt
+
+          # Debug output
+          echo "=== Extracted Content ==="
+          echo "Features:"
+          cat /tmp/features.txt
+          echo "Bug Fixes:"
+          cat /tmp/bugfixes.txt
+          echo "Breaking Changes:"
+          cat /tmp/breaking.txt
 
       - name: Generate release notes from template
         if: steps.check_version.outputs.skip_release != 'true'
@@ -154,25 +201,25 @@ jobs:
           VERSION="${{ steps.get_version.outputs.version }}"
           PREVIOUS_TAG="${{ steps.get_current_tag.outputs.current_tag }}"
           REPO="${{ github.repository }}"
-          
+
           # Read extracted PR content
           SUMMARY=$(cat /tmp/summaries.txt)
           FEATURES=$(cat /tmp/features.txt)
           BUG_FIXES=$(cat /tmp/bugfixes.txt)
           BREAKING_CHANGES=$(cat /tmp/breaking.txt)
-          
+
           # Read template
           NOTES=$(cat .github/RELEASE_TEMPLATE.md)
-          
+
           # Substitute variables using sed for multiline content
           echo "$NOTES" | \
             sed "s|\${VERSION}|$VERSION|g" | \
             sed "s|\${REPO}|$REPO|g" | \
             sed "s|\${PREVIOUS_TAG}|$PREVIOUS_TAG|g" > release_notes.md
-          
+
           # Replace section placeholders with content
           sed -i "s|\${SUMMARY}|$SUMMARY|g" release_notes.md
-          
+
           # Use awk for multiline replacements
           awk -v features="$FEATURES" '{gsub(/\${FEATURES}/, features)}1' release_notes.md > tmp && mv tmp release_notes.md
           awk -v bugfixes="$BUG_FIXES" '{gsub(/\${BUG_FIXES}/, bugfixes)}1' release_notes.md > tmp && mv tmp release_notes.md
