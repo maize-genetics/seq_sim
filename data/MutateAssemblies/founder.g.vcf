@@ -1,0 +1,22 @@
+##fileformat=VCFv4.2
+##FORMAT=<ID=AD,Number=3,Type=Integer,Description="Allelic depths for the ref and alt alleles in the order listed">
+##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Read Depth (only filtered reads used for calling)">
+##FORMAT=<ID=GQ,Number=1,Type=Integer,Description="Genotype Quality">
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+##FORMAT=<ID=PL,Number=G,Type=Integer,Description="Normalized, Phred-scaled likelihoods for genotypes as defined in the VCF specification">
+##INFO=<ID=AF,Number=3,Type=Integer,Description="Allele Frequency">
+##INFO=<ID=ASM_Chr,Number=1,Type=String,Description="Assembly chromosome">
+##INFO=<ID=ASM_End,Number=1,Type=Integer,Description="Assembly end position">
+##INFO=<ID=ASM_Start,Number=1,Type=Integer,Description="Assembly start position">
+##INFO=<ID=ASM_Strand,Number=1,Type=String,Description="Assembly strand">
+##INFO=<ID=DP,Number=1,Type=Integer,Description="Total Depth">
+##INFO=<ID=END,Number=1,Type=Integer,Description="Stop position of the interval">
+##INFO=<ID=NS,Number=1,Type=Integer,Description="Number of Samples With Data">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	loadingTest
+chr1	100	.	A	<NON_REF>	.	.	END=150	GT	0/0
+chr1	150	.	C	G	.	.	END=150	GT	1/1
+chr1	151	.	T	<NON_REF>	.	.	END=200	GT	0/0
+chr1	201	.	GGGGG	G	.	.	END=205	GT	1/1
+chr1	206	.	A	<NON_REF>	.	.	END=300	GT	0/0
+chr1	301	.	G	C	.	.	END=301	GT	1/1
+chr1	302	.	T	<NON_REF>	.	.	END=400	GT	0/0
