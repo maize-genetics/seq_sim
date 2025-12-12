@@ -1,6 +1,7 @@
 package net.maizegenetics.utils
 
 import org.apache.logging.log4j.Logger
+import org.yaml.snakeyaml.Yaml
 import java.io.File
 import java.net.URI
 import java.nio.file.Path
@@ -104,6 +105,48 @@ object FileDownloader {
         } finally {
             // Clean up temp file
             tempFile?.deleteIfExists()
+        }
+    }
+
+    /**
+     * Downloads and extracts a tar asset from the latest GitHub release.
+     * @param apiUrl The GitHub API URL (e.g., "https://api.github.com/repos/owner/repo/releases/latest")
+     * @param destDir The destination directory for extraction
+     * @param logger The logger instance
+     * @return true if successful, false otherwise
+     */
+    fun downloadLatestGitHubReleaseTar(apiUrl: String, destDir: Path, logger: Logger): Boolean {
+        return try {
+            logger.info("Fetching latest release info from: $apiUrl")
+            val releaseInfo = URI(apiUrl).toURL().openStream().use { inputStream ->
+                Yaml().load<Map<String, Any>>(inputStream)
+            }
+
+            val assets = releaseInfo["assets"] as? List<*> ?: run {
+                logger.error("Could not find assets in GitHub API response")
+                return false
+            }
+
+            val tarAsset = assets.asSequence()
+                .mapNotNull { it as? Map<*, *> }
+                .firstOrNull { asset ->
+                    val name = asset["name"] as? String
+                    name?.endsWith(".tar") == true || name?.endsWith(".tar.gz") == true
+                } ?: run {
+                logger.error("Could not find .tar asset in GitHub release")
+                return false
+            }
+
+            val downloadUrl = tarAsset["browser_download_url"] as? String ?: run {
+                logger.error("Could not find download URL for tar asset")
+                return false
+            }
+
+            logger.info("Found tar asset: ${tarAsset["name"]}")
+            downloadAndExtractTar(downloadUrl, destDir, logger)
+        } catch (e: Exception) {
+            logger.error("Failed to download latest GitHub release tar from $apiUrl: ${e.message}", e)
+            false
         }
     }
 }

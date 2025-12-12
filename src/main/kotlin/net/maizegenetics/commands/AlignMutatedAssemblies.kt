@@ -7,8 +7,10 @@ import com.github.ajalt.clikt.parameters.options.required
 import com.github.ajalt.clikt.parameters.types.int
 import com.github.ajalt.clikt.parameters.types.path
 import net.maizegenetics.Constants
+import net.maizegenetics.utils.FileUtils
 import net.maizegenetics.utils.LoggingUtils
 import net.maizegenetics.utils.ProcessRunner
+import net.maizegenetics.utils.ValidationUtils
 import org.apache.logging.log4j.LogManager
 import org.apache.logging.log4j.Logger
 import java.nio.file.Path
@@ -18,7 +20,6 @@ import kotlin.system.exitProcess
 class AlignMutatedAssemblies : CliktCommand(name = "align-mutated-assemblies") {
     companion object {
         private const val LOG_FILE_NAME = "05_align_mutated_assemblies.log"
-        private const val OUTPUT_DIR = "output"
         private const val MUTATED_ALIGNMENT_RESULTS_DIR = "05_mutated_alignment_results"
         private const val MAF_PATHS_FILE = "maf_file_paths.txt"
 
@@ -74,69 +75,17 @@ class AlignMutatedAssemblies : CliktCommand(name = "align-mutated-assemblies") {
     ).path(mustExist = false, canBeFile = false, canBeDir = true)
 
     private fun collectFastaFiles(): List<Path> {
-        val fastaFiles = mutableListOf<Path>()
-
-        when {
-            fastaInput.isDirectory() -> {
-                // Collect all FASTA files from directory
-                logger.info("Collecting FASTA files from directory: $fastaInput")
-                fastaInput.listDirectoryEntries().forEach { file ->
-                    if (file.isRegularFile() && file.extension in Constants.FASTA_EXTENSIONS) {
-                        fastaFiles.add(file)
-                    }
-                }
-                if (fastaFiles.isEmpty()) {
-                    logger.error("No FASTA files (*.fa, *.fasta, *.fna) found in directory: $fastaInput")
-                    exitProcess(1)
-                }
-                logger.info("Found ${fastaFiles.size} FASTA file(s) in directory")
-            }
-            fastaInput.isRegularFile() -> {
-                // Check if it's a .txt file with paths or a single FASTA file
-                if (fastaInput.extension == Constants.TEXT_FILE_EXTENSION) {
-                    // It's a text file with paths
-                    logger.info("Reading FASTA file paths from: $fastaInput")
-                    fastaInput.readLines().forEach { line ->
-                        val trimmedLine = line.trim()
-                        if (trimmedLine.isNotEmpty() && !trimmedLine.startsWith("#")) {
-                            val fastaFile = Path(trimmedLine)
-                            if (fastaFile.exists() && fastaFile.isRegularFile()) {
-                                fastaFiles.add(fastaFile)
-                            } else {
-                                logger.warn("FASTA file not found or not a file: $trimmedLine")
-                            }
-                        }
-                    }
-                    if (fastaFiles.isEmpty()) {
-                        logger.error("No valid FASTA files found in list file: $fastaInput")
-                        exitProcess(1)
-                    }
-                    logger.info("Found ${fastaFiles.size} FASTA file(s) in list")
-                } else if (fastaInput.extension in Constants.FASTA_EXTENSIONS) {
-                    // It's a single FASTA file
-                    logger.info("Using single FASTA file: $fastaInput")
-                    fastaFiles.add(fastaInput)
-                } else {
-                    logger.error("FASTA input must have a valid FASTA extension (.fa, .fasta, .fna) or be a .txt file with paths: $fastaInput")
-                    exitProcess(1)
-                }
-            }
-            else -> {
-                logger.error("FASTA input is neither a file nor a directory: $fastaInput")
-                exitProcess(1)
-            }
-        }
-
-        return fastaFiles
+        return FileUtils.collectFiles(
+            fastaInput,
+            Constants.FASTA_EXTENSIONS,
+            "FASTA",
+            logger
+        )
     }
 
     override fun run() {
         // Validate working directory exists
-        if (!workDir.exists()) {
-            logger.error("Working directory does not exist: $workDir")
-            logger.error("Please run 'setup-environment' command first")
-            exitProcess(1)
-        }
+        ValidationUtils.validateWorkingDirectory(workDir, logger)
 
         // Configure file logging to working directory
         LoggingUtils.setupFileLogging(workDir, LOG_FILE_NAME, logger)
@@ -152,12 +101,8 @@ class AlignMutatedAssemblies : CliktCommand(name = "align-mutated-assemblies") {
         logger.info("Processing ${fastaFiles.size} FASTA file(s)")
 
         // Create base output directory (use custom or default)
-        val baseOutputDir = outputDir ?: workDir.resolve(OUTPUT_DIR).resolve(MUTATED_ALIGNMENT_RESULTS_DIR)
-        if (!baseOutputDir.exists()) {
-            logger.debug("Creating output directory: $baseOutputDir")
-            baseOutputDir.createDirectories()
-            logger.info("Output directory created: $baseOutputDir")
-        }
+        val baseOutputDir = FileUtils.resolveOutputDirectory(workDir, outputDir, MUTATED_ALIGNMENT_RESULTS_DIR)
+        FileUtils.createOutputDirectory(baseOutputDir, logger)
 
         // Derive reference base name
         val refBase = refFasta.nameWithoutExtension
@@ -226,15 +171,12 @@ class AlignMutatedAssemblies : CliktCommand(name = "align-mutated-assemblies") {
         }
 
         // Write MAF file paths to text file
-        if (mafFilePaths.isNotEmpty()) {
-            val mafPathsFile = baseOutputDir.resolve(MAF_PATHS_FILE)
-            try {
-                mafPathsFile.writeLines(mafFilePaths.map { it.toString() })
-                logger.info("MAF file paths written to: $mafPathsFile")
-            } catch (e: Exception) {
-                logger.error("Failed to write MAF paths file: ${e.message}", e)
-            }
-        }
+        FileUtils.writeFilePaths(
+            mafFilePaths,
+            baseOutputDir.resolve(MAF_PATHS_FILE),
+            logger,
+            "MAF file"
+        )
 
         logger.info("=".repeat(80))
         logger.info("All alignments completed!")

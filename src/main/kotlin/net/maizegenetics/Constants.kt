@@ -13,13 +13,16 @@ object Constants {
     val FASTA_EXTENSIONS = setOf("fa", "fasta", "fna")
     val MAF_EXTENSIONS = setOf("maf")
     val GVCF_EXTENSIONS = setOf("gvcf", "gvcf.gz", "g.vcf", "g.vcf.gz")
+    val FASTQ_EXTENSIONS = setOf("fq", "fastq", "fq.gz", "fastq.gz")
     const val TEXT_FILE_EXTENSION = "txt"
 
     // Download URLs
     const val MLIMPUTE_URL = "https://github.com/maize-genetics/MLImpute/archive/refs/heads/main.zip"
     const val BIOKOTLIN_TOOLS_URL = "https://github.com/maize-genetics/biokotlin-tools/releases/download/0.2.1/BioKotlinTools-v0.2.tar"
+    const val PHGV2_API_URL = "https://api.github.com/repos/maize-genetics/phg_v2/releases/latest"
 
     // Directory names for downloaded tools
     const val MLIMPUTE_DIR = "MLImpute"
     const val BIOKOTLIN_TOOLS_DIR = "biokotlin-tools"
+    const val PHGV2_DIR = "phg_v2"
 }

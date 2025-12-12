@@ -7,8 +7,10 @@ import com.github.ajalt.clikt.parameters.options.required
 import com.github.ajalt.clikt.parameters.types.choice
 import com.github.ajalt.clikt.parameters.types.path
 import net.maizegenetics.Constants
+import net.maizegenetics.utils.FileUtils
 import net.maizegenetics.utils.LoggingUtils
 import net.maizegenetics.utils.ProcessRunner
+import net.maizegenetics.utils.ValidationUtils
 import org.apache.logging.log4j.LogManager
 import org.apache.logging.log4j.Logger
 import java.io.BufferedInputStream
@@ -22,7 +24,6 @@ import kotlin.system.exitProcess
 class ConvertToFasta : CliktCommand(name = "convert-to-fasta") {
     companion object {
         private const val LOG_FILE_NAME = "04_convert_to_fasta.log"
-        private const val OUTPUT_DIR = "output"
         private const val FASTA_RESULTS_DIR = "04_fasta_results"
         private const val FASTA_PATHS_FILE = "fasta_file_paths.txt"
         private const val TEMP_DIR_NAME = "temp_uncompressed_gvcf_fasta"
@@ -66,67 +67,12 @@ class ConvertToFasta : CliktCommand(name = "convert-to-fasta") {
     ).path(mustExist = false, canBeFile = false, canBeDir = true)
 
     private fun collectGvcfFiles(): List<Path> {
-        val gvcfFiles = mutableListOf<Path>()
-
-        when {
-            gvcfInput.isDirectory() -> {
-                // Collect all GVCF files from directory
-                logger.info("Collecting GVCF files from directory: $gvcfInput")
-                gvcfInput.listDirectoryEntries().forEach { file ->
-                    if (file.isRegularFile() && file.extension in Constants.GVCF_EXTENSIONS) {
-                        gvcfFiles.add(file)
-                    }
-                }
-                if (gvcfFiles.isEmpty()) {
-                    logger.error("No GVCF files found in directory: $gvcfInput")
-                    exitProcess(1)
-                }
-                logger.info("Found ${gvcfFiles.size} GVCF file(s) in directory")
-            }
-            gvcfInput.isRegularFile() -> {
-                // Check if it's a .txt file with paths or a single GVCF file
-                if (gvcfInput.extension == Constants.TEXT_FILE_EXTENSION) {
-                    // It's a text file with paths
-                    logger.info("Reading GVCF file paths from: $gvcfInput")
-                    gvcfInput.readLines().forEach { line ->
-                        val trimmedLine = line.trim()
-                        if (trimmedLine.isNotEmpty() && !trimmedLine.startsWith("#")) {
-                            val gvcfFile = Path(trimmedLine)
-                            if (gvcfFile.exists() && gvcfFile.isRegularFile()) {
-                                gvcfFiles.add(gvcfFile)
-                            } else {
-                                logger.warn("GVCF file not found or not a file: $trimmedLine")
-                            }
-                        }
-                    }
-                    if (gvcfFiles.isEmpty()) {
-                        logger.error("No valid GVCF files found in list file: $gvcfInput")
-                        exitProcess(1)
-                    }
-                    logger.info("Found ${gvcfFiles.size} GVCF file(s) in list")
-                } else {
-                    // Check if it's a valid GVCF extension
-                    val fileName = gvcfInput.fileName.toString()
-                    val isValidGvcf = Constants.GVCF_EXTENSIONS.any { ext ->
-                        fileName.endsWith(".$ext")
-                    }
-                    if (isValidGvcf) {
-                        // It's a single GVCF file
-                        logger.info("Using single GVCF file: $gvcfInput")
-                        gvcfFiles.add(gvcfInput)
-                    } else {
-                        logger.error("Input file must have a valid GVCF extension or be a .txt file with paths: $gvcfInput")
-                        exitProcess(1)
-                    }
-                }
-            }
-            else -> {
-                logger.error("GVCF input is neither a file nor a directory: $gvcfInput")
-                exitProcess(1)
-            }
-        }
-
-        return gvcfFiles
+        return FileUtils.collectFiles(
+            gvcfInput,
+            Constants.GVCF_EXTENSIONS,
+            "GVCF",
+            logger
+        )
     }
 
     private fun prepareGvcfFiles(gvcfFiles: List<Path>, tempDir: Path): List<Path> {
@@ -197,11 +143,7 @@ class ConvertToFasta : CliktCommand(name = "convert-to-fasta") {
 
     override fun run() {
         // Validate working directory exists
-        if (!workDir.exists()) {
-            logger.error("Working directory does not exist: $workDir")
-            logger.error("Please run 'setup-environment' command first")
-            exitProcess(1)
-        }
+        ValidationUtils.validateWorkingDirectory(workDir, logger)
 
         // Configure file logging to working directory
         LoggingUtils.setupFileLogging(workDir, LOG_FILE_NAME, logger)
@@ -217,18 +159,12 @@ class ConvertToFasta : CliktCommand(name = "convert-to-fasta") {
         logger.info("Processing ${gvcfFiles.size} GVCF file(s)")
 
         // Create output directory (use custom or default)
-        val outputDir = outputDirOption ?: workDir.resolve(OUTPUT_DIR).resolve(FASTA_RESULTS_DIR)
-        if (!outputDir.exists()) {
-            logger.info("Creating output directory: $outputDir")
-            outputDir.createDirectories()
-        }
+        val outputDir = FileUtils.resolveOutputDirectory(workDir, outputDirOption, FASTA_RESULTS_DIR)
+        FileUtils.createOutputDirectory(outputDir, logger)
 
         // Create temp directory for uncompressed files if needed
         val tempDir = workDir.resolve(TEMP_DIR_NAME)
-        if (!tempDir.exists()) {
-            logger.info("Creating temporary directory: $tempDir")
-            tempDir.createDirectories()
-        }
+        FileUtils.createOutputDirectory(tempDir, logger)
 
         // Prepare GVCF files (decompress if needed)
         val preparedFiles = prepareGvcfFiles(gvcfFiles, tempDir)
@@ -268,15 +204,12 @@ class ConvertToFasta : CliktCommand(name = "convert-to-fasta") {
         }
 
         // Write FASTA file paths to text file
-        if (fastaFilePaths.isNotEmpty()) {
-            val fastaPathsFile = outputDir.resolve(FASTA_PATHS_FILE)
-            try {
-                fastaPathsFile.writeLines(fastaFilePaths.map { it.toString() })
-                logger.info("FASTA file paths written to: $fastaPathsFile")
-            } catch (e: Exception) {
-                logger.error("Failed to write FASTA paths file: ${e.message}", e)
-            }
-        }
+        FileUtils.writeFilePaths(
+            fastaFilePaths,
+            outputDir.resolve(FASTA_PATHS_FILE),
+            logger,
+            "FASTA file"
+        )
 
         // Clean up temp directory
         if (tempDir.exists() && preparedFiles.any { it.parent == tempDir }) {

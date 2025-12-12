@@ -5,11 +5,14 @@ import com.github.ajalt.clikt.parameters.options.default
 import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.options.required
+import com.github.ajalt.clikt.parameters.types.boolean
 import com.github.ajalt.clikt.parameters.types.int
 import com.github.ajalt.clikt.parameters.types.path
 import net.maizegenetics.Constants
+import net.maizegenetics.utils.FileUtils
 import net.maizegenetics.utils.LoggingUtils
 import net.maizegenetics.utils.ProcessRunner
+import net.maizegenetics.utils.ValidationUtils
 import org.apache.logging.log4j.LogManager
 import org.apache.logging.log4j.Logger
 import java.io.BufferedInputStream
@@ -23,7 +26,6 @@ import kotlin.system.exitProcess
 class DownsampleGvcf : CliktCommand(name = "downsample-gvcf") {
     companion object {
         private const val LOG_FILE_NAME = "03_downsample_gvcf.log"
-        private const val OUTPUT_DIR = "output"
         private const val DOWNSAMPLE_RESULTS_DIR = "03_downsample_results"
         private const val TEMP_DIR_NAME = "temp_uncompressed_gvcf"
     }
@@ -60,7 +62,7 @@ class DownsampleGvcf : CliktCommand(name = "downsample-gvcf") {
     private val keepRef by option(
         "--keep-ref",
         help = "Keep reference blocks"
-    ).flag(default = true)
+    ).boolean().default(true)
 
     private val minRefBlockSize by option(
         "--min-ref-block-size",
@@ -149,11 +151,7 @@ class DownsampleGvcf : CliktCommand(name = "downsample-gvcf") {
 
     override fun run() {
         // Validate working directory exists
-        if (!workDir.exists()) {
-            logger.error("Working directory does not exist: $workDir")
-            logger.error("Please run 'setup-environment' command first")
-            exitProcess(1)
-        }
+        ValidationUtils.validateWorkingDirectory(workDir, logger)
 
         // Configure file logging to working directory
         LoggingUtils.setupFileLogging(workDir, LOG_FILE_NAME, logger)
@@ -163,18 +161,12 @@ class DownsampleGvcf : CliktCommand(name = "downsample-gvcf") {
         logger.info("Input directory: $gvcfInput")
 
         // Create output directory (use custom or default)
-        val outputDir = outputDirOption ?: workDir.resolve(OUTPUT_DIR).resolve(DOWNSAMPLE_RESULTS_DIR)
-        if (!outputDir.exists()) {
-            logger.info("Creating output directory: $outputDir")
-            outputDir.createDirectories()
-        }
+        val outputDir = FileUtils.resolveOutputDirectory(workDir, outputDirOption, DOWNSAMPLE_RESULTS_DIR)
+        FileUtils.createOutputDirectory(outputDir, logger)
 
         // Create temp directory for uncompressed files
         val tempDir = workDir.resolve(TEMP_DIR_NAME)
-        if (!tempDir.exists()) {
-            logger.info("Creating temporary directory: $tempDir")
-            tempDir.createDirectories()
-        }
+        FileUtils.createOutputDirectory(tempDir, logger)
 
         // Decompress and prepare GVCF files
         val preparedFiles = decompressGvcfFiles(gvcfInput, tempDir)

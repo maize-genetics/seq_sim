@@ -1,0 +1,74 @@
+name: PR Version Check
+
+on:
+  pull_request:
+    branches:
+      - main
+      - master
+    paths:
+      - 'src/**'
+      - 'build.gradle.kts'
+
+jobs:
+  version-check:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version from build.gradle.kts
+        id: get_version
+        run: |
+          VERSION=$(grep -oP 'version\s*=\s*"\K[^"]+' build.gradle.kts)
+          echo "version=v$VERSION" >> $GITHUB_OUTPUT
+          echo "PR version: v$VERSION"
+
+      - name: Get current latest tag
+        id: get_current_tag
+        run: |
+          CURRENT_TAG=$(git describe --tags --abbrev=0 origin/main 2>/dev/null || git describe --tags --abbrev=0 origin/master 2>/dev/null || echo "v0.0.0")
+          echo "current_tag=$CURRENT_TAG" >> $GITHUB_OUTPUT
+          echo "Current released version: $CURRENT_TAG"
+
+      - name: Validate version is higher than current release
+        run: |
+          CURRENT="${{ steps.get_current_tag.outputs.current_tag }}"
+          NEW="${{ steps.get_version.outputs.version }}"
+          
+          # Function to convert version to comparable number
+          version_to_num() {
+            local version=$1
+            # Remove 'v' prefix if present
+            version=${version#v}
+            # Split into parts and pad (handles 2 or 3 part versions)
+            echo "$version" | awk -F. '{ printf "%d%03d%03d", $1, ($2 ? $2 : 0), ($3 ? $3 : 0) }'
+          }
+          
+          CURRENT_NUM=$(version_to_num "$CURRENT")
+          NEW_NUM=$(version_to_num "$NEW")
+          
+          echo "Comparing versions:"
+          echo "  Current release: $CURRENT ($CURRENT_NUM)"
+          echo "  PR version:      $NEW ($NEW_NUM)"
+          
+          if [ "$NEW_NUM" -le "$CURRENT_NUM" ]; then
+            echo ""
+            echo "::error::Version must be updated before merging!"
+            echo "::error::Current released version is $CURRENT"
+            echo "::error::Please update the 'version' in build.gradle.kts to be higher than $CURRENT"
+            echo ""
+            echo "To fix this, update build.gradle.kts:"
+            echo '  version = "X.Y.Z"  // Must be higher than current'
+            echo ""
+            echo "Version guidelines (semantic versioning):"
+            echo "  - MAJOR (X): Breaking changes"
+            echo "  - MINOR (Y): New features (backwards compatible)"
+            echo "  - PATCH (Z): Bug fixes"
+            exit 1
+          fi
+          
+          echo ""
+          echo "Version check passed: $NEW > $CURRENT"

@@ -74,6 +74,20 @@ class SetupEnvironment : CliktCommand(name = "setup-environment") {
             if (!FileDownloader.downloadAndExtractZip(Constants.MLIMPUTE_URL, srcDir, logger)) {
                 exitProcess(1)
             }
+
+            // Find extracted directory and rename to standard name (removes "-main" suffix)
+            val extractedDir = srcDir.toFile().listFiles { file ->
+                file.isDirectory && file.name.startsWith("MLImpute") && file.name != Constants.MLIMPUTE_DIR
+            }?.firstOrNull()
+
+            if (extractedDir != null) {
+                logger.info("Renaming ${extractedDir.name} to ${Constants.MLIMPUTE_DIR}")
+                if (!extractedDir.renameTo(mlImputeDir)) {
+                    logger.warn("Failed to rename MLImpute directory, will use extracted name: ${extractedDir.name}")
+                }
+            } else {
+                logger.warn("Could not find extracted MLImpute directory")
+            }
         }
 
         // Make MLImpute gradlew executable
@@ -102,6 +116,71 @@ class SetupEnvironment : CliktCommand(name = "setup-environment") {
             // Download and extract to src directory
             if (!FileDownloader.downloadAndExtractTar(Constants.BIOKOTLIN_TOOLS_URL, srcDir, logger)) {
                 exitProcess(1)
+            }
+        }
+
+        // Download and extract PHGv2 latest release
+        val phgv2Dir = srcDir.resolve(Constants.PHGV2_DIR).toFile()
+
+        if (phgv2Dir.exists()) {
+            logger.info("PHGv2 directory already exists: $phgv2Dir")
+        } else {
+            if (!FileDownloader.downloadLatestGitHubReleaseTar(Constants.PHGV2_API_URL, srcDir, logger)) {
+                exitProcess(1)
+            }
+
+            // Find extracted directory and rename to standard name
+            val extractedDir = srcDir.toFile().listFiles { file ->
+                file.isDirectory && file.name.startsWith("phg") && file.name != Constants.PHGV2_DIR
+            }?.firstOrNull()
+
+            if (extractedDir != null) {
+                logger.info("Renaming ${extractedDir.name} to ${Constants.PHGV2_DIR}")
+                if (!extractedDir.renameTo(phgv2Dir)) {
+                    logger.warn("Failed to rename PHGv2 directory, will use extracted name: ${extractedDir.name}")
+                }
+            } else {
+                logger.warn("Could not find extracted PHGv2 directory")
+            }
+        }
+
+        // Run PHGv2 setup-environment command
+        if (phgv2Dir.exists()) {
+            logger.info("Running PHGv2 setup-environment command")
+            val phgScript = phgv2Dir.resolve("bin").resolve("phg")
+
+            if (phgScript.exists()) {
+                val setupExitCode = ProcessRunner.runCommand(
+                    phgScript.absolutePath,
+                    "setup-environment",
+                    workingDir = workDir.toFile(),
+                    logger = logger
+                )
+
+                if (setupExitCode != 0) {
+                    logger.error("PHGv2 setup-environment failed with exit code $setupExitCode")
+                    exitProcess(setupExitCode)
+                }
+                logger.info("PHGv2 setup-environment completed successfully")
+            } else {
+                logger.warn("PHGv2 script not found at: ${phgScript.absolutePath}")
+            }
+        }
+
+        // Final cleanup: move any remaining PHG/conda log files created during setup
+        val phgLogsDir = workDir.resolve(Constants.LOGS_DIR).resolve("phg")
+        if (!phgLogsDir.exists()) {
+            phgLogsDir.createDirectories()
+        }
+
+        workDir.toFile().listFiles { file ->
+            file.isFile && (file.name.endsWith(".log") || file.name.contains("phg") || file.name.startsWith("conda"))
+        }?.forEach { logFile ->
+            val destination = phgLogsDir.resolve(logFile.name).toFile()
+            if (logFile.renameTo(destination)) {
+                logger.debug("Moved log file: ${logFile.name} -> logs/phg/")
+            } else {
+                logger.warn("Failed to move log file: ${logFile.name}")
             }
         }
 

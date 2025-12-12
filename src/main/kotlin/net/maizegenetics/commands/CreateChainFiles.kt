@@ -7,8 +7,10 @@ import com.github.ajalt.clikt.parameters.options.required
 import com.github.ajalt.clikt.parameters.types.int
 import com.github.ajalt.clikt.parameters.types.path
 import net.maizegenetics.Constants
+import net.maizegenetics.utils.FileUtils
 import net.maizegenetics.utils.LoggingUtils
 import net.maizegenetics.utils.ProcessRunner
+import net.maizegenetics.utils.ValidationUtils
 import org.apache.logging.log4j.LogManager
 import org.apache.logging.log4j.Logger
 import java.nio.file.Path
@@ -18,11 +20,11 @@ import kotlin.system.exitProcess
 class CreateChainFiles : CliktCommand(name = "create-chain-files") {
     companion object {
         private const val LOG_FILE_NAME = "07_create_chain_files.log"
-        private const val OUTPUT_DIR = "output"
         private const val CHAIN_RESULTS_DIR = "07_chain_results"
         private const val CHAIN_PATHS_FILE = "chain_file_paths.txt"
         private const val BASH_SCRIPT = "src/python/cross/create_chains.sh"
         private const val DEFAULT_JOBS = 8
+        private val MAF_EXTENSIONS_WITH_GZ = Constants.MAF_EXTENSIONS + "maf.gz"
     }
 
     private val logger: Logger = LogManager.getLogger(CreateChainFiles::class.java)
@@ -51,71 +53,17 @@ class CreateChainFiles : CliktCommand(name = "create-chain-files") {
     ).path(mustExist = false, canBeFile = false, canBeDir = true)
 
     private fun collectMafFiles(): List<Path> {
-        val mafFiles = mutableListOf<Path>()
-
-        when {
-            mafInput.isDirectory() -> {
-                // Collect all MAF files from directory
-                logger.info("Collecting MAF files from directory: $mafInput")
-                mafInput.listDirectoryEntries().forEach { file ->
-                    if (file.isRegularFile() && file.extension in Constants.MAF_EXTENSIONS) {
-                        mafFiles.add(file)
-                    } else if (file.isRegularFile() && file.name.endsWith(".maf.gz")) {
-                        mafFiles.add(file)
-                    }
-                }
-                if (mafFiles.isEmpty()) {
-                    logger.error("No MAF files (*.maf, *.maf.gz) found in directory: $mafInput")
-                    exitProcess(1)
-                }
-                logger.info("Found ${mafFiles.size} MAF file(s) in directory")
-            }
-            mafInput.isRegularFile() -> {
-                // Check if it's a .txt file with paths or a single MAF file
-                if (mafInput.extension == Constants.TEXT_FILE_EXTENSION) {
-                    // It's a text file with paths
-                    logger.info("Reading MAF file paths from: $mafInput")
-                    mafInput.readLines().forEach { line ->
-                        val trimmedLine = line.trim()
-                        if (trimmedLine.isNotEmpty() && !trimmedLine.startsWith("#")) {
-                            val mafFile = Path(trimmedLine)
-                            if (mafFile.exists() && mafFile.isRegularFile()) {
-                                mafFiles.add(mafFile)
-                            } else {
-                                logger.warn("MAF file not found or not a file: $trimmedLine")
-                            }
-                        }
-                    }
-                    if (mafFiles.isEmpty()) {
-                        logger.error("No valid MAF files found in list file: $mafInput")
-                        exitProcess(1)
-                    }
-                    logger.info("Found ${mafFiles.size} MAF file(s) in list")
-                } else if (mafInput.extension in Constants.MAF_EXTENSIONS || mafInput.name.endsWith(".maf.gz")) {
-                    // It's a single MAF file
-                    logger.info("Using single MAF file: $mafInput")
-                    mafFiles.add(mafInput)
-                } else {
-                    logger.error("MAF file must have .maf or .maf.gz extension or be a .txt file with paths: $mafInput")
-                    exitProcess(1)
-                }
-            }
-            else -> {
-                logger.error("MAF input is neither a file nor a directory: $mafInput")
-                exitProcess(1)
-            }
-        }
-
-        return mafFiles
+        return FileUtils.collectFiles(
+            mafInput,
+            MAF_EXTENSIONS_WITH_GZ,
+            "MAF",
+            logger
+        )
     }
 
     override fun run() {
         // Validate working directory exists
-        if (!workDir.exists()) {
-            logger.error("Working directory does not exist: $workDir")
-            logger.error("Please run 'setup-environment' command first")
-            exitProcess(1)
-        }
+        ValidationUtils.validateWorkingDirectory(workDir, logger)
 
         // Configure file logging to working directory
         LoggingUtils.setupFileLogging(workDir, LOG_FILE_NAME, logger)
@@ -126,11 +74,7 @@ class CreateChainFiles : CliktCommand(name = "create-chain-files") {
 
         // Validate MLImpute directory exists
         val mlimputeDir = workDir.resolve(Constants.SRC_DIR).resolve(Constants.MLIMPUTE_DIR)
-        if (!mlimputeDir.exists()) {
-            logger.error("MLImpute directory not found: $mlimputeDir")
-            logger.error("Please run 'setup-environment' command first")
-            exitProcess(1)
-        }
+        ValidationUtils.validateBinaryExists(mlimputeDir, "MLImpute", logger)
 
         // Validate bash script exists
         val bashScript = mlimputeDir.resolve(BASH_SCRIPT)
@@ -144,12 +88,8 @@ class CreateChainFiles : CliktCommand(name = "create-chain-files") {
         logger.info("Processing ${mafFiles.size} MAF file(s)")
 
         // Create output directory (use custom or default)
-        val outputDir = outputDirOption ?: workDir.resolve(OUTPUT_DIR).resolve(CHAIN_RESULTS_DIR)
-        if (!outputDir.exists()) {
-            logger.debug("Creating output directory: $outputDir")
-            outputDir.createDirectories()
-            logger.info("Output directory created: $outputDir")
-        }
+        val outputDir = FileUtils.resolveOutputDirectory(workDir, outputDirOption, CHAIN_RESULTS_DIR)
+        FileUtils.createOutputDirectory(outputDir, logger)
 
         // Create temporary directory for MAF files
         val tempMafDir = outputDir.resolve("temp_maf_files")
@@ -200,13 +140,12 @@ class CreateChainFiles : CliktCommand(name = "create-chain-files") {
             chainFiles.forEach { logger.info("  $it") }
 
             // Write chain file paths to text file
-            val chainPathsFile = outputDir.resolve(CHAIN_PATHS_FILE)
-            try {
-                chainPathsFile.writeLines(chainFiles.map { it.toString() })
-                logger.info("Chain file paths written to: $chainPathsFile")
-            } catch (e: Exception) {
-                logger.error("Failed to write chain paths file: ${e.message}", e)
-            }
+            FileUtils.writeFilePaths(
+                chainFiles,
+                outputDir.resolve(CHAIN_PATHS_FILE),
+                logger,
+                "Chain file"
+            )
         }
 
         logger.info("Output directory: $outputDir")

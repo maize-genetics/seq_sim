@@ -7,8 +7,10 @@ import com.github.ajalt.clikt.parameters.options.required
 import com.github.ajalt.clikt.parameters.types.int
 import com.github.ajalt.clikt.parameters.types.path
 import net.maizegenetics.Constants
+import net.maizegenetics.utils.FileUtils
 import net.maizegenetics.utils.LoggingUtils
 import net.maizegenetics.utils.ProcessRunner
+import net.maizegenetics.utils.ValidationUtils
 import org.apache.logging.log4j.LogManager
 import org.apache.logging.log4j.Logger
 import java.nio.file.Path
@@ -74,69 +76,17 @@ class AlignAssemblies : CliktCommand(name = "align-assemblies") {
     ).path(mustExist = false, canBeFile = false, canBeDir = true)
 
     private fun collectQueryFiles(): List<Path> {
-        val queryFiles = mutableListOf<Path>()
-
-        when {
-            queryInput.isDirectory() -> {
-                // Collect all FASTA files from directory
-                logger.info("Collecting FASTA files from directory: $queryInput")
-                queryInput.listDirectoryEntries().forEach { file ->
-                    if (file.isRegularFile() && file.extension in Constants.FASTA_EXTENSIONS) {
-                        queryFiles.add(file)
-                    }
-                }
-                if (queryFiles.isEmpty()) {
-                    logger.error("No FASTA files (*.fa, *.fasta, *.fna) found in directory: $queryInput")
-                    exitProcess(1)
-                }
-                logger.info("Found ${queryFiles.size} FASTA file(s) in directory")
-            }
-            queryInput.isRegularFile() -> {
-                // Check if it's a .txt file with paths or a single FASTA file
-                if (queryInput.extension == Constants.TEXT_FILE_EXTENSION) {
-                    // It's a text file with paths
-                    logger.info("Reading query file paths from: $queryInput")
-                    queryInput.readLines().forEach { line ->
-                        val trimmedLine = line.trim()
-                        if (trimmedLine.isNotEmpty() && !trimmedLine.startsWith("#")) {
-                            val queryFile = Path(trimmedLine)
-                            if (queryFile.exists() && queryFile.isRegularFile()) {
-                                queryFiles.add(queryFile)
-                            } else {
-                                logger.warn("Query file not found or not a file: $trimmedLine")
-                            }
-                        }
-                    }
-                    if (queryFiles.isEmpty()) {
-                        logger.error("No valid query files found in list file: $queryInput")
-                        exitProcess(1)
-                    }
-                    logger.info("Found ${queryFiles.size} query file(s) in list")
-                } else if (queryInput.extension in Constants.FASTA_EXTENSIONS) {
-                    // It's a single FASTA file
-                    logger.info("Using single query file: $queryInput")
-                    queryFiles.add(queryInput)
-                } else {
-                    logger.error("Query file must have a valid FASTA extension (.fa, .fasta, .fna) or be a .txt file with paths: $queryInput")
-                    exitProcess(1)
-                }
-            }
-            else -> {
-                logger.error("Query input is neither a file nor a directory: $queryInput")
-                exitProcess(1)
-            }
-        }
-
-        return queryFiles
+        return FileUtils.collectFiles(
+            queryInput,
+            Constants.FASTA_EXTENSIONS,
+            "FASTA",
+            logger
+        )
     }
 
     override fun run() {
-        // Validate working directory exists
-        if (!workDir.exists()) {
-            logger.error("Working directory does not exist: $workDir")
-            logger.error("Please run 'setup-environment' command first")
-            exitProcess(1)
-        }
+        // Validate working directory
+        ValidationUtils.validateWorkingDirectory(workDir, logger)
 
         // Configure file logging to working directory
         LoggingUtils.setupFileLogging(workDir, LOG_FILE_NAME, logger)
@@ -152,12 +102,8 @@ class AlignAssemblies : CliktCommand(name = "align-assemblies") {
         logger.info("Processing ${queryFiles.size} query file(s)")
 
         // Create base output directory (use custom or default)
-        val baseOutputDir = outputDir ?: workDir.resolve(OUTPUT_DIR).resolve(ANCHORWAVE_RESULTS_DIR)
-        if (!baseOutputDir.exists()) {
-            logger.debug("Creating output directory: $baseOutputDir")
-            baseOutputDir.createDirectories()
-            logger.info("Output directory created: $baseOutputDir")
-        }
+        val baseOutputDir = FileUtils.resolveOutputDirectory(workDir, outputDir, ANCHORWAVE_RESULTS_DIR)
+        FileUtils.createOutputDirectory(baseOutputDir, logger)
 
         // Derive reference base name
         val refBase = refFasta.nameWithoutExtension
@@ -226,15 +172,12 @@ class AlignAssemblies : CliktCommand(name = "align-assemblies") {
         }
 
         // Write MAF file paths to text file
-        if (mafFilePaths.isNotEmpty()) {
-            val mafPathsFile = baseOutputDir.resolve(MAF_PATHS_FILE)
-            try {
-                mafPathsFile.writeLines(mafFilePaths.map { it.toString() })
-                logger.info("MAF file paths written to: $mafPathsFile")
-            } catch (e: Exception) {
-                logger.error("Failed to write MAF paths file: ${e.message}", e)
-            }
-        }
+        FileUtils.writeFilePaths(
+            mafFilePaths,
+            baseOutputDir.resolve(MAF_PATHS_FILE),
+            logger,
+            "MAF file"
+        )
 
         logger.info("=".repeat(80))
         logger.info("All alignments completed!")
