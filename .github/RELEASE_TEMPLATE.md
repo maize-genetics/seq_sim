@@ -2,15 +2,15 @@
 
 ${SUMMARY}
 
-## Features
+### Features
 
 ${FEATURES}
 
-## Bug Fixes
+### Bug Fixes
 
 ${BUG_FIXES}
 
-## Breaking Changes
+### Breaking Changes
 
 ${BREAKING_CHANGES}
 
@@ -20,7 +20,7 @@ Download the appropriate archive for your system:
 - `seq_sim-${VERSION}.tar` - Unix/Linux/macOS
 - `seq_sim-${VERSION}.zip` - Windows
 
-### Quick Start
+## Quick Start
 
 ```bash
 # Extract the archive
