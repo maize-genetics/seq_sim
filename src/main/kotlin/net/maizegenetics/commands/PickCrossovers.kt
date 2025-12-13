@@ -77,8 +77,11 @@ class PickCrossovers : CliktCommand(name = "pick-crossovers") {
         FileUtils.createOutputDirectory(outputDir, logger)
 
         // Run pick_crossovers.py
+        // Set PYTHONPATH so Python can find the 'python' package for imports
+        val pythonPath = mlimputeDir.resolve("src").toString()
         logger.info("Running pick_crossovers.py")
         val exitCode = ProcessRunner.runCommand(
+            "env", "PYTHONPATH=$pythonPath",
             "pixi", "run",
             "python", pythonScript.toString(),
             "--ref-fasta", refFasta.toString(),
