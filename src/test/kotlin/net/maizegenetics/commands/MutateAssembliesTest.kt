@@ -21,17 +21,17 @@ class MutateAssembliesTest {
     val outputDir = "$homeDir/temp/seq_sim/mutated_gvcf_test/"
 
     @Test
-    fun testBuildFounderVariantMap() {
+    fun testBuildBaseVariantMap() {
         val mutateAssemblies = MutateAssemblies()
 
-        val founderVariantMap = createSimpleFounderMap()
+        val baseVariantMap = createSimpleBaseVariantMap()
 
         //load back in with
-        val loadedMap = mutateAssemblies.buildFounderVariantMap(File("data/MutateAssemblies/founder.g.vcf"))
+        val loadedMap = mutateAssemblies.buildBaseVariantMap(File("data/MutateAssemblies/base.g.vcf"))
 
         //Should match the original map
-        assertEquals(founderVariantMap.asMapOfRanges().size, loadedMap.second.asMapOfRanges().size)
-        for(entry in founderVariantMap.asMapOfRanges().entries) {
+        assertEquals(baseVariantMap.asMapOfRanges().size, loadedMap.second.asMapOfRanges().size)
+        for(entry in baseVariantMap.asMapOfRanges().entries) {
             val loadedVariant = loadedMap.second.get(entry.key.lowerEndpoint())
             assertEquals(entry.value, loadedVariant)
         }
@@ -41,25 +41,25 @@ class MutateAssembliesTest {
     fun testAddNewVariants() {
         val mutateAssemblies = MutateAssemblies()
 
-        val (sampleName,founderVariantMap) = mutateAssemblies.buildFounderVariantMap(File("data/MutateAssemblies/founder.g.vcf"))
+        val (sampleName,baseVariantMap) = mutateAssemblies.buildBaseVariantMap(File("data/MutateAssemblies/base.g.vcf"))
 
-        mutateAssemblies.addNewVariants(File("data/MutateAssemblies/nonFounder.g.vcf"), founderVariantMap)
+        mutateAssemblies.addNewVariants(File("data/MutateAssemblies/mutationDonor.g.vcf"), baseVariantMap)
 
-        //This should match the founderMap but we have new variants
-        assertEquals(11, founderVariantMap.asMapOfRanges().size)
+        //This should match the BaseMap but we have new variants
+        assertEquals(11, baseVariantMap.asMapOfRanges().size)
 
         //Here are the three additions:
         //chr1    125    .	T	A	.	.	END=125	GT	1/1
         //chr1    175 .  C   TTTT   .   .   END=175 GT  1/1
         //chr1    500 .  A   T   .   .   END=500 GT  1/1
-        val variant125 = founderVariantMap.get(Position("chr1", 125))
+        val variant125 = baseVariantMap.get(Position("chr1", 125))
         assertEquals(SimpleVariant(Position("chr1", 125), Position("chr1",
     125), "T", "A",true), variant125)
 
-        val variant175 = founderVariantMap.get(Position("chr1", 175))
+        val variant175 = baseVariantMap.get(Position("chr1", 175))
         assertEquals(SimpleVariant(Position("chr1", 175), Position("chr1", 175), "C", "TTTT", true), variant175)
 
-        val variant500 = founderVariantMap.get(Position("chr1", 500))
+        val variant500 = baseVariantMap.get(Position("chr1", 500))
         assertEquals(SimpleVariant(Position("chr1", 500), Position("chr1", 500), "A", "T", true), variant500)
 
 
@@ -122,45 +122,45 @@ class MutateAssembliesTest {
         val mutateAssemblies = MutateAssemblies()
 
         //need a range map to work with
-        val founderVariantMap = createSimpleFounderMap()
+        val baseVariantMap = createSimpleBaseVariantMap()
 
-        val initialSize = founderVariantMap.asMapOfRanges().size
+        val initialSize = baseVariantMap.asMapOfRanges().size
 
         //check a variant outside of the existing ranges
         val nonOverlappingVariant = SimpleVariant(Position("chr1", 500), Position("chr1", 500), "C", "G")
-        mutateAssemblies.updateOverlappingVariant(founderVariantMap, nonOverlappingVariant)
+        mutateAssemblies.updateOverlappingVariant(baseVariantMap, nonOverlappingVariant)
 
-        assertEquals(initialSize, founderVariantMap.asMapOfRanges().size)
+        assertEquals(initialSize, baseVariantMap.asMapOfRanges().size)
 
         //Try other chromosomes
         val nonOverlappingVariantOtherChr = SimpleVariant(Position("chr2", 150), Position("chr2", 150), "C", "G")
-        mutateAssemblies.updateOverlappingVariant(founderVariantMap, nonOverlappingVariantOtherChr)
-        assertEquals(initialSize, founderVariantMap.asMapOfRanges().size)
+        mutateAssemblies.updateOverlappingVariant(baseVariantMap, nonOverlappingVariantOtherChr)
+        assertEquals(initialSize, baseVariantMap.asMapOfRanges().size)
 
 
         //Update the SNP at position 150 with the same variant
         val sameSNPVariant = SimpleVariant(Position("chr1", 150), Position("chr1", 150), "C", "G")
-        mutateAssemblies.updateOverlappingVariant(founderVariantMap, sameSNPVariant)
-        assertEquals(initialSize, founderVariantMap.asMapOfRanges().size)
+        mutateAssemblies.updateOverlappingVariant(baseVariantMap, sameSNPVariant)
+        assertEquals(initialSize, baseVariantMap.asMapOfRanges().size)
 
         //Update the SNP at position 150
         val overlappingSNPVariant = SimpleVariant(Position("chr1", 150), Position("chr1", 150), "C", "T")
-        mutateAssemblies.updateOverlappingVariant(founderVariantMap, overlappingSNPVariant)
-        assertEquals(initialSize, founderVariantMap.asMapOfRanges().size)
-        val retrievedVariant = founderVariantMap.get(Position("chr1", 150))
+        mutateAssemblies.updateOverlappingVariant(baseVariantMap, overlappingSNPVariant)
+        assertEquals(initialSize, baseVariantMap.asMapOfRanges().size)
+        val retrievedVariant = baseVariantMap.get(Position("chr1", 150))
         assertEquals(overlappingSNPVariant, retrievedVariant)
 
 
         //add a SNP at position 175
         val newSNPVariant = SimpleVariant(Position("chr1", 175), Position("chr1", 175), "A", "T")
-        mutateAssemblies.updateOverlappingVariant(founderVariantMap, newSNPVariant)
-        assertEquals(initialSize + 2, founderVariantMap.asMapOfRanges().size)
-        val retrievedNewVariant = founderVariantMap.get(Position("chr1", 175))
+        mutateAssemblies.updateOverlappingVariant(baseVariantMap, newSNPVariant)
+        assertEquals(initialSize + 2, baseVariantMap.asMapOfRanges().size)
+        val retrievedNewVariant = baseVariantMap.get(Position("chr1", 175))
         assertEquals(newSNPVariant, retrievedNewVariant)
         //Check to see if the surrounding refBlocks were updated correctly
-        val leftRefBlock = founderVariantMap.get(Position("chr1", 174))
+        val leftRefBlock = baseVariantMap.get(Position("chr1", 174))
         assertEquals(SimpleVariant(Position("chr1", 151), Position("chr1", 174), "T", "<NON_REF>"), leftRefBlock)
-        val rightRefBlock = founderVariantMap.get(Position("chr1", 176))
+        val rightRefBlock = baseVariantMap.get(Position("chr1", 176))
         assertEquals(SimpleVariant(Position("chr1", 176), Position("chr1", 200), "T", "<NON_REF>"), rightRefBlock)
 
 
@@ -189,9 +189,9 @@ class MutateAssembliesTest {
         File(outputDir).mkdirs()
 
         //need a range map to work with
-        val founderVariantMap = createSimpleFounderMap()
+        val baseVariantMap = createSimpleBaseVariantMap()
 
-        mutateAssemblies.writeMutatedGVCF(File(outputDir), "testSample", founderVariantMap)
+        mutateAssemblies.writeMutatedGVCF(File(outputDir), "testSample", baseVariantMap)
 
         //load in the GVCF and check to make sure the variants match
         VCFFileReader(File("${outputDir}testSample_mutated.g.vcf"), false).use { vcfReader ->
@@ -222,7 +222,7 @@ class MutateAssembliesTest {
         val mutateAssemblies = MutateAssemblies()
 
         //need a range map to work with
-        val founderVariantMap = createSimpleFounderMap()
+        val baseVariantMap = createSimpleBaseVariantMap()
 
         val testVariantContextSNPBuilder = VariantContextBuilder()
             .chr("chr1")
@@ -230,11 +230,11 @@ class MutateAssembliesTest {
             .stop(150)
             .alleles(listOf(Allele.create("C", true), Allele.create("A", false))).make()
 
-        mutateAssemblies.extractVCAndAddToRangeMap(testVariantContextSNPBuilder, founderVariantMap)
+        mutateAssemblies.extractVCAndAddToRangeMap(testVariantContextSNPBuilder, baseVariantMap)
 
         //Size should stay the same, the variant should be different
-        assertEquals(7, founderVariantMap.asMapOfRanges().size)
-        val variant150 = founderVariantMap.get(Position("chr1", 150))
+        assertEquals(7, baseVariantMap.asMapOfRanges().size)
+        val variant150 = baseVariantMap.get(Position("chr1", 150))
         assertEquals("A", variant150!!.altAllele)
 
         //Split a ref block with a SNP
@@ -244,10 +244,10 @@ class MutateAssembliesTest {
             .stop(175)
             .alleles(listOf(Allele.create("A", true), Allele.create("T", false))).make()
 
-        mutateAssemblies.extractVCAndAddToRangeMap(testVariantContextSNP2Builder, founderVariantMap)
+        mutateAssemblies.extractVCAndAddToRangeMap(testVariantContextSNP2Builder, baseVariantMap)
         //Size should increase by 2, 1 for new SNP and 1 for trailing ref block
-        assertEquals(9, founderVariantMap.asMapOfRanges().size)
-        val variant175 = founderVariantMap.get(Position("chr1", 175))
+        assertEquals(9, baseVariantMap.asMapOfRanges().size)
+        val variant175 = baseVariantMap.get(Position("chr1", 175))
         assertEquals("T", variant175!!.altAllele)
 
 
@@ -257,9 +257,9 @@ class MutateAssembliesTest {
             .start(150)
             .stop(200)
             .alleles(listOf(Allele.create("C", true), Allele.create("<NON_REF>", false))).make()
-        mutateAssemblies.extractVCAndAddToRangeMap(testVariantContextRefBlockBuilder, founderVariantMap)
+        mutateAssemblies.extractVCAndAddToRangeMap(testVariantContextRefBlockBuilder, baseVariantMap)
         //Size should keep same size as we skip introducing a ref blocks
-        assertEquals(9, founderVariantMap.asMapOfRanges().size)
+        assertEquals(9, baseVariantMap.asMapOfRanges().size)
 
         //add in a completely new variant
         val testVariantContextNewSNPBuilder = VariantContextBuilder()
@@ -267,10 +267,10 @@ class MutateAssembliesTest {
             .start(500)
             .stop(500)
             .alleles(listOf(Allele.create("A", true), Allele.create("G", false))).make()
-        mutateAssemblies.extractVCAndAddToRangeMap(testVariantContextNewSNPBuilder, founderVariantMap)
+        mutateAssemblies.extractVCAndAddToRangeMap(testVariantContextNewSNPBuilder, baseVariantMap)
         //Size should increase by 2, 1 for new SNP and 1 for trailing ref block
-        assertEquals(10, founderVariantMap.asMapOfRanges().size)
-        val variant250 = founderVariantMap.get(Position("chr1", 500))
+        assertEquals(10, baseVariantMap.asMapOfRanges().size)
+        val variant250 = baseVariantMap.get(Position("chr1", 500))
         assertEquals("G", variant250!!.altAllele)
 
         //Try to add an overlapping indel
@@ -279,10 +279,10 @@ class MutateAssembliesTest {
             .start(201)
             .stop(203)
             .alleles(listOf(Allele.create("GGG", true), Allele.create("G", false))).make()
-        mutateAssemblies.extractVCAndAddToRangeMap(testVariantContextIndelBuilder, founderVariantMap)
+        mutateAssemblies.extractVCAndAddToRangeMap(testVariantContextIndelBuilder, baseVariantMap)
         //Size should stay the same
-        assertEquals(10, founderVariantMap.asMapOfRanges().size)
-        val variant201 = founderVariantMap.get(Position("chr1", 201))
+        assertEquals(10, baseVariantMap.asMapOfRanges().size)
+        val variant201 = baseVariantMap.get(Position("chr1", 201))
         assertEquals("G", variant201!!.altAllele)
 
         //Try to add a snp at an indel... this should not add anything
@@ -291,10 +291,10 @@ class MutateAssembliesTest {
             .start(202)
             .stop(202)
             .alleles(listOf(Allele.create("G", true), Allele.create("A", false))).make()
-        mutateAssemblies.extractVCAndAddToRangeMap(testVariantContextSNPAtIndelBuilder, founderVariantMap)
+        mutateAssemblies.extractVCAndAddToRangeMap(testVariantContextSNPAtIndelBuilder, baseVariantMap)
         //Size should stay the same
-        assertEquals(10, founderVariantMap.asMapOfRanges().size)
-        val variant202 = founderVariantMap.get(Position("chr1", 202))
+        assertEquals(10, baseVariantMap.asMapOfRanges().size)
+        val variant202 = baseVariantMap.get(Position("chr1", 202))
         assertEquals("G", variant202!!.altAllele)
 
 
@@ -318,7 +318,7 @@ class MutateAssembliesTest {
         assert(mutateAssemblies.isIndel(deletionVariant))
     }
 
-    private fun createSimpleFounderMap(): RangeMap<Position, SimpleVariant> {
+    private fun createSimpleBaseVariantMap(): RangeMap<Position, SimpleVariant> {
         val rangeMap = TreeRangeMap.create<Position, SimpleVariant>()
 
         rangeMap.put(Range.closed(Position("chr1", 100), Position("chr1", 150)), SimpleVariant(Position("chr1", 100), Position("chr1", 150), "A", "<NON_REF>"))

@@ -57,13 +57,13 @@ data class SimpleVariant(val refStart: Position, val refEnd: Position,
 class MutateAssemblies : CliktCommand(name = "mutate-assemblies") {
 
 
-    private val founderGvcf by option(
-        help = "Founder GVCF to mutate (.gvcf or .g.vcf.gz)"
+    private val baseGvcf by option(
+        help = "Base GVCF to mutate (.gvcf or .g.vcf.gz)"
     ).path(mustExist = true, canBeFile = true, canBeDir = false)
         .required()
 
-    private val nonFounderGvcf by option(
-        help = "Non-founder GVCF to pull variants from (.gvcf or .g.vcf.gz)"
+    private val mutationDonorGvcf by option(
+        help = "GVCF to pull variants from (.gvcf or .g.vcf.gz)"
     ).path(mustExist = true, canBeFile = true, canBeDir = false)
         .required()
 
@@ -78,25 +78,25 @@ class MutateAssemblies : CliktCommand(name = "mutate-assemblies") {
             outputDir.createDirectories()
         }
 
-        introduceMutations(founderGvcf.toFile(), nonFounderGvcf.toFile(), outputDir.toFile())
+        introduceMutations(baseGvcf.toFile(), mutationDonorGvcf.toFile(), outputDir.toFile())
 
     }
 
-    fun introduceMutations(founderGvcf: File, mutationGvcf: File, outputDir: File) {
+    fun introduceMutations(baseGvcf: File, mutationDonorGvcf: File, outputDir: File) {
         //walk through the two gvcf files
         //From one  pull the mutations left
 
         //Loop through the founderGVCF and build a RangeMap of Position to Variant
-        val (sampleName, founderVariantMap) = buildFounderVariantMap(founderGvcf)
+        val (sampleName, baseVariantMap) = buildBaseVariantMap(baseGvcf)
 
-        addNewVariants(mutationGvcf, founderVariantMap)
+        addNewVariants(mutationDonorGvcf, baseVariantMap)
 
-        writeMutatedGVCF(outputDir, sampleName, founderVariantMap)
+        writeMutatedGVCF(outputDir, sampleName, baseVariantMap)
     }
 
-    fun buildFounderVariantMap(founderGvcf: File) : Pair<String,RangeMap<Position, SimpleVariant>> {
+    fun buildBaseVariantMap(baseGvcf: File) : Pair<String,RangeMap<Position, SimpleVariant>> {
         //Loop through the founderGVCF and build a RangeMap of Position to Variant
-        val variantReader = VCFFileReader(founderGvcf, false)
+        val variantReader = VCFFileReader(baseGvcf, false)
 
         val iterator = variantReader.iterator()
 
@@ -121,21 +121,21 @@ class MutateAssemblies : CliktCommand(name = "mutate-assemblies") {
         return Pair(sampleName,rangeMap)
     }
 
-    fun addNewVariants(mutationGvcf: File, founderVariantMap: RangeMap<Position, SimpleVariant>) {
-        val variantReader = VCFFileReader(mutationGvcf, false)
+    fun addNewVariants(mutationDonorGvcf: File, baseVariantMap: RangeMap<Position, SimpleVariant>) {
+        val variantReader = VCFFileReader(mutationDonorGvcf, false)
 
         val iterator = variantReader.iterator()
 
         while(iterator.hasNext()) {
             val vc = iterator.next()
 
-            extractVCAndAddToRangeMap(vc, founderVariantMap)
+            extractVCAndAddToRangeMap(vc, baseVariantMap)
         }
     }
 
     fun extractVCAndAddToRangeMap(
         vc: VariantContext,
-        founderVariantMap: RangeMap<Position, SimpleVariant>
+        baseVariantMap: RangeMap<Position, SimpleVariant>
     ) {
         val refChr = vc.contig
         val refStart = vc.start
@@ -149,7 +149,7 @@ class MutateAssemblies : CliktCommand(name = "mutate-assemblies") {
         val currentSimpleVariant =
             SimpleVariant(Position(refChr, refStart), Position(refChr, refEnd), refAllele, altAllele, true)
 
-        val overlappingVariant = founderVariantMap.get(variantPosition)
+        val overlappingVariant = baseVariantMap.get(variantPosition)
 
         //Skip if refBlock
         if(currentSimpleVariant.refAllele.length == 1 && currentSimpleVariant.altAllele == "<NON_REF>") {
@@ -163,19 +163,19 @@ class MutateAssemblies : CliktCommand(name = "mutate-assemblies") {
 
         if (overlappingVariant == null) {
             //This is a new variant we can add as it does not overlap with an existing variant
-            founderVariantMap.put(
+            baseVariantMap.put(
                 Range.closed(Position(refChr, refStart), Position(refChr, refEnd)),
                 currentSimpleVariant
             )
         } else {
             //we need to split out the existing and add the new variant
-            updateOverlappingVariant(founderVariantMap, currentSimpleVariant)
+            updateOverlappingVariant(baseVariantMap, currentSimpleVariant)
         }
     }
 
-    fun updateOverlappingVariant(founderVariantMap: RangeMap<Position, SimpleVariant>, variant: SimpleVariant) {
+    fun updateOverlappingVariant(baseVariantMap: RangeMap<Position, SimpleVariant>, variant: SimpleVariant) {
         //Get out the overlapping entry
-        val overlappingEntry = founderVariantMap.getEntry(variant.refStart)?: return
+        val overlappingEntry = baseVariantMap.getEntry(variant.refStart)?: return
 
         //split it up based on the new variant
         val existingVariant = overlappingEntry.value
@@ -188,16 +188,16 @@ class MutateAssemblies : CliktCommand(name = "mutate-assemblies") {
         //Check to see if the existing Variant is a SNP
         if(existingVariant.refStart == existingVariant.refEnd) {
             //SNP case, we can just replace it
-            founderVariantMap.put(Range.closed(variant.refStart, variant.refEnd), variant)
+            baseVariantMap.put(Range.closed(variant.refStart, variant.refEnd), variant)
         }
         else if( existingVariant.refAllele.length == 1 && existingVariant.altAllele == "<NON_REF>"  //This checks that the existing variant is a refBlock
             && variant.refAllele.length == 1 ) { //This means current variant is a SNP or single BP insertion which can be treated like a normal SNP as it only covers 1 ref BP
             //This is a refBlock case that fully covers the new variant
             val splitVariants = splitRefBlock(existingVariant, variant)
 
-            founderVariantMap.remove(overlappingEntry.key)
+            baseVariantMap.remove(overlappingEntry.key)
             for(sv in splitVariants) {
-                founderVariantMap.put(Range.closed(sv.refStart, sv.refEnd), sv)
+                baseVariantMap.put(Range.closed(sv.refStart, sv.refEnd), sv)
             }
         }
         //We also need to handle a complex edge case where we have an indel overlapping another indel.
@@ -251,7 +251,7 @@ class MutateAssemblies : CliktCommand(name = "mutate-assemblies") {
         return splitVariants
     }
 
-    fun writeMutatedGVCF(outputDir: File, sampleName: String, founderVariantMap: RangeMap<Position, SimpleVariant>) {
+    fun writeMutatedGVCF(outputDir: File, sampleName: String, baseVariantMap: RangeMap<Position, SimpleVariant>) {
         val outputGvcfFile = File(outputDir, "${sampleName}_mutated.g.vcf")
         VariantContextWriterBuilder()
             .unsetOption(Options.INDEX_ON_THE_FLY)
@@ -262,7 +262,7 @@ class MutateAssemblies : CliktCommand(name = "mutate-assemblies") {
 
                 writer.writeHeader(createGenericHeader(listOf(sampleName), emptySet()))
 
-                val sortedVariants = founderVariantMap.asMapOfRanges().toList().sortedBy { it.first.lowerEndpoint() }
+                val sortedVariants = baseVariantMap.asMapOfRanges().toList().sortedBy { it.first.lowerEndpoint() }
 
                 for ((range, variant) in sortedVariants) {
                     val vcBuilder = VariantContextBuilder()
