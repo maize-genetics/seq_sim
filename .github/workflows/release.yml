@@ -203,27 +203,38 @@ jobs:
           REPO="${{ github.repository }}"
 
           # Read extracted PR content
-          SUMMARY=$(cat /tmp/summaries.txt)
-          FEATURES=$(cat /tmp/features.txt)
-          BUG_FIXES=$(cat /tmp/bugfixes.txt)
-          BREAKING_CHANGES=$(cat /tmp/breaking.txt)
+          SUMMARY=$(cat /tmp/summaries.txt 2>/dev/null || echo "")
+          FEATURES=$(cat /tmp/features.txt 2>/dev/null || echo "")
+          BUG_FIXES=$(cat /tmp/bugfixes.txt 2>/dev/null || echo "")
+          BREAKING_CHANGES=$(cat /tmp/breaking.txt 2>/dev/null || echo "")
+
+          # Ensure defaults for empty or whitespace-only sections
+          [[ ! "$SUMMARY" =~ [^[:space:]] ]] && SUMMARY="See individual changes below."
+          [[ ! "$FEATURES" =~ [^[:space:]] ]] && FEATURES="- None"
+          [[ ! "$BUG_FIXES" =~ [^[:space:]] ]] && BUG_FIXES="- None"
+          [[ ! "$BREAKING_CHANGES" =~ [^[:space:]] ]] && BREAKING_CHANGES="- None"
 
           # Read template
           NOTES=$(cat .github/RELEASE_TEMPLATE.md)
 
-          # Substitute variables using sed for multiline content
+          # Substitute simple variables using sed
           echo "$NOTES" | \
             sed "s|\${VERSION}|$VERSION|g" | \
             sed "s|\${REPO}|$REPO|g" | \
             sed "s|\${PREVIOUS_TAG}|$PREVIOUS_TAG|g" > release_notes.md
 
-          # Replace section placeholders with content
-          sed -i "s|\${SUMMARY}|$SUMMARY|g" release_notes.md
-
-          # Use awk for multiline replacements
-          awk -v features="$FEATURES" '{gsub(/\${FEATURES}/, features)}1' release_notes.md > tmp && mv tmp release_notes.md
-          awk -v bugfixes="$BUG_FIXES" '{gsub(/\${BUG_FIXES}/, bugfixes)}1' release_notes.md > tmp && mv tmp release_notes.md
-          awk -v breaking="$BREAKING_CHANGES" '{gsub(/\${BREAKING_CHANGES}/, breaking)}1' release_notes.md > tmp && mv tmp release_notes.md
+          # Use awk with environment variables for multiline replacements
+          # ENVIRON properly handles newlines in the replacement strings
+          export SUMMARY FEATURES BUG_FIXES BREAKING_CHANGES
+          awk '
+          {
+            gsub(/\${SUMMARY}/, ENVIRON["SUMMARY"])
+            gsub(/\${FEATURES}/, ENVIRON["FEATURES"])
+            gsub(/\${BUG_FIXES}/, ENVIRON["BUG_FIXES"])
+            gsub(/\${BREAKING_CHANGES}/, ENVIRON["BREAKING_CHANGES"])
+            print
+          }
+          ' release_notes.md > tmp && mv tmp release_notes.md
 
       - name: Create version tag
         if: steps.check_version.outputs.skip_release != 'true'

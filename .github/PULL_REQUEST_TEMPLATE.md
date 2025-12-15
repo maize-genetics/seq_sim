@@ -4,7 +4,6 @@
 
 
 
----
 
 ## Features
 
@@ -17,9 +16,8 @@
   - Another feature added
 -->
 
-- 
+- None
 
----
 
 ## Bug Fixes
 
@@ -32,9 +30,8 @@
   - Resolved crash when doing Z
 -->
 
-- 
+- None
 
----
 
 ## Breaking Changes
 
@@ -48,9 +45,8 @@
   - Changed output format from X to Y
 -->
 
-- 
+- None
 
----
 
 ## Checklist
 
@@ -60,7 +56,6 @@
 - [ ] I have updated documentation (if applicable)
 - [ ] Breaking changes are clearly documented above
 
----
 
 <!--
 
