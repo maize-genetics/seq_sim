@@ -8,11 +8,9 @@ import com.github.ajalt.clikt.parameters.options.required
 import com.github.ajalt.clikt.parameters.types.path
 import net.maizegenetics.Constants
 import net.maizegenetics.utils.LoggingUtils
-import net.maizegenetics.utils.ProcessRunner
 import org.apache.logging.log4j.LogManager
 import org.apache.logging.log4j.Logger
 import org.yaml.snakeyaml.Yaml
-import java.io.File
 import java.nio.file.Path
 import kotlin.io.path.*
 import kotlin.system.exitProcess
@@ -402,7 +400,6 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 val customOutput = config.align_assemblies.output?.let { Path.of(it) }
 
                 val args = buildList {
-                    add("align-assemblies")
                     add("--work-dir=${workDir}")
                     add("--ref-gff=${config.align_assemblies.ref_gff}")
                     add("--ref-fasta=${config.align_assemblies.ref_fasta}")
@@ -415,15 +412,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                     }
                 }
 
-                val exitCode = ProcessRunner.runCommand(
-                    "./gradlew", "run", "--args=${args.joinToString(" ")}",
-                    workingDir = File("."),
-                    logger = logger
-                )
-
-                if (exitCode != 0) {
-                    throw RuntimeException("align-assemblies failed with exit code $exitCode")
-                }
+                AlignAssemblies().parse(args)
 
                 // Get output path (use custom or default)
                 val outputBase = customOutput ?: workDir.resolve("output").resolve("01_anchorwave_results")
@@ -480,7 +469,6 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 val customOutput = config.maf_to_gvcf.output?.let { Path.of(it) }
 
                 val args = buildList {
-                    add("maf-to-gvcf")
                     add("--work-dir=${workDir}")
                     add("--reference-file=${refFasta}")
                     add("--maf-file=${mafInput}")
@@ -492,15 +480,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                     }
                 }
 
-                val exitCode = ProcessRunner.runCommand(
-                    "./gradlew", "run", "--args=${args.joinToString(" ")}",
-                    workingDir = File("."),
-                    logger = logger
-                )
-
-                if (exitCode != 0) {
-                    throw RuntimeException("maf-to-gvcf failed with exit code $exitCode")
-                }
+                MafToGvcf().parse(args)
 
                 // Get output directory (use custom or default)
                 gvcfOutputDir = customOutput ?: workDir.resolve("output").resolve("02_gvcf_results")
@@ -547,7 +527,6 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 val customOutput = config.downsample_gvcf.output?.let { Path.of(it) }
 
                 val args = buildList {
-                    add("downsample-gvcf")
                     add("--work-dir=${workDir}")
                     add("--gvcf-dir=${gvcfInput}")
                     if (config.downsample_gvcf.ignore_contig != null) {
@@ -570,15 +549,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                     }
                 }
 
-                val exitCode = ProcessRunner.runCommand(
-                    "./gradlew", "run", "--args=${args.joinToString(" ")}",
-                    workingDir = File("."),
-                    logger = logger
-                )
-
-                if (exitCode != 0) {
-                    throw RuntimeException("downsample-gvcf failed with exit code $exitCode")
-                }
+                DownsampleGvcf().parse(args)
 
                 // Get output directory (use custom or default)
                 downsampledGvcfOutputDir = customOutput ?: workDir.resolve("output").resolve("03_downsample_results")
@@ -628,7 +599,6 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 val customOutput = config.convert_to_fasta.output?.let { Path.of(it) }
 
                 val args = buildList {
-                    add("convert-to-fasta")
                     add("--work-dir=${workDir}")
                     add("--gvcf-file=${gvcfInput}")
                     add("--ref-fasta=${refFasta}")
@@ -643,15 +613,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                     }
                 }
 
-                val exitCode = ProcessRunner.runCommand(
-                    "./gradlew", "run", "--args=${args.joinToString(" ")}",
-                    workingDir = File("."),
-                    logger = logger
-                )
-
-                if (exitCode != 0) {
-                    throw RuntimeException("convert-to-fasta failed with exit code $exitCode")
-                }
+                ConvertToFasta().parse(args)
 
                 // Get output directory for downstream use (use custom or default)
                 fastaOutputDir = customOutput ?: workDir.resolve("output").resolve("04_fasta_results")
@@ -751,7 +713,6 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 val customOutput = config.align_mutated_assemblies.output?.let { Path.of(it) }
 
                 val args = buildList {
-                    add("align-mutated-assemblies")
                     add("--work-dir=${workDir}")
                     add("--ref-gff=${step5RefGff}")
                     add("--ref-fasta=${step5RefFasta}")
@@ -764,15 +725,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                     }
                 }
 
-                val exitCode = ProcessRunner.runCommand(
-                    "./gradlew", "run", "--args=${args.joinToString(" ")}",
-                    workingDir = File("."),
-                    logger = logger
-                )
-
-                if (exitCode != 0) {
-                    throw RuntimeException("align-mutated-assemblies failed with exit code $exitCode")
-                }
+                AlignMutatedAssemblies().parse(args)
 
                 // Save the mutated reference FASTA for use in step 6
                 mutatedRefFasta = step5RefFasta
@@ -826,7 +779,6 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 val customOutput = config.pick_crossovers.output?.let { Path.of(it) }
 
                 val args = buildList {
-                    add("pick-crossovers")
                     add("--work-dir=${workDir}")
                     add("--ref-fasta=${pickCrossoversRefFasta}")
                     add("--assembly-list=${config.pick_crossovers.assembly_list}")
@@ -835,15 +787,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                     }
                 }
 
-                val exitCode = ProcessRunner.runCommand(
-                    "./gradlew", "run", "--args=${args.joinToString(" ")}",
-                    workingDir = File("."),
-                    logger = logger
-                )
-
-                if (exitCode != 0) {
-                    throw RuntimeException("pick-crossovers failed with exit code $exitCode")
-                }
+                PickCrossovers().parse(args)
 
                 // Get output directory (use custom or default)
                 refkeyOutputDir = customOutput ?: workDir.resolve("output").resolve("06_crossovers_results")
@@ -889,7 +833,6 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 val customOutput = config.create_chain_files.output?.let { Path.of(it) }
 
                 val args = buildList {
-                    add("create-chain-files")
                     add("--work-dir=${workDir}")
                     add("--maf-input=${mafInput}")
                     if (config.create_chain_files.jobs != null) {
@@ -900,15 +843,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                     }
                 }
 
-                val exitCode = ProcessRunner.runCommand(
-                    "./gradlew", "run", "--args=${args.joinToString(" ")}",
-                    workingDir = File("."),
-                    logger = logger
-                )
-
-                if (exitCode != 0) {
-                    throw RuntimeException("create-chain-files failed with exit code $exitCode")
-                }
+                CreateChainFiles().parse(args)
 
                 // Get output directory (use custom or default)
                 chainOutputDir = customOutput ?: workDir.resolve("output").resolve("07_chain_results")
@@ -957,7 +892,6 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 val customOutput = config.convert_coordinates.output?.let { Path.of(it) }
 
                 val args = buildList {
-                    add("convert-coordinates")
                     add("--work-dir=${workDir}")
                     add("--assembly-list=${config.convert_coordinates.assembly_list}")
                     add("--chain-dir=${chainInput}")
@@ -969,15 +903,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                     }
                 }
 
-                val exitCode = ProcessRunner.runCommand(
-                    "./gradlew", "run", "--args=${args.joinToString(" ")}",
-                    workingDir = File("."),
-                    logger = logger
-                )
-
-                if (exitCode != 0) {
-                    throw RuntimeException("convert-coordinates failed with exit code $exitCode")
-                }
+                ConvertCoordinates().parse(args)
 
                 // Get output directory (use custom or default)
                 coordinatesOutputDir = customOutput ?: workDir.resolve("output").resolve("08_coordinates_results")
@@ -1023,7 +949,6 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 val customOutput = config.generate_recombined_sequences.output?.let { Path.of(it) }
 
                 val args = buildList {
-                    add("generate-recombined-sequences")
                     add("--work-dir=${workDir}")
                     add("--assembly-list=${config.generate_recombined_sequences.assembly_list}")
                     add("--chromosome-list=${config.generate_recombined_sequences.chromosome_list}")
@@ -1034,15 +959,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                     }
                 }
 
-                val exitCode = ProcessRunner.runCommand(
-                    "./gradlew", "run", "--args=${args.joinToString(" ")}",
-                    workingDir = File("."),
-                    logger = logger
-                )
-
-                if (exitCode != 0) {
-                    throw RuntimeException("generate-recombined-sequences failed with exit code $exitCode")
-                }
+                GenerateRecombinedSequences().parse(args)
 
                 // Get output directory (use custom or default)
                 val outputBase = customOutput ?: workDir.resolve("output").resolve("09_recombined_sequences")
@@ -1086,7 +1003,6 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 val customOutput = config.format_recombined_fastas.output?.let { Path.of(it) }
 
                 val args = buildList {
-                    add("format-recombined-fastas")
                     add("--work-dir=${workDir}")
                     add("--fasta-input=${fastaInput}")
                     if (config.format_recombined_fastas.line_width != null) {
@@ -1100,15 +1016,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                     }
                 }
 
-                val exitCode = ProcessRunner.runCommand(
-                    "./gradlew", "run", "--args=${args.joinToString(" ")}",
-                    workingDir = File("."),
-                    logger = logger
-                )
-
-                if (exitCode != 0) {
-                    throw RuntimeException("format-recombined-fastas failed with exit code $exitCode")
-                }
+                FormatRecombinedFastas().parse(args)
 
                 // Get output directory (use custom or default)
                 formattedFastasDir = customOutput ?: workDir.resolve("output").resolve("10_formatted_fastas")
