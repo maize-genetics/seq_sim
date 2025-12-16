@@ -42,9 +42,11 @@ data class AlignAssembliesConfig(
 )
 
 data class MafToGvcfConfig(
-    val sample_name: String? = null,
-    val input: String? = null,   // Custom MAF file/directory path
-    val output: String? = null   // Custom GVCF output directory
+    val reference_file: String? = null,  // Optional: Reference FASTA (uses align_assemblies.ref_fasta if not specified)
+    val maf_file: String? = null,        // Optional: MAF file/directory/list (uses step 1 output if not specified)
+    val output_file: String? = null,     // Optional: Output GVCF file name
+    val sample_name: String? = null,     // Optional: Sample name for GVCF
+    val output_dir: String? = null       // Optional: Custom GVCF output directory
 )
 
 data class DownsampleGvcfConfig(
@@ -210,9 +212,11 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
             val mafToGvcfMap = configMap["maf_to_gvcf"] as? Map<String, Any>
             val mafToGvcf = mafToGvcfMap?.let {
                 MafToGvcfConfig(
+                    reference_file = it["reference_file"] as? String,
+                    maf_file = it["maf_file"] as? String,
+                    output_file = it["output_file"] as? String,
                     sample_name = it["sample_name"] as? String,
-                    input = it["input"] as? String,
-                    output = it["output"] as? String
+                    output_dir = it["output_dir"] as? String
                 )
             }
 
@@ -339,8 +343,8 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
         // Parse configuration
         val config = parseYamlConfig(configFile)
 
-        // Determine working directory
-        val workDir = Path.of(config.work_dir ?: Constants.DEFAULT_WORK_DIR)
+        // Determine working directory and resolve to absolute path for consistency
+        val workDir = Path.of(config.work_dir ?: Constants.DEFAULT_WORK_DIR).toAbsolutePath().normalize()
 
         // Auto-detect and run setup-environment if needed
         logger.info("Validating environment setup...")
@@ -393,22 +397,30 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 logger.info("STEP 1: Align Assemblies")
                 logger.info("=".repeat(80))
 
-                refFasta = Path.of(config.align_assemblies.ref_fasta)
-                refGff = Path.of(config.align_assemblies.ref_gff)
+                // Resolve all paths to absolute paths for consistency
+                refFasta = Path.of(config.align_assemblies.ref_fasta).toAbsolutePath().normalize()
+                refGff = Path.of(config.align_assemblies.ref_gff).toAbsolutePath().normalize()
+                val queryFasta = Path.of(config.align_assemblies.query_fasta).toAbsolutePath().normalize()
 
-                // Determine output directory (custom or default)
-                val customOutput = config.align_assemblies.output?.let { Path.of(it) }
+                // Determine output directory (custom or default) - also resolve to absolute path
+                val customOutput = config.align_assemblies.output?.let { 
+                    Path.of(it).toAbsolutePath().normalize() 
+                }
+
+                logger.info("Reference GFF: $refGff")
+                logger.info("Reference FASTA: $refFasta")
+                logger.info("Query FASTA: $queryFasta")
 
                 val args = buildList {
-                    add("--work-dir=${workDir}")
-                    add("--ref-gff=${config.align_assemblies.ref_gff}")
-                    add("--ref-fasta=${config.align_assemblies.ref_fasta}")
-                    add("--query-fasta=${config.align_assemblies.query_fasta}")
+                    add("--work-dir=$workDir")
+                    add("--ref-gff=$refGff")
+                    add("--ref-fasta=$refFasta")
+                    add("--query-fasta=$queryFasta")
                     if (config.align_assemblies.threads != null) {
                         add("--threads=${config.align_assemblies.threads}")
                     }
                     if (customOutput != null) {
-                        add("--output-dir=${customOutput}")
+                        add("--output-dir=$customOutput")
                     }
                 }
 
@@ -416,7 +428,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
 
                 // Get output path (use custom or default)
                 val outputBase = customOutput ?: workDir.resolve("output").resolve("01_anchorwave_results")
-                mafFilePaths = outputBase.resolve("maf_file_paths.txt")
+                mafFilePaths = outputBase.toAbsolutePath().normalize().resolve("maf_file_paths.txt")
 
                 if (!mafFilePaths.exists()) {
                     throw RuntimeException("Expected MAF paths file not found: $mafFilePaths")
@@ -429,13 +441,16 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 if (config.align_assemblies != null) {
                     logger.info("Skipping align-assemblies (not in run_steps)")
 
-                    // Try to use outputs from previous run
-                    refFasta = Path.of(config.align_assemblies.ref_fasta)
-                    refGff = Path.of(config.align_assemblies.ref_gff)
+                    // Try to use outputs from previous run - resolve to absolute paths
+                    refFasta = Path.of(config.align_assemblies.ref_fasta).toAbsolutePath().normalize()
+                    refGff = Path.of(config.align_assemblies.ref_gff).toAbsolutePath().normalize()
                     
                     // Check custom output location first, then default
-                    val customOutput = config.align_assemblies.output?.let { Path.of(it) }
-                    val outputBase = customOutput ?: workDir.resolve("output").resolve("01_anchorwave_results")
+                    val customOutput = config.align_assemblies.output?.let { 
+                        Path.of(it).toAbsolutePath().normalize() 
+                    }
+                    val outputBase = (customOutput ?: workDir.resolve("output").resolve("01_anchorwave_results"))
+                        .toAbsolutePath().normalize()
                     val previousMafPaths = outputBase.resolve("maf_file_paths.txt")
 
                     if (previousMafPaths.exists()) {
@@ -456,34 +471,55 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 logger.info("STEP 2: MAF to GVCF Conversion")
                 logger.info("=".repeat(80))
 
-                // Determine input (custom or from previous step)
-                val mafInput = config.maf_to_gvcf.input?.let { Path.of(it) } ?: mafFilePaths
-                if (mafInput == null) {
-                    throw RuntimeException("Cannot run maf-to-gvcf: no MAF input available (specify 'input' in config or run align-assemblies first)")
-                }
-                if (refFasta == null) {
-                    throw RuntimeException("Cannot run maf-to-gvcf: reference FASTA not available")
+                // Determine reference file (custom or from step 1) - resolve to absolute path
+                val step2RefFasta = config.maf_to_gvcf.reference_file?.let { 
+                    Path.of(it).toAbsolutePath().normalize() 
+                } ?: refFasta
+                if (step2RefFasta == null) {
+                    throw RuntimeException("Cannot run maf-to-gvcf: reference FASTA not available (specify 'reference_file' in config or run align-assemblies first)")
                 }
 
-                // Determine output directory (custom or default)
-                val customOutput = config.maf_to_gvcf.output?.let { Path.of(it) }
+                // Determine MAF input (custom or from step 1) - resolve to absolute path
+                val mafInput = config.maf_to_gvcf.maf_file?.let { 
+                    Path.of(it).toAbsolutePath().normalize() 
+                } ?: mafFilePaths
+                if (mafInput == null) {
+                    throw RuntimeException("Cannot run maf-to-gvcf: no MAF input available (specify 'maf_file' in config or run align-assemblies first)")
+                }
+
+                // Determine output directory (custom or default) - resolve to absolute path
+                val customOutputDir = config.maf_to_gvcf.output_dir?.let { 
+                    Path.of(it).toAbsolutePath().normalize() 
+                }
+
+                // Determine output file if specified - resolve to absolute path
+                val outputFile = config.maf_to_gvcf.output_file?.let { 
+                    Path.of(it).toAbsolutePath().normalize() 
+                }
+
+                logger.info("Reference FASTA: $step2RefFasta")
+                logger.info("MAF input: $mafInput")
 
                 val args = buildList {
-                    add("--work-dir=${workDir}")
-                    add("--reference-file=${refFasta}")
-                    add("--maf-file=${mafInput}")
+                    add("--work-dir=$workDir")
+                    add("--reference-file=$step2RefFasta")
+                    add("--maf-file=$mafInput")
+                    if (outputFile != null) {
+                        add("--output-file=$outputFile")
+                    }
                     if (config.maf_to_gvcf.sample_name != null) {
                         add("--sample-name=${config.maf_to_gvcf.sample_name}")
                     }
-                    if (customOutput != null) {
-                        add("--output-dir=${customOutput}")
+                    if (customOutputDir != null) {
+                        add("--output-dir=$customOutputDir")
                     }
                 }
 
                 MafToGvcf().parse(args)
 
                 // Get output directory (use custom or default)
-                gvcfOutputDir = customOutput ?: workDir.resolve("output").resolve("02_gvcf_results")
+                gvcfOutputDir = (customOutputDir ?: workDir.resolve("output").resolve("02_gvcf_results"))
+                    .toAbsolutePath().normalize()
 
                 if (!gvcfOutputDir.exists()) {
                     throw RuntimeException("Expected GVCF output directory not found: $gvcfOutputDir")
@@ -497,8 +533,11 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                     logger.info("Skipping maf-to-gvcf (not in run_steps)")
 
                     // Check custom output location first, then default
-                    val customOutput = config.maf_to_gvcf.output?.let { Path.of(it) }
-                    val previousGvcfDir = customOutput ?: workDir.resolve("output").resolve("02_gvcf_results")
+                    val customOutputDir = config.maf_to_gvcf.output_dir?.let { 
+                        Path.of(it).toAbsolutePath().normalize() 
+                    }
+                    val previousGvcfDir = (customOutputDir ?: workDir.resolve("output").resolve("02_gvcf_results"))
+                        .toAbsolutePath().normalize()
                     if (previousGvcfDir.exists()) {
                         gvcfOutputDir = previousGvcfDir
                         logger.info("Using previous maf-to-gvcf outputs: $gvcfOutputDir")

@@ -79,9 +79,13 @@ align_assemblies:
 # Converts MAF files from align_assemblies to compressed GVCF format
 # Automatically uses ref_fasta from align_assemblies and MAF output paths
 maf_to_gvcf:
-  sample_name: "optional_sample_name"    # Optional: Override sample name in GVCF
-  # input: "/custom/maf/files.txt"       # Optional: Custom MAF input (file, directory, or text list)
-  # output: "/custom/gvcf/output/"       # Optional: Custom output directory
+  # reference_file: "path/to/reference.fa"  # Optional: Reference FASTA file
+                                            #           Uses align_assemblies.ref_fasta if not specified
+  # maf_file: "/custom/maf/files.txt"       # Optional: MAF file, directory, or text list
+                                            #           Uses step 1 MAF outputs if not specified
+  # output_file: "sample.g.vcf.gz"          # Optional: Output GVCF filename (auto-generated if not specified)
+  # sample_name: "optional_sample_name"     # Optional: Override sample name in GVCF
+  # output_dir: "/custom/gvcf/output/"      # Optional: Custom output directory
 
 # Step 3: Downsample GVCF
 # Downsamples GVCF files at specified rates per chromosome
