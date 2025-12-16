@@ -208,6 +208,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
             }
 
             // Parse maf_to_gvcf
+            @Suppress("UNCHECKED_CAST")
             val mafToGvcfMap = configMap["maf_to_gvcf"] as? Map<String, Any>
             val mafToGvcf = mafToGvcfMap?.let {
                 MafToGvcfConfig(
@@ -218,6 +219,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
             }
 
             // Parse downsample_gvcf
+            @Suppress("UNCHECKED_CAST")
             val downsampleGvcfMap = configMap["downsample_gvcf"] as? Map<String, Any>
             val downsampleGvcf = downsampleGvcfMap?.let {
                 DownsampleGvcfConfig(
@@ -232,6 +234,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
             }
 
             // Parse convert_to_fasta
+            @Suppress("UNCHECKED_CAST")
             val convertToFastaMap = configMap["convert_to_fasta"] as? Map<String, Any>
             val convertToFasta = convertToFastaMap?.let {
                 ConvertToFastaConfig(
