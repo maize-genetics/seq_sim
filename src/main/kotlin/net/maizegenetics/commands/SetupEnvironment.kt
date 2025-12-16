@@ -98,7 +98,8 @@ class SetupEnvironment : CliktCommand(name = "setup-environment") {
             .toFile()
 
         if (mlImputeGradlew.exists()) {
-            if (mlImputeGradlew.setExecutable(true)) {
+            // setExecutable(true, false) makes it executable for all users (like chmod +x)
+            if (mlImputeGradlew.setExecutable(true, false)) {
                 logger.info("Made MLImpute gradlew executable: ${mlImputeGradlew.path}")
             } else {
                 logger.warn("Failed to set executable permissions on gradlew: ${mlImputeGradlew.path}")

@@ -120,8 +120,11 @@ class GenerateRecombinedSequences : CliktCommand(name = "generate-recombined-seq
         }
 
         // Run write_fastas.py
+        // Set PYTHONPATH so Python can find the 'python' package for imports
+        val pythonPath = mlimputeDir.resolve("src").toString()
         logger.info("Running write_fastas.py")
         val exitCode = ProcessRunner.runCommand(
+            "env", "PYTHONPATH=$pythonPath",
             "pixi", "run",
             "python", pythonScript.toString(),
             "--assembly-list", assemblyList.toString(),

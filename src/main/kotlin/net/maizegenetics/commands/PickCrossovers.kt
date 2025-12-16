@@ -77,12 +77,17 @@ class PickCrossovers : CliktCommand(name = "pick-crossovers") {
         FileUtils.createOutputDirectory(outputDir, logger)
 
         // Run pick_crossovers.py
+        // Set PYTHONPATH so Python can find the 'python' package for imports
+        // Use absolute paths since the working directory is set to outputDir
+        // Use sh -c to set PYTHONPATH inside pixi's environment
+        val pythonPath = mlimputeDir.resolve("src").toAbsolutePath().toString()
+        val scriptPath = pythonScript.toAbsolutePath().toString()
+        val refFastaPath = refFasta.toAbsolutePath().toString()
+        val assemblyListPath = assemblyList.toAbsolutePath().toString()
+        val shellCommand = "PYTHONPATH='$pythonPath' python '$scriptPath' --ref-fasta '$refFastaPath' --assembly-list '$assemblyListPath'"
         logger.info("Running pick_crossovers.py")
         val exitCode = ProcessRunner.runCommand(
-            "pixi", "run",
-            "python", pythonScript.toString(),
-            "--ref-fasta", refFasta.toString(),
-            "--assembly-list", assemblyList.toString(),
+            "pixi", "run", "sh", "-c", shellCommand,
             workingDir = outputDir.toFile(),
             logger = logger
         )

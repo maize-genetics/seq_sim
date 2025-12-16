@@ -1,6 +1,7 @@
 package net.maizegenetics.commands
 
 import com.github.ajalt.clikt.core.CliktCommand
+import com.github.ajalt.clikt.core.parse
 import com.github.ajalt.clikt.parameters.options.default
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.options.required
@@ -167,24 +168,14 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
         logger.info("AUTO-SETUP: Running setup-environment")
         logger.info("=".repeat(80))
 
-        val args = buildList {
-            add("setup-environment")
-            add("--work-dir=${workDir}")
+        return try {
+            SetupEnvironment().parse(listOf("--work-dir=$workDir"))
+            logger.info("setup-environment completed successfully")
+            true
+        } catch (e: Exception) {
+            logger.error("setup-environment failed: ${e.message}", e)
+            false
         }
-
-        val exitCode = ProcessRunner.runCommand(
-            "./gradlew", "run", "--args=${args.joinToString(" ")}",
-            workingDir = File("."),
-            logger = logger
-        )
-
-        if (exitCode != 0) {
-            logger.error("setup-environment failed with exit code $exitCode")
-            return false
-        }
-
-        logger.info("setup-environment completed successfully")
-        return true
     }
 
     private fun parseYamlConfig(configPath: Path): PipelineConfig {
@@ -217,6 +208,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
             }
 
             // Parse maf_to_gvcf
+            @Suppress("UNCHECKED_CAST")
             val mafToGvcfMap = configMap["maf_to_gvcf"] as? Map<String, Any>
             val mafToGvcf = mafToGvcfMap?.let {
                 MafToGvcfConfig(
@@ -227,6 +219,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
             }
 
             // Parse downsample_gvcf
+            @Suppress("UNCHECKED_CAST")
             val downsampleGvcfMap = configMap["downsample_gvcf"] as? Map<String, Any>
             val downsampleGvcf = downsampleGvcfMap?.let {
                 DownsampleGvcfConfig(
@@ -241,6 +234,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
             }
 
             // Parse convert_to_fasta
+            @Suppress("UNCHECKED_CAST")
             val convertToFastaMap = configMap["convert_to_fasta"] as? Map<String, Any>
             val convertToFasta = convertToFastaMap?.let {
                 ConvertToFastaConfig(
