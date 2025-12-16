@@ -91,7 +91,7 @@ maf_to_gvcf:
 # Downsamples GVCF files at specified rates per chromosome
 # Automatically uses GVCF output directory from maf_to_gvcf
 downsample_gvcf:
-  ignore_contig: ""                      # Optional: Comma-separated patterns to ignore
+  ignore_contig: "__NO_MATCH__"          # Optional: Comma-separated patterns to ignore
   rates: "0.01,0.05,0.1,0.15,0.2"        # Optional: Comma-separated downsampling rates
   seed: 42                               # Optional: Random seed for reproducibility
   keep_ref: true                         # Optional: Keep reference blocks (true/false, default: true)
