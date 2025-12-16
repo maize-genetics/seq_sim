@@ -207,58 +207,58 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 )
             }
 
-            // Parse maf_to_gvcf
+            // Parse maf_to_gvcf - check if key exists (even with empty/null value means "run with defaults")
             @Suppress("UNCHECKED_CAST")
             val mafToGvcfMap = configMap["maf_to_gvcf"] as? Map<String, Any>
-            val mafToGvcf = mafToGvcfMap?.let {
+            val mafToGvcf = if (configMap.containsKey("maf_to_gvcf")) {
                 MafToGvcfConfig(
-                    reference_file = it["reference_file"] as? String,
-                    maf_file = it["maf_file"] as? String,
-                    output_file = it["output_file"] as? String,
-                    sample_name = it["sample_name"] as? String,
-                    output_dir = it["output_dir"] as? String
+                    reference_file = mafToGvcfMap?.get("reference_file") as? String,
+                    maf_file = mafToGvcfMap?.get("maf_file") as? String,
+                    output_file = mafToGvcfMap?.get("output_file") as? String,
+                    sample_name = mafToGvcfMap?.get("sample_name") as? String,
+                    output_dir = mafToGvcfMap?.get("output_dir") as? String
                 )
-            }
+            } else null
 
-            // Parse downsample_gvcf
+            // Parse downsample_gvcf - check if key exists (even with empty/null value means "run with defaults")
             @Suppress("UNCHECKED_CAST")
             val downsampleGvcfMap = configMap["downsample_gvcf"] as? Map<String, Any>
-            val downsampleGvcf = downsampleGvcfMap?.let {
+            val downsampleGvcf = if (configMap.containsKey("downsample_gvcf")) {
                 DownsampleGvcfConfig(
-                    ignore_contig = it["ignore_contig"] as? String,
-                    rates = it["rates"] as? String,
-                    seed = it["seed"] as? Int,
-                    keep_ref = it["keep_ref"] as? Boolean,
-                    min_ref_block_size = it["min_ref_block_size"] as? Int,
-                    input = it["input"] as? String,
-                    output = it["output"] as? String
+                    ignore_contig = downsampleGvcfMap?.get("ignore_contig") as? String,
+                    rates = downsampleGvcfMap?.get("rates") as? String,
+                    seed = downsampleGvcfMap?.get("seed") as? Int,
+                    keep_ref = downsampleGvcfMap?.get("keep_ref") as? Boolean,
+                    min_ref_block_size = downsampleGvcfMap?.get("min_ref_block_size") as? Int,
+                    input = downsampleGvcfMap?.get("input") as? String,
+                    output = downsampleGvcfMap?.get("output") as? String
                 )
-            }
+            } else null
 
-            // Parse convert_to_fasta
+            // Parse convert_to_fasta - check if key exists (even with empty/null value means "run with defaults")
             @Suppress("UNCHECKED_CAST")
             val convertToFastaMap = configMap["convert_to_fasta"] as? Map<String, Any>
-            val convertToFasta = convertToFastaMap?.let {
+            val convertToFasta = if (configMap.containsKey("convert_to_fasta")) {
                 ConvertToFastaConfig(
-                    missing_records_as = it["missing_records_as"] as? String,
-                    missing_genotype_as = it["missing_genotype_as"] as? String,
-                    input = it["input"] as? String,
-                    output = it["output"] as? String
+                    missing_records_as = convertToFastaMap?.get("missing_records_as") as? String,
+                    missing_genotype_as = convertToFastaMap?.get("missing_genotype_as") as? String,
+                    input = convertToFastaMap?.get("input") as? String,
+                    output = convertToFastaMap?.get("output") as? String
                 )
-            }
+            } else null
 
-            // Parse align_mutated_assemblies
+            // Parse align_mutated_assemblies - check if key exists (even with empty/null value means "run with defaults")
             @Suppress("UNCHECKED_CAST")
             val alignMutatedAssembliesMap = configMap["align_mutated_assemblies"] as? Map<String, Any>
-            val alignMutatedAssemblies = alignMutatedAssembliesMap?.let {
+            val alignMutatedAssemblies = if (configMap.containsKey("align_mutated_assemblies")) {
                 AlignMutatedAssembliesConfig(
-                    ref_gff = it["ref_gff"] as? String,
-                    ref_fasta = it["ref_fasta"] as? String,
-                    fasta_input = it["fasta_input"] as? String,
-                    threads = it["threads"] as? Int,
-                    output = it["output"] as? String
+                    ref_gff = alignMutatedAssembliesMap?.get("ref_gff") as? String,
+                    ref_fasta = alignMutatedAssembliesMap?.get("ref_fasta") as? String,
+                    fasta_input = alignMutatedAssembliesMap?.get("fasta_input") as? String,
+                    threads = alignMutatedAssembliesMap?.get("threads") as? Int,
+                    output = alignMutatedAssembliesMap?.get("output") as? String
                 )
-            }
+            } else null
 
             // Parse pick_crossovers
             @Suppress("UNCHECKED_CAST")
@@ -271,16 +271,16 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 )
             }
 
-            // Parse create_chain_files
+            // Parse create_chain_files - check if key exists (even with empty/null value means "run with defaults")
             @Suppress("UNCHECKED_CAST")
             val createChainFilesMap = configMap["create_chain_files"] as? Map<String, Any>
-            val createChainFiles = createChainFilesMap?.let {
+            val createChainFiles = if (configMap.containsKey("create_chain_files")) {
                 CreateChainFilesConfig(
-                    jobs = it["jobs"] as? Int,
-                    input = it["input"] as? String,
-                    output = it["output"] as? String
+                    jobs = createChainFilesMap?.get("jobs") as? Int,
+                    input = createChainFilesMap?.get("input") as? String,
+                    output = createChainFilesMap?.get("output") as? String
                 )
-            }
+            } else null
 
             // Parse convert_coordinates
             @Suppress("UNCHECKED_CAST")
@@ -307,17 +307,17 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 )
             }
 
-            // Parse format_recombined_fastas
+            // Parse format_recombined_fastas - check if key exists (even with empty/null value means "run with defaults")
             @Suppress("UNCHECKED_CAST")
             val formatRecombinedFastasMap = configMap["format_recombined_fastas"] as? Map<String, Any>
-            val formatRecombinedFastas = formatRecombinedFastasMap?.let {
+            val formatRecombinedFastas = if (configMap.containsKey("format_recombined_fastas")) {
                 FormatRecombinedFastasConfig(
-                    line_width = it["line_width"] as? Int,
-                    threads = it["threads"] as? Int,
-                    input = it["input"] as? String,
-                    output = it["output"] as? String
+                    line_width = formatRecombinedFastasMap?.get("line_width") as? Int,
+                    threads = formatRecombinedFastasMap?.get("threads") as? Int,
+                    input = formatRecombinedFastasMap?.get("input") as? String,
+                    output = formatRecombinedFastasMap?.get("output") as? String
                 )
-            }
+            } else null
 
             return PipelineConfig(
                 work_dir = workDir,
