@@ -211,8 +211,8 @@ class ConvertToFasta : CliktCommand(name = "convert-to-fasta") {
             "FASTA file"
         )
 
-        // Clean up temp directory
-        if (tempDir.exists() && preparedFiles.any { it.parent == tempDir }) {
+        // Clean up temp directory - always clean up if it exists
+        if (tempDir.exists()) {
             logger.info("Cleaning up temporary uncompressed files")
             try {
                 tempDir.deleteRecursively()

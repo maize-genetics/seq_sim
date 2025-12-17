@@ -178,6 +178,16 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
         }
     }
 
+    /**
+     * Restores the orchestrator's log file after a step command has run.
+     * Each step command sets up its own log file, so we need to restore
+     * the orchestrator's log file to ensure orchestrator messages go to
+     * the correct log file.
+     */
+    private fun restoreOrchestratorLogging(workDir: Path) {
+        LoggingUtils.setupFileLogging(workDir, LOG_FILE_NAME, logger)
+    }
+
     private fun parseYamlConfig(configPath: Path): PipelineConfig {
         logger.info("Parsing configuration file: $configPath")
 
@@ -425,6 +435,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 }
 
                 AlignAssemblies().parse(args)
+                restoreOrchestratorLogging(workDir)
 
                 // Get output path (use custom or default)
                 val outputBase = customOutput ?: workDir.resolve("output").resolve("01_anchorwave_results")
@@ -516,6 +527,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 }
 
                 MafToGvcf().parse(args)
+                restoreOrchestratorLogging(workDir)
 
                 // Get output directory (use custom or default)
                 gvcfOutputDir = (customOutputDir ?: workDir.resolve("output").resolve("02_gvcf_results"))
@@ -589,6 +601,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 }
 
                 DownsampleGvcf().parse(args)
+                restoreOrchestratorLogging(workDir)
 
                 // Get output directory (use custom or default)
                 downsampledGvcfOutputDir = customOutput ?: workDir.resolve("output").resolve("03_downsample_results")
@@ -653,6 +666,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 }
 
                 ConvertToFasta().parse(args)
+                restoreOrchestratorLogging(workDir)
 
                 // Get output directory for downstream use (use custom or default)
                 fastaOutputDir = customOutput ?: workDir.resolve("output").resolve("04_fasta_results")
@@ -765,6 +779,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 }
 
                 AlignMutatedAssemblies().parse(args)
+                restoreOrchestratorLogging(workDir)
 
                 // Save the mutated reference FASTA for use in step 6
                 mutatedRefFasta = step5RefFasta
@@ -827,6 +842,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 }
 
                 PickCrossovers().parse(args)
+                restoreOrchestratorLogging(workDir)
 
                 // Get output directory (use custom or default)
                 refkeyOutputDir = customOutput ?: workDir.resolve("output").resolve("06_crossovers_results")
@@ -883,6 +899,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 }
 
                 CreateChainFiles().parse(args)
+                restoreOrchestratorLogging(workDir)
 
                 // Get output directory (use custom or default)
                 chainOutputDir = customOutput ?: workDir.resolve("output").resolve("07_chain_results")
@@ -943,6 +960,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 }
 
                 ConvertCoordinates().parse(args)
+                restoreOrchestratorLogging(workDir)
 
                 // Get output directory (use custom or default)
                 coordinatesOutputDir = customOutput ?: workDir.resolve("output").resolve("08_coordinates_results")
@@ -999,6 +1017,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 }
 
                 GenerateRecombinedSequences().parse(args)
+                restoreOrchestratorLogging(workDir)
 
                 // Get output directory (use custom or default)
                 val outputBase = customOutput ?: workDir.resolve("output").resolve("09_recombined_sequences")
@@ -1056,6 +1075,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 }
 
                 FormatRecombinedFastas().parse(args)
+                restoreOrchestratorLogging(workDir)
 
                 // Get output directory (use custom or default)
                 formattedFastasDir = customOutput ?: workDir.resolve("output").resolve("10_formatted_fastas")
