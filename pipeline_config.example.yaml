@@ -105,7 +105,7 @@ downsample_gvcf:
 convert_to_fasta:
   missing_records_as: "asRef"            # Optional: Missing records (asN, asRef, asNone)
   missing_genotype_as: "asN"             # Optional: Missing genotypes (asN, asRef, asNone)
-  ignore_contig: "__NO_MATCH_"           # Optional: Comma-separated patterns to skip (contigs matching will be ignored) (currently needed)
+  ignore_contig: "__NO_MATCH__"          # Optional: Comma-separated patterns to skip (contigs matching will be ignored) (currently needed)
   # input: "/custom/gvcf/input/"         # Optional: Custom GVCF input (file, directory, or text list)
   # output: "/custom/fasta/output/"      # Optional: Custom output directory
 
@@ -147,9 +147,9 @@ pick_crossovers:
 # Automatically uses MAF files from align_assemblies (step 1)
 # Uses maf-convert tool (automatically downloaded if missing)
 create_chain_files:
-  jobs: 8                                # Optional: Number of parallel jobs (default: 8)
-  # input: "/custom/maf/input/"          # Optional: Custom MAF input (file, directory, or text list)
-  # output: "/custom/chain/output/"      # Optional: Custom output directory
+  jobs: 8                                     # Optional: Number of parallel jobs (default: 8)
+  # input: "/custom/maf/input/"               # Optional: Custom MAF input (file, directory, or text list)
+  # output: "/custom/chain/output/"           # Optional: Custom output directory
 
 # Step 8: Convert Coordinates
 # Converts crossover breakpoints from reference coordinates to assembly coordinates
