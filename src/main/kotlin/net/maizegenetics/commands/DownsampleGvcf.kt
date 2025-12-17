@@ -233,7 +233,8 @@ class DownsampleGvcf : CliktCommand(name = "downsample-gvcf") {
         logger.info("Output directory: $outputDir")
 
         // Clean up temp directory if not keeping uncompressed files
-        if (!keepUncompressed && tempDir.exists() && mlimputeInputDir == tempDir) {
+        // Always clean up if temp directory exists and was used or created
+        if (!keepUncompressed && tempDir.exists()) {
             logger.info("Cleaning up temporary uncompressed files")
             try {
                 tempDir.deleteRecursively()

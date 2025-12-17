@@ -79,15 +79,19 @@ align_assemblies:
 # Converts MAF files from align_assemblies to compressed GVCF format
 # Automatically uses ref_fasta from align_assemblies and MAF output paths
 maf_to_gvcf:
-  sample_name: "optional_sample_name"    # Optional: Override sample name in GVCF
-  # input: "/custom/maf/files.txt"       # Optional: Custom MAF input (file, directory, or text list)
-  # output: "/custom/gvcf/output/"       # Optional: Custom output directory
+  # reference_file: "path/to/reference.fa"  # Optional: Reference FASTA file
+                                            #           Uses align_assemblies.ref_fasta if not specified
+  # maf_file: "/custom/maf/files.txt"       # Optional: MAF file, directory, or text list
+                                            #           Uses step 1 MAF outputs if not specified
+  # output_file: "sample.g.vcf.gz"          # Optional: Output GVCF filename (auto-generated if not specified)
+  # sample_name: "optional_sample_name"     # Optional: Override sample name in GVCF
+  # output_dir: "/custom/gvcf/output/"      # Optional: Custom output directory
 
 # Step 3: Downsample GVCF
 # Downsamples GVCF files at specified rates per chromosome
 # Automatically uses GVCF output directory from maf_to_gvcf
 downsample_gvcf:
-  ignore_contig: ""                      # Optional: Comma-separated patterns to ignore
+  ignore_contig: "__NO_MATCH__"          # Optional: Comma-separated patterns to ignore (currently needed)
   rates: "0.01,0.05,0.1,0.15,0.2"        # Optional: Comma-separated downsampling rates
   seed: 42                               # Optional: Random seed for reproducibility
   keep_ref: true                         # Optional: Keep reference blocks (true/false, default: true)
@@ -101,6 +105,7 @@ downsample_gvcf:
 convert_to_fasta:
   missing_records_as: "asRef"            # Optional: Missing records (asN, asRef, asNone)
   missing_genotype_as: "asN"             # Optional: Missing genotypes (asN, asRef, asNone)
+  ignore_contig: "__NO_MATCH__"          # Optional: Comma-separated patterns to skip (contigs matching will be ignored) (currently needed)
   # input: "/custom/gvcf/input/"         # Optional: Custom GVCF input (file, directory, or text list)
   # output: "/custom/fasta/output/"      # Optional: Custom output directory
 
@@ -142,9 +147,9 @@ pick_crossovers:
 # Automatically uses MAF files from align_assemblies (step 1)
 # Uses maf-convert tool (automatically downloaded if missing)
 create_chain_files:
-  jobs: 8                                # Optional: Number of parallel jobs (default: 8)
-  # input: "/custom/maf/input/"          # Optional: Custom MAF input (file, directory, or text list)
-  # output: "/custom/chain/output/"      # Optional: Custom output directory
+  jobs: 8                                     # Optional: Number of parallel jobs (default: 8)
+  # input: "/custom/maf/input/"               # Optional: Custom MAF input (file, directory, or text list)
+  # output: "/custom/chain/output/"           # Optional: Custom output directory
 
 # Step 8: Convert Coordinates
 # Converts crossover breakpoints from reference coordinates to assembly coordinates

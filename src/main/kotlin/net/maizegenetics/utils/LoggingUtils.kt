@@ -14,6 +14,7 @@ import kotlin.io.path.exists
 
 object LoggingUtils {
     private const val LOG_PATTERN = "%d{yyyy-MM-dd HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n"
+    private const val FILE_APPENDER_PREFIX = "FileAppender_"
 
     /**
      * Sets up file logging for a command in the working directory
@@ -33,15 +34,23 @@ object LoggingUtils {
         val config = context.configuration
 
         // Use a unique appender name based on the log file name
-        val appenderName = "FileAppender_${logFileName.replace(".", "_")}"
+        val appenderName = "${FILE_APPENDER_PREFIX}${logFileName.replace(".", "_")}"
 
-        // Check if appender already exists and remove it
-        val existingAppender: Appender? = config.getAppender(appenderName)
-        if (existingAppender != null) {
-            config.rootLogger.removeAppender(appenderName)
+        // Remove ALL existing file appenders (from previous steps) to prevent log bleeding
+        val appendersToRemove = config.appenders.keys
+            .filter { it.startsWith(FILE_APPENDER_PREFIX) }
+            .toList()
+        
+        for (appenderToRemove in appendersToRemove) {
+            config.rootLogger.removeAppender(appenderToRemove)
             val maizeLoggerConfig = config.getLoggerConfig("net.maizegenetics")
             if (maizeLoggerConfig != null) {
-                maizeLoggerConfig.removeAppender(appenderName)
+                maizeLoggerConfig.removeAppender(appenderToRemove)
+            }
+            // Stop the appender
+            val existingAppender: Appender? = config.getAppender(appenderToRemove)
+            if (existingAppender is FileAppender) {
+                existingAppender.stop()
             }
         }
 
