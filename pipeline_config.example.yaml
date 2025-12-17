@@ -91,7 +91,7 @@ maf_to_gvcf:
 # Downsamples GVCF files at specified rates per chromosome
 # Automatically uses GVCF output directory from maf_to_gvcf
 downsample_gvcf:
-  ignore_contig: "__NO_MATCH__"          # Optional: Comma-separated patterns to ignore
+  ignore_contig: "__NO_MATCH__"          # Optional: Comma-separated patterns to ignore (currently needed)
   rates: "0.01,0.05,0.1,0.15,0.2"        # Optional: Comma-separated downsampling rates
   seed: 42                               # Optional: Random seed for reproducibility
   keep_ref: true                         # Optional: Keep reference blocks (true/false, default: true)
@@ -105,6 +105,7 @@ downsample_gvcf:
 convert_to_fasta:
   missing_records_as: "asRef"            # Optional: Missing records (asN, asRef, asNone)
   missing_genotype_as: "asN"             # Optional: Missing genotypes (asN, asRef, asNone)
+  ignore_contig: "__NO_MATCH_"           # Optional: Comma-separated patterns to skip (contigs matching will be ignored) (currently needed)
   # input: "/custom/gvcf/input/"         # Optional: Custom GVCF input (file, directory, or text list)
   # output: "/custom/fasta/output/"      # Optional: Custom output directory
 

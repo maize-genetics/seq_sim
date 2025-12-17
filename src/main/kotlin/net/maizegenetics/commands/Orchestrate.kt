@@ -62,6 +62,7 @@ data class DownsampleGvcfConfig(
 data class ConvertToFastaConfig(
     val missing_records_as: String? = null,
     val missing_genotype_as: String? = null,
+    val ignore_contig: String? = null,  // Comma-separated list of string patterns to ignore
     val input: String? = null,   // Custom GVCF input file/directory
     val output: String? = null   // Custom FASTA output directory
 )
@@ -252,6 +253,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 ConvertToFastaConfig(
                     missing_records_as = convertToFastaMap?.get("missing_records_as") as? String,
                     missing_genotype_as = convertToFastaMap?.get("missing_genotype_as") as? String,
+                    ignore_contig = convertToFastaMap?.get("ignore_contig") as? String,
                     input = convertToFastaMap?.get("input") as? String,
                     output = convertToFastaMap?.get("output") as? String
                 )
@@ -659,6 +661,9 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                     }
                     if (config.convert_to_fasta.missing_genotype_as != null) {
                         add("--missing-genotype-as=${config.convert_to_fasta.missing_genotype_as}")
+                    }
+                    if (!config.convert_to_fasta.ignore_contig.isNullOrEmpty()) {
+                        add("--ignore-contig=${config.convert_to_fasta.ignore_contig}")
                     }
                     if (customOutput != null) {
                         add("--output-dir=${customOutput}")
