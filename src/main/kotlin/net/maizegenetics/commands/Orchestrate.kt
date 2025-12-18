@@ -1,5 +1,6 @@
 package net.maizegenetics.commands
 
+import biokotlin.seqIO.NucSeqIO
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.core.parse
 import com.github.ajalt.clikt.parameters.options.default
@@ -95,11 +96,9 @@ data class ConvertCoordinatesConfig(
 )
 
 data class GenerateRecombinedSequencesConfig(
-    val assembly_list: String? = null,  // Optional: defaults to assembly list from pick_crossovers step
-    val chromosome_list: String,
-    val assembly_dir: String,
-    val input: String? = null,   // Custom founder key directory
-    val output: String? = null   // Custom output directory
+    val assembly_list: String? = null,    // Optional: defaults to assembly list from pick_crossovers step
+    val chromosome_list: String? = null,  // Optional: auto-derives from first assembly in assembly list
+    val assembly_dir: String? = null      // Optional: defaults to step 9 output directory
 )
 
 data class FormatRecombinedFastasConfig(
@@ -306,18 +305,16 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 )
             } else null
 
-            // Parse generate_recombined_sequences
+            // Parse generate_recombined_sequences - check if key exists (even with empty/null value means "run with defaults")
             @Suppress("UNCHECKED_CAST")
             val generateRecombinedSequencesMap = configMap["generate_recombined_sequences"] as? Map<String, Any>
-            val generateRecombinedSequences = generateRecombinedSequencesMap?.let {
+            val generateRecombinedSequences = if (configMap.containsKey("generate_recombined_sequences")) {
                 GenerateRecombinedSequencesConfig(
-                    assembly_list = it["assembly_list"] as? String,
-                    chromosome_list = it["chromosome_list"] as? String ?: throw IllegalArgumentException("generate_recombined_sequences.chromosome_list is required"),
-                    assembly_dir = it["assembly_dir"] as? String ?: throw IllegalArgumentException("generate_recombined_sequences.assembly_dir is required"),
-                    input = it["input"] as? String,
-                    output = it["output"] as? String
+                    assembly_list = generateRecombinedSequencesMap?.get("assembly_list") as? String,
+                    chromosome_list = generateRecombinedSequencesMap?.get("chromosome_list") as? String,
+                    assembly_dir = generateRecombinedSequencesMap?.get("assembly_dir") as? String
                 )
-            }
+            } else null
 
             // Parse format_recombined_fastas - check if key exists (even with empty/null value means "run with defaults")
             @Suppress("UNCHECKED_CAST")
@@ -1103,11 +1100,11 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 logger.info("STEP 9: Generate Recombined Sequences")
                 logger.info("=".repeat(80))
 
-                // Determine founder key input (custom or from previous step)
-                val founderKeyInput = config.generate_recombined_sequences.input?.let { Path.of(it) } ?: coordinatesOutputDir
-                if (founderKeyInput == null) {
-                    throw RuntimeException("Cannot run generate-recombined-sequences: no founder key input available (specify 'input' in config or run convert-coordinates first)")
+                // Use founder key input from previous step (convert_coordinates)
+                if (coordinatesOutputDir == null) {
+                    throw RuntimeException("Cannot run generate-recombined-sequences: no founder key input available (run convert-coordinates first)")
                 }
+                logger.info("Founder key directory: $coordinatesOutputDir")
 
                 // Determine assembly list (custom or from step 6)
                 val step9AssemblyList = config.generate_recombined_sequences.assembly_list?.let { 
@@ -1118,25 +1115,59 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 }
                 logger.info("Assembly list: $step9AssemblyList")
 
-                // Determine output directory (custom or default)
-                val customOutput = config.generate_recombined_sequences.output?.let { Path.of(it) }
+                // Determine chromosome list (custom or auto-derived from first assembly)
+                val step9ChromosomeList: Path = if (config.generate_recombined_sequences.chromosome_list != null) {
+                    Path.of(config.generate_recombined_sequences.chromosome_list).toAbsolutePath().normalize()
+                } else {
+                    // Auto-derive chromosome list from the first assembly in the assembly list
+                    val firstLine = step9AssemblyList.readLines().firstOrNull { it.isNotBlank() }
+                        ?: throw RuntimeException("Cannot run generate-recombined-sequences: assembly list is empty")
+                    
+                    // Assembly list format: path<TAB>name - extract the path (first column)
+                    val firstAssemblyPath = firstLine.split("\t").firstOrNull()?.trim()
+                        ?: throw RuntimeException("Cannot run generate-recombined-sequences: invalid assembly list format")
+                    
+                    logger.info("Auto-deriving chromosome list from first assembly: $firstAssemblyPath")
+                    
+                    // Use BioKotlin to read the FASTA and extract chromosome IDs
+                    val seq = NucSeqIO(firstAssemblyPath).readAll()
+                    val chromosomeIds = seq.keys.toList()
+                    
+                    if (chromosomeIds.isEmpty()) {
+                        throw RuntimeException("Cannot run generate-recombined-sequences: no chromosomes found in $firstAssemblyPath")
+                    }
+                    
+                    // Write chromosome list to a temporary file
+                    val chromosomeListFile = workDir.resolve("output").resolve("09_recombined_sequences").resolve("auto_chromosome_list.txt")
+                    chromosomeListFile.parent.createDirectories()
+                    chromosomeListFile.writeText(chromosomeIds.joinToString("\n"))
+                    logger.info("Auto-generated chromosome list: $chromosomeListFile")
+                    logger.info("  Contains ${chromosomeIds.size} chromosomes: ${chromosomeIds.take(5).joinToString(", ")}${if (chromosomeIds.size > 5) ", ..." else ""}")
+                    
+                    chromosomeListFile
+                }
+
+                // Determine output directory (step 9 default output)
+                val outputBase = workDir.resolve("output").resolve("09_recombined_sequences")
+
+                // Determine assembly directory (custom or step 9 output directory)
+                val step9AssemblyDir = config.generate_recombined_sequences.assembly_dir?.let {
+                    Path.of(it).toAbsolutePath().normalize()
+                } ?: outputBase
+                logger.info("Assembly directory: $step9AssemblyDir")
 
                 val args = buildList {
                     add("--work-dir=${workDir}")
                     add("--assembly-list=${step9AssemblyList}")
-                    add("--chromosome-list=${config.generate_recombined_sequences.chromosome_list}")
-                    add("--assembly-dir=${config.generate_recombined_sequences.assembly_dir}")
-                    add("--founder-key-dir=${founderKeyInput}")
-                    if (customOutput != null) {
-                        add("--output-dir=${customOutput}")
-                    }
+                    add("--chromosome-list=${step9ChromosomeList}")
+                    add("--assembly-dir=${step9AssemblyDir}")
+                    add("--founder-key-dir=${coordinatesOutputDir}")
                 }
 
                 GenerateRecombinedSequences().parse(args)
                 restoreOrchestratorLogging(workDir)
 
-                // Get output directory (use custom or default)
-                val outputBase = customOutput ?: workDir.resolve("output").resolve("09_recombined_sequences")
+                // Get output directory
                 recombinedFastasDir = outputBase.resolve("recombinate_fastas")
 
                 logger.info("Step 9 completed successfully")
@@ -1145,9 +1176,8 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 if (config.generate_recombined_sequences != null) {
                     logger.info("Skipping generate-recombined-sequences (not in run_steps)")
 
-                    // Check custom output location first, then default
-                    val customOutput = config.generate_recombined_sequences.output?.let { Path.of(it) }
-                    val outputBase = customOutput ?: workDir.resolve("output").resolve("09_recombined_sequences")
+                    // Check default output location
+                    val outputBase = workDir.resolve("output").resolve("09_recombined_sequences")
                     val previousRecombinedDir = outputBase.resolve("recombinate_fastas")
                     if (previousRecombinedDir.exists()) {
                         recombinedFastasDir = previousRecombinedDir

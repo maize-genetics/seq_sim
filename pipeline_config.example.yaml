@@ -168,20 +168,19 @@ convert_coordinates:
 
 # Step 9: Generate Recombined Sequences
 # Creates recombined FASTA sequences by concatenating segments from parent assemblies
-# Automatically uses founder key files from convert_coordinates
+# Automatically uses founder key files from convert_coordinates (step 8)
 # Each founder gets its own recombined FASTA file
 generate_recombined_sequences:
   # assembly_list: "path/to/assembly_list.txt"      # Optional: defaults to assembly list from pick_crossovers
-  chromosome_list: "path/to/chromosome_list.txt"    # Required: Text file with chromosome names (one per line)
-                                                    #           Example:
+  # chromosome_list: "path/to/chromosome_list.txt"  # Optional: Text file with chromosome names (one per line)
+                                                    #           If not specified, auto-derives IDs from FASTAs
+                                                    #           Example format:
                                                     #           chr1
                                                     #           chr2
                                                     #           chr3
-  assembly_dir: "path/to/parent_assemblies/"        # Required: Directory containing parent assembly FASTA files
-                                                    #           Files should be named to match assembly_list names
-                                                    #           Example: parent1.fa, parent2.fa
-  # input: "/custom/founder_key/directory/"         # Optional: Custom founder key directory
-  # output: "/custom/recombined/output/"            # Optional: Custom output directory
+  # assembly_dir: "path/to/parent_assemblies/"      # Optional: Directory containing parent assembly FASTA files
+                                                    #           Defaults to this step's output directory
+
 
 # Step 10: Format Recombined Fastas
 # Reformats recombined FASTA files to have consistent line widths using seqkit
@@ -401,9 +400,10 @@ convert_ropebwt2ps4g:
 #   /data/assemblies/W22.fa<TAB>W22
 #   /data/assemblies/PH207.fa<TAB>PH207
 #
-# Chromosome List Format:
+# Chromosome List Format (for generate_recombined_sequences):
 # - Plain text file with one chromosome name per line
 # - Names should match chromosome names in assemblies
+# - If not provided, auto-derives from first assembly in assembly list using BioKotlin
 # - Example:
 #   chr1
 #   chr2
@@ -421,6 +421,8 @@ convert_ropebwt2ps4g:
 #   - If assembly_list not provided, uses assembly list from step 6
 # - Step 9 (generate_recombined_sequences) requires: output from step 8
 #   - If assembly_list not provided, uses assembly list from step 6
+#   - If chromosome_list not provided, auto-derives from first assembly using BioKotlin
+#   - If assembly_dir not provided, uses step 9 output directory
 # - Step 10 (format_recombined_fastas) requires: output from step 9
 #
 # PS4G Creation Dependencies:
