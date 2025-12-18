@@ -12,6 +12,7 @@ import net.maizegenetics.utils.ProcessRunner
 import net.maizegenetics.utils.ValidationUtils
 import org.apache.logging.log4j.LogManager
 import org.apache.logging.log4j.Logger
+import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.*
 import kotlin.system.exitProcess
@@ -119,17 +120,58 @@ class GenerateRecombinedSequences : CliktCommand(name = "generate-recombined-seq
             }
         }
 
+        // Create symlinks for FASTA files with different extensions
+        // The Python script expects .fa extension, but files might have .fasta or .fna
+        logger.info("Checking FASTA file extensions in assembly directory")
+        val assemblyNames = assemblyList.readLines()
+            .filter { it.isNotBlank() }
+            .mapNotNull { line ->
+                val parts = line.split("\t")
+                if (parts.size >= 2) parts[1].trim() else null
+            }
+
+        assemblyNames.forEach { name ->
+            val faFile = assemblyDir.resolve("$name.fa")
+            if (!faFile.exists()) {
+                // Look for alternative extensions
+                val alternatives = listOf("fasta", "fna")
+                for (ext in alternatives) {
+                    val altFile = assemblyDir.resolve("$name.$ext")
+                    if (altFile.exists()) {
+                        // Create symlink: name.fa -> name.fasta (or .fna)
+                        try {
+                            Files.createSymbolicLink(faFile, altFile.fileName)
+                            logger.debug("Created symlink: ${faFile.fileName} -> ${altFile.fileName}")
+                            
+                            // Also create symlink for the FASTA index file if it exists
+                            val altIndexFile = assemblyDir.resolve("$name.$ext.fai")
+                            val faIndexFile = assemblyDir.resolve("$name.fa.fai")
+                            if (altIndexFile.exists() && !faIndexFile.exists()) {
+                                Files.createSymbolicLink(faIndexFile, altIndexFile.fileName)
+                                logger.debug("Created symlink: ${faIndexFile.fileName} -> ${altIndexFile.fileName}")
+                            }
+                        } catch (e: Exception) {
+                            logger.warn("Failed to create symlink for $name: ${e.message}")
+                        }
+                        break
+                    }
+                }
+            }
+        }
+
         // Run write_fastas.py
         // Set PYTHONPATH so Python can find the 'python' package for imports
-        val pythonPath = mlimputeDir.resolve("src").toString()
+        // Use absolute paths since the working directory is set to outputDir
+        // Use sh -c to set PYTHONPATH inside pixi's environment
+        val pythonPath = mlimputeDir.resolve("src").toAbsolutePath().toString()
+        val scriptPath = pythonScript.toAbsolutePath().toString()
+        val assemblyListPath = assemblyList.toAbsolutePath().toString()
+        val chromosomeListPath = chromosomeList.toAbsolutePath().toString()
+        val assemblyDirPath = assemblyDir.toAbsolutePath().toString()
+        val shellCommand = "PYTHONPATH='$pythonPath' python '$scriptPath' --assembly-list '$assemblyListPath' --chromosome-list '$chromosomeListPath' --assembly-dir '$assemblyDirPath'"
         logger.info("Running write_fastas.py")
         val exitCode = ProcessRunner.runCommand(
-            "env", "PYTHONPATH=$pythonPath",
-            "pixi", "run",
-            "python", pythonScript.toString(),
-            "--assembly-list", assemblyList.toString(),
-            "--chromosome-list", chromosomeList.toString(),
-            "--assembly-dir", assemblyDir.toString(),
+            "pixi", "run", "sh", "-c", shellCommand,
             workingDir = outputDir.toFile(),
             logger = logger
         )

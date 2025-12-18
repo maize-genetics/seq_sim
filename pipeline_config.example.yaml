@@ -139,7 +139,7 @@ pick_crossovers:
                                                 # /path/to/assembly1.fa<TAB>parent1
                                                 # /path/to/assembly2.fa<TAB>parent2
                                                 # If not specified, auto-generates from convert_to_fasta (step 4) output
-                                                # Auto-generated names: filename minus "_subsampled" suffix and extension
+                                                # Auto-generated names: filename minus "_mutated" suffix and extension
   # ref_fasta: "path/to/reference.fa"           # Optional: Reference FASTA file
                                                 #           Uses mutated ref FASTA from step 5 if not specified
                                                 #           Falls back to align_assemblies.ref_fasta if step 5 not run
@@ -393,7 +393,7 @@ convert_ropebwt2ps4g:
 # - The same assembly list is shared across steps 6, 8, and 9:
 #   - Step 6 (pick_crossovers): If not provided, auto-generates from step 4 FASTA outputs
 #   - Steps 8 and 9: If not provided, automatically use the assembly list from step 6
-# - Auto-generated names are derived from filename minus "_subsampled" suffix and extension
+# - Auto-generated names are derived from filename minus "_mutated" suffix and extension
 # - Example:
 #   /data/assemblies/B73.fa<TAB>B73
 #   /data/assemblies/Mo17.fa<TAB>Mo17

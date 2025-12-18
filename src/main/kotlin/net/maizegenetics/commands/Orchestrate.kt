@@ -98,7 +98,7 @@ data class ConvertCoordinatesConfig(
 data class GenerateRecombinedSequencesConfig(
     val assembly_list: String? = null,    // Optional: defaults to assembly list from pick_crossovers step
     val chromosome_list: String? = null,  // Optional: auto-derives from first assembly in assembly list
-    val assembly_dir: String? = null      // Optional: defaults to step 9 output directory
+    val assembly_dir: String? = null      // Optional: defaults to step 4 FASTA output directory
 )
 
 data class FormatRecombinedFastasConfig(
@@ -871,15 +871,13 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                     }
                     
                     // Create assembly list file with path<TAB>name format
-                    // Name is derived from filename minus "_subsampled" suffix and extension
+                    // Name is derived from filename minus extension (keeping _mutated suffix)
                     val assemblyListFile = fastaOutputDir.resolve("auto_assembly_list.txt")
                     val lines = fastaFiles.map { fastaPath ->
                         val fileName = fastaPath.fileName.toString()
                         // Remove extension (including .gz if present)
                         val baseName = fileName
                             .replace(Regex("\\.(fa|fasta|fna)(\\.gz)?$"), "")
-                            // Remove "_subsampled" suffix if present
-                            .replace(Regex("_subsampled$"), "")
                         "${fastaPath.toAbsolutePath()}\t$baseName"
                     }
                     assemblyListFile.writeText(lines.joinToString("\n"))
@@ -1150,10 +1148,11 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 // Determine output directory (step 9 default output)
                 val outputBase = workDir.resolve("output").resolve("09_recombined_sequences")
 
-                // Determine assembly directory (custom or step 9 output directory)
+                // Determine assembly directory (custom or from step 4 FASTA output)
+                // The Python script needs to read parent FASTA files which are in the FASTA output directory
                 val step9AssemblyDir = config.generate_recombined_sequences.assembly_dir?.let {
                     Path.of(it).toAbsolutePath().normalize()
-                } ?: outputBase
+                } ?: fastaOutputDir ?: throw RuntimeException("Cannot run generate-recombined-sequences: no assembly directory available (specify 'assembly_dir' in config or run convert-to-fasta first)")
                 logger.info("Assembly directory: $step9AssemblyDir")
 
                 val args = buildList {

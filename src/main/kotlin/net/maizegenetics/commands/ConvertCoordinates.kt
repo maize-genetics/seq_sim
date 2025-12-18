@@ -112,14 +112,16 @@ class ConvertCoordinates : CliktCommand(name = "convert-coordinates") {
 
         // Run convert_coords.py
         // Set PYTHONPATH so Python can find the 'python' package for imports
-        val pythonPath = mlimputeDir.resolve("src").toString()
+        // Use absolute paths since the working directory is set to outputDir
+        // Use sh -c to set PYTHONPATH inside pixi's environment
+        val pythonPath = mlimputeDir.resolve("src").toAbsolutePath().toString()
+        val scriptPath = pythonScript.toAbsolutePath().toString()
+        val assemblyListPath = assemblyList.toAbsolutePath().toString()
+        val chainDirPath = chainDir.toAbsolutePath().toString()
+        val shellCommand = "PYTHONPATH='$pythonPath' python '$scriptPath' --assembly-list '$assemblyListPath' --chain-dir '$chainDirPath'"
         logger.info("Running convert_coords.py")
         val exitCode = ProcessRunner.runCommand(
-            "env", "PYTHONPATH=$pythonPath",
-            "pixi", "run",
-            "python", pythonScript.toString(),
-            "--assembly-list", assemblyList.toString(),
-            "--chain-dir", chainDir.toString(),
+            "pixi", "run", "sh", "-c", shellCommand,
             workingDir = outputDir.toFile(),
             logger = logger
         )
