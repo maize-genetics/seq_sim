@@ -131,16 +131,19 @@ align_mutated_assemblies:
 # Simulates crossover events to generate recombination breakpoints
 # Uses MLImpute's pick_crossovers.py to simulate synthetic recombinant genomes
 # Generates two populations: landrace (1250 rounds) and two-parent cross (1 round)
+# IMPORTANT: Requires an EVEN number of assemblies (assemblies are paired for crossover simulation)
 pick_crossovers:
-  assembly_list: "path/to/assembly_list.txt"  # Required: Tab-separated file with assembly paths and names
-                                              # Format: <path><TAB><name> (one per line)
-                                              # Example:
-                                              # /path/to/assembly1.fa<TAB>parent1
-                                              # /path/to/assembly2.fa<TAB>parent2
-  # ref_fasta: "path/to/reference.fa"         # Optional: Reference FASTA file
-                                              #           Uses mutated ref FASTA from step 5 if not specified
-                                              #           Falls back to align_assemblies.ref_fasta if step 5 not run
-  # output: "/custom/crossovers/output/"      # Optional: Custom output directory
+  # assembly_list: "path/to/assembly_list.txt"  # Optional: Tab-separated file with assembly paths and names
+                                                # Format: <path><TAB><name> (one per line)
+                                                # Example:
+                                                # /path/to/assembly1.fa<TAB>parent1
+                                                # /path/to/assembly2.fa<TAB>parent2
+                                                # If not specified, auto-generates from convert_to_fasta (step 4) output
+                                                # Auto-generated names: filename minus "_subsampled" suffix and extension
+  # ref_fasta: "path/to/reference.fa"           # Optional: Reference FASTA file
+                                                #           Uses mutated ref FASTA from step 5 if not specified
+                                                #           Falls back to align_assemblies.ref_fasta if step 5 not run
+  # output: "/custom/crossovers/output/"        # Optional: Custom output directory
 
 # Step 7: Create Chain Files
 # Converts MAF alignment files to UCSC chain format for coordinate conversion
@@ -383,9 +386,11 @@ convert_ropebwt2ps4g:
 # IMPORTANT NOTES:
 # ============================================================================
 #
-# Assembly List Format:
+# Assembly List Format (for pick_crossovers, convert_coordinates, generate_recombined_sequences):
 # - Tab-separated file with two columns: path and name
-# - Must have an EVEN number of assemblies (for parent pairing)
+# - MUST have an EVEN number of assemblies (assemblies are paired for crossover simulation)
+# - For pick_crossovers: If not provided, auto-generates from convert_to_fasta (step 4) output
+#   - Auto-generated names are derived from filename minus "_subsampled" suffix and extension
 # - Example:
 #   /data/assemblies/B73.fa<TAB>B73
 #   /data/assemblies/Mo17.fa<TAB>Mo17
@@ -401,7 +406,9 @@ convert_ropebwt2ps4g:
 #   chr3
 #
 # Recombination Pipeline Dependencies:
-# - Step 6 (pick_crossovers) requires: ref_fasta from step 1
+# - Step 6 (pick_crossovers) requires: ref_fasta from step 1 or step 5
+#   - If assembly_list not provided, auto-generates from step 4 FASTA outputs
+#   - MUST have an EVEN number of assemblies (will error if odd)
 # - Step 7 (create_chain_files) requires: MAF files from step 1
 # - Step 8 (convert_coordinates) requires: outputs from steps 6 and 7
 # - Step 9 (generate_recombined_sequences) requires: output from step 8
