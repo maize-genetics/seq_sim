@@ -88,14 +88,14 @@ data class CreateChainFilesConfig(
 )
 
 data class ConvertCoordinatesConfig(
-    val assembly_list: String,
-    val input_chain: String? = null,   // Custom chain directory
-    val input_refkey: String? = null,  // Custom refkey directory
-    val output: String? = null         // Custom output directory
+    val assembly_list: String? = null,  // Optional: defaults to assembly list from pick_crossovers step
+    val input_chain: String? = null,    // Custom chain directory
+    val input_refkey: String? = null,   // Custom refkey directory
+    val output: String? = null          // Custom output directory
 )
 
 data class GenerateRecombinedSequencesConfig(
-    val assembly_list: String,
+    val assembly_list: String? = null,  // Optional: defaults to assembly list from pick_crossovers step
     val chromosome_list: String,
     val assembly_dir: String,
     val input: String? = null,   // Custom founder key directory
@@ -294,24 +294,24 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 )
             } else null
 
-            // Parse convert_coordinates
+            // Parse convert_coordinates - check if key exists (even with empty/null value means "run with defaults")
             @Suppress("UNCHECKED_CAST")
             val convertCoordinatesMap = configMap["convert_coordinates"] as? Map<String, Any>
-            val convertCoordinates = convertCoordinatesMap?.let {
+            val convertCoordinates = if (configMap.containsKey("convert_coordinates")) {
                 ConvertCoordinatesConfig(
-                    assembly_list = it["assembly_list"] as? String ?: throw IllegalArgumentException("convert_coordinates.assembly_list is required"),
-                    input_chain = it["input_chain"] as? String,
-                    input_refkey = it["input_refkey"] as? String,
-                    output = it["output"] as? String
+                    assembly_list = convertCoordinatesMap?.get("assembly_list") as? String,
+                    input_chain = convertCoordinatesMap?.get("input_chain") as? String,
+                    input_refkey = convertCoordinatesMap?.get("input_refkey") as? String,
+                    output = convertCoordinatesMap?.get("output") as? String
                 )
-            }
+            } else null
 
             // Parse generate_recombined_sequences
             @Suppress("UNCHECKED_CAST")
             val generateRecombinedSequencesMap = configMap["generate_recombined_sequences"] as? Map<String, Any>
             val generateRecombinedSequences = generateRecombinedSequencesMap?.let {
                 GenerateRecombinedSequencesConfig(
-                    assembly_list = it["assembly_list"] as? String ?: throw IllegalArgumentException("generate_recombined_sequences.assembly_list is required"),
+                    assembly_list = it["assembly_list"] as? String,
                     chromosome_list = it["chromosome_list"] as? String ?: throw IllegalArgumentException("generate_recombined_sequences.chromosome_list is required"),
                     assembly_dir = it["assembly_dir"] as? String ?: throw IllegalArgumentException("generate_recombined_sequences.assembly_dir is required"),
                     input = it["input"] as? String,
@@ -397,6 +397,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
         var refGff: Path? = null
         var mutatedRefFasta: Path? = null  // Mutated reference FASTA from step 5
         var mutatedMafFilePaths: Path? = null  // MAF file paths from step 5 (align_mutated_assemblies)
+        var assemblyListPath: Path? = null  // Assembly list from step 6 (pick_crossovers)
         var refkeyOutputDir: Path? = null
         var chainOutputDir: Path? = null
         var coordinatesOutputDir: Path? = null
@@ -855,7 +856,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 }
 
                 // Determine assembly list (custom or auto-generated from step 4)
-                val assemblyListPath: Path = if (config.pick_crossovers.assembly_list != null) {
+                val step6AssemblyList: Path = if (config.pick_crossovers.assembly_list != null) {
                     Path.of(config.pick_crossovers.assembly_list).toAbsolutePath().normalize()
                 } else {
                     // Auto-generate assembly list from step 4 output (fastaOutputDir)
@@ -892,7 +893,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 }
 
                 // Validate that the number of assemblies is even
-                val assemblyCount = assemblyListPath.readLines().filter { it.isNotBlank() }.size
+                val assemblyCount = step6AssemblyList.readLines().filter { it.isNotBlank() }.size
                 if (assemblyCount % 2 != 0) {
                     throw RuntimeException(
                         "Cannot run pick-crossovers: assembly list contains $assemblyCount assemblies, " +
@@ -901,13 +902,16 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 }
                 logger.info("Assembly list contains $assemblyCount assemblies (validated: even count)")
 
+                // Save assembly list path for use in steps 8 and 9
+                assemblyListPath = step6AssemblyList
+
                 // Determine output directory (custom or default)
                 val customOutput = config.pick_crossovers.output?.let { Path.of(it) }
 
                 val args = buildList {
                     add("--work-dir=${workDir}")
                     add("--ref-fasta=${pickCrossoversRefFasta}")
-                    add("--assembly-list=${assemblyListPath}")
+                    add("--assembly-list=${step6AssemblyList}")
                     if (customOutput != null) {
                         add("--output-dir=${customOutput}")
                     }
@@ -937,6 +941,18 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                         logger.info("Using previous pick-crossovers outputs: $refkeyOutputDir")
                     } else {
                         logger.warn("Previous pick-crossovers outputs not found. Downstream steps may fail.")
+                    }
+
+                    // Try to recover assembly list from config or auto-generated file
+                    if (config.pick_crossovers.assembly_list != null) {
+                        assemblyListPath = Path.of(config.pick_crossovers.assembly_list).toAbsolutePath().normalize()
+                        logger.info("Using configured assembly list: $assemblyListPath")
+                    } else if (fastaOutputDir != null) {
+                        val autoGeneratedList = fastaOutputDir.resolve("auto_assembly_list.txt")
+                        if (autoGeneratedList.exists()) {
+                            assemblyListPath = autoGeneratedList
+                            logger.info("Using auto-generated assembly list from previous run: $assemblyListPath")
+                        }
                     }
                 } else {
                     logger.info("Skipping pick-crossovers (not configured)")
@@ -1026,12 +1042,21 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 // Determine refkey input (custom or from previous step)
                 val refkeyInput = config.convert_coordinates.input_refkey?.let { Path.of(it) } ?: refkeyOutputDir
 
+                // Determine assembly list (custom or from step 6)
+                val step8AssemblyList = config.convert_coordinates.assembly_list?.let { 
+                    Path.of(it).toAbsolutePath().normalize() 
+                } ?: assemblyListPath
+                if (step8AssemblyList == null) {
+                    throw RuntimeException("Cannot run convert-coordinates: no assembly_list available (specify 'assembly_list' in config or run pick-crossovers first)")
+                }
+                logger.info("Assembly list: $step8AssemblyList")
+
                 // Determine output directory (custom or default)
                 val customOutput = config.convert_coordinates.output?.let { Path.of(it) }
 
                 val args = buildList {
                     add("--work-dir=${workDir}")
-                    add("--assembly-list=${config.convert_coordinates.assembly_list}")
+                    add("--assembly-list=${step8AssemblyList}")
                     add("--chain-dir=${chainInput}")
                     if (refkeyInput != null) {
                         add("--refkey-dir=${refkeyInput}")
@@ -1084,12 +1109,21 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                     throw RuntimeException("Cannot run generate-recombined-sequences: no founder key input available (specify 'input' in config or run convert-coordinates first)")
                 }
 
+                // Determine assembly list (custom or from step 6)
+                val step9AssemblyList = config.generate_recombined_sequences.assembly_list?.let { 
+                    Path.of(it).toAbsolutePath().normalize() 
+                } ?: assemblyListPath
+                if (step9AssemblyList == null) {
+                    throw RuntimeException("Cannot run generate-recombined-sequences: no assembly_list available (specify 'assembly_list' in config or run pick-crossovers first)")
+                }
+                logger.info("Assembly list: $step9AssemblyList")
+
                 // Determine output directory (custom or default)
                 val customOutput = config.generate_recombined_sequences.output?.let { Path.of(it) }
 
                 val args = buildList {
                     add("--work-dir=${workDir}")
-                    add("--assembly-list=${config.generate_recombined_sequences.assembly_list}")
+                    add("--assembly-list=${step9AssemblyList}")
                     add("--chromosome-list=${config.generate_recombined_sequences.chromosome_list}")
                     add("--assembly-dir=${config.generate_recombined_sequences.assembly_dir}")
                     add("--founder-key-dir=${founderKeyInput}")

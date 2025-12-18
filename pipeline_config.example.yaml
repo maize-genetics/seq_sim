@@ -161,27 +161,27 @@ create_chain_files:
 # Automatically uses refkey files from pick_crossovers and chain files from create_chain_files
 # Uses CrossMap for coordinate conversion via chain files
 convert_coordinates:
-  assembly_list: "path/to/assembly_list.txt"  # Required: Same assembly list as pick_crossovers
-  # input_chain: "/custom/chain/directory/"   # Optional: Custom chain directory
-  # input_refkey: "/custom/refkey/directory/" # Optional: Custom refkey directory
-  # output: "/custom/coordinates/output/"     # Optional: Custom output directory
+  # assembly_list: "path/to/assembly_list.txt"   # Optional: defaults to assembly list from pick_crossovers
+  # input_chain: "/custom/chain/directory/"      # Optional: Custom chain directory
+  # input_refkey: "/custom/refkey/directory/"    # Optional: Custom refkey directory
+  # output: "/custom/coordinates/output/"        # Optional: Custom output directory
 
 # Step 9: Generate Recombined Sequences
 # Creates recombined FASTA sequences by concatenating segments from parent assemblies
 # Automatically uses founder key files from convert_coordinates
 # Each founder gets its own recombined FASTA file
 generate_recombined_sequences:
-  assembly_list: "path/to/assembly_list.txt"      # Required: Same assembly list as above
-  chromosome_list: "path/to/chromosome_list.txt"  # Required: Text file with chromosome names (one per line)
-                                                  #           Example:
-                                                  #           chr1
-                                                  #           chr2
-                                                  #           chr3
-  assembly_dir: "path/to/parent_assemblies/"      # Required: Directory containing parent assembly FASTA files
-                                                  #           Files should be named to match assembly_list names
-                                                  #           Example: parent1.fa, parent2.fa
-  # input: "/custom/founder_key/directory/"       # Optional: Custom founder key directory
-  # output: "/custom/recombined/output/"          # Optional: Custom output directory
+  # assembly_list: "path/to/assembly_list.txt"      # Optional: defaults to assembly list from pick_crossovers
+  chromosome_list: "path/to/chromosome_list.txt"    # Required: Text file with chromosome names (one per line)
+                                                    #           Example:
+                                                    #           chr1
+                                                    #           chr2
+                                                    #           chr3
+  assembly_dir: "path/to/parent_assemblies/"        # Required: Directory containing parent assembly FASTA files
+                                                    #           Files should be named to match assembly_list names
+                                                    #           Example: parent1.fa, parent2.fa
+  # input: "/custom/founder_key/directory/"         # Optional: Custom founder key directory
+  # output: "/custom/recombined/output/"            # Optional: Custom output directory
 
 # Step 10: Format Recombined Fastas
 # Reformats recombined FASTA files to have consistent line widths using seqkit
@@ -391,8 +391,10 @@ convert_ropebwt2ps4g:
 # Assembly List Format (for pick_crossovers, convert_coordinates, generate_recombined_sequences):
 # - Tab-separated file with two columns: path and name
 # - MUST have an EVEN number of assemblies (assemblies are paired for crossover simulation)
-# - For pick_crossovers: If not provided, auto-generates from convert_to_fasta (step 4) output
-#   - Auto-generated names are derived from filename minus "_subsampled" suffix and extension
+# - The same assembly list is shared across steps 6, 8, and 9:
+#   - Step 6 (pick_crossovers): If not provided, auto-generates from step 4 FASTA outputs
+#   - Steps 8 and 9: If not provided, automatically use the assembly list from step 6
+# - Auto-generated names are derived from filename minus "_subsampled" suffix and extension
 # - Example:
 #   /data/assemblies/B73.fa<TAB>B73
 #   /data/assemblies/Mo17.fa<TAB>Mo17
@@ -411,11 +413,14 @@ convert_ropebwt2ps4g:
 # - Step 6 (pick_crossovers) requires: ref_fasta from step 1 or step 5
 #   - If assembly_list not provided, auto-generates from step 4 FASTA outputs
 #   - MUST have an EVEN number of assemblies (will error if odd)
+#   - Assembly list is saved and shared with steps 8 and 9
 # - Step 7 (create_chain_files) requires: MAF files from step 5 (default) or step 1 (fallback)
 #   - Uses align_mutated_assemblies MAF outputs by default
 #   - Falls back to align_assemblies MAF outputs if step 5 not run
 # - Step 8 (convert_coordinates) requires: outputs from steps 6 and 7
+#   - If assembly_list not provided, uses assembly list from step 6
 # - Step 9 (generate_recombined_sequences) requires: output from step 8
+#   - If assembly_list not provided, uses assembly list from step 6
 # - Step 10 (format_recombined_fastas) requires: output from step 9
 #
 # PS4G Creation Dependencies:
