@@ -19,12 +19,12 @@ import kotlin.system.exitProcess
 
 class GenerateRecombinedSequences : CliktCommand(name = "generate-recombined-sequences") {
     companion object {
-        private const val LOG_FILE_NAME = "09_generate_recombined_sequences.log"
-        private const val RECOMBINED_RESULTS_DIR = "09_recombined_sequences"
+        private const val LOG_FILE_NAME = "08_generate_recombined_sequences.log"
+        private const val RECOMBINED_RESULTS_DIR = "08_recombined_sequences"
         private const val RECOMBINED_FASTAS_DIR = "recombinate_fastas"
         private const val FASTA_PATHS_FILE = "recombined_fasta_paths.txt"
         private const val PYTHON_SCRIPT = "src/python/cross/write_fastas.py"
-        private const val DEFAULT_FOUNDER_KEY_DIR = "08_coordinates_results"
+        private const val DEFAULT_FOUNDER_KEY_DIR = "07_coordinates_results"
     }
 
     private val logger: Logger = LogManager.getLogger(GenerateRecombinedSequences::class.java)
@@ -60,7 +60,7 @@ class GenerateRecombinedSequences : CliktCommand(name = "generate-recombined-seq
 
     private val outputDirOption by option(
         "--output-dir", "-o",
-        help = "Custom output directory (default: work_dir/output/09_recombined_sequences)"
+        help = "Custom output directory (default: work_dir/output/08_recombined_sequences)"
     ).path(mustExist = false, canBeFile = false, canBeDir = true)
 
     override fun run() {

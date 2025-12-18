@@ -11,14 +11,14 @@
 # 02. maf-to-gvcf:                   Convert MAF alignment files to compressed GVCF format
 # 03. downsample-gvcf:               Downsample variants at specified rates per chromosome
 # 04. convert-to-fasta:              Generate FASTA files from downsampled variants
-# 05. align-mutated-assemblies:      Realign mutated FASTA files back to reference
 #
 # RECOMBINATION PIPELINE (Generate Recombinant Genomes):
-# 06. pick-crossovers:               Simulate crossover events in reference coordinates
-# 07. create-chain-files:            Convert MAF files to chain format for coordinate conversion
-# 08. convert-coordinates:           Convert crossover points to assembly coordinates
-# 09. generate-recombined-sequences: Create recombined FASTA files from parent assemblies
-# 10. format-recombined-fastas:      Format recombined FASTA files with consistent line widths
+# 05. pick-crossovers:               Simulate crossover events in reference coordinates
+# 06. create-chain-files:            Convert MAF files to chain format for coordinate conversion
+# 07. convert-coordinates:           Convert crossover points to assembly coordinates
+# 08. generate-recombined-sequences: Create recombined FASTA files from parent assemblies
+# 09. format-recombined-fastas:      Format recombined FASTA files with consistent line widths
+# 10. align-mutated-assemblies:      Realign formatted recombined FASTA files to reference
 #
 # PS4G CREATION (PHG Indexing for Genotype Imputation):
 # 11. rope-bwt-chr-index:            Create PHGv2 ropebwt3 index from recombined FASTA files
@@ -46,14 +46,14 @@ run_steps:
   - maf_to_gvcf                    # Step 02: Convert alignments to GVCF
   - downsample_gvcf                # Step 03: Downsample variants
   - convert_to_fasta               # Step 04: Generate mutated FASTA files
-  - align_mutated_assemblies       # Step 05: Realign mutated sequences
 
   # Recombination Pipeline (Generate Recombinant Genomes)
-  - pick_crossovers                # Step 06: Pick crossover points
-  - create_chain_files             # Step 07: Create coordinate conversion chains
-  - convert_coordinates            # Step 08: Convert coordinates to assembly space
-  - generate_recombined_sequences  # Step 09: Generate recombined sequences
-  - format_recombined_fastas       # Step 10: Format recombined FASTA files
+  - pick_crossovers                # Step 05: Pick crossover points
+  - create_chain_files             # Step 06: Create coordinate conversion chains
+  - convert_coordinates            # Step 07: Convert coordinates to assembly space
+  - generate_recombined_sequences  # Step 08: Generate recombined sequences
+  - format_recombined_fastas       # Step 09: Format recombined FASTA files
+  - align_mutated_assemblies       # Step 10: Realign formatted sequences to reference
 
   # PS4G Creation (PHG Indexing for Genotype Imputation)
   - rope_bwt_chr_index             # Step 11: Create PHGv2 ropebwt3 index
@@ -62,7 +62,7 @@ run_steps:
   - convert_ropebwt2ps4g           # Step 14: Convert BED alignments to PS4G format
 
 # ============================================================================
-# MAIN PIPELINE CONFIGURATION (Steps 1-5)
+# MAIN PIPELINE CONFIGURATION (Steps 1-4)
 # ============================================================================
 
 # Step 1: Align Assemblies
@@ -109,25 +109,11 @@ convert_to_fasta:
   # input: "/custom/gvcf/input/"         # Optional: Custom GVCF input (file, directory, or text list)
   # output: "/custom/fasta/output/"      # Optional: Custom output directory
 
-# Step 5: Align Mutated Assemblies
-# Realigns the mutated FASTA files from convert_to_fasta back to the reference
-# Auto-detects reference and query FASTAs from step 4 output based on filename matching
-# This creates a circular workflow where mutated sequences are realigned for comparison
-align_mutated_assemblies:
-  # ref_gff: "path/to/reference.gff"     # Optional: Reference GFF file
-                                         #           Uses align_assemblies.ref_gff if not specified
-  # ref_fasta: "path/to/reference.fa"    # Optional: Reference FASTA from step 4 output
-                                         #           Auto-detects file matching original ref name if not specified
-  # fasta_input: "/custom/fasta/input/"  # Optional: Query FASTA input (file, directory, or text list)
-                                         #           Auto-detects non-ref files from step 4 if not specified
-  threads: 1                             # Optional: Number of threads (default: 1)
-  # output: "/custom/alignment/output/"  # Optional: Custom output directory
-
 # ============================================================================
-# RECOMBINATION PIPELINE CONFIGURATION (Steps 6-10)
+# RECOMBINATION PIPELINE CONFIGURATION (Steps 5-10)
 # ============================================================================
 
-# Step 6: Pick Crossovers
+# Step 5: Pick Crossovers
 # Simulates crossover events to generate recombination breakpoints
 # Uses MLImpute's pick_crossovers.py to simulate synthetic recombinant genomes
 # Generates two populations: landrace (1250 rounds) and two-parent cross (1 round)
@@ -141,22 +127,20 @@ pick_crossovers:
                                                 # If not specified, auto-generates from convert_to_fasta (step 4) output
                                                 # Auto-generated names: filename minus "_mutated" suffix and extension
   # ref_fasta: "path/to/reference.fa"           # Optional: Reference FASTA file
-                                                #           Uses mutated ref FASTA from step 5 if not specified
-                                                #           Falls back to align_assemblies.ref_fasta if step 5 not run
+                                                #           Uses align_assemblies.ref_fasta if not specified
   # output: "/custom/crossovers/output/"        # Optional: Custom output directory
 
-# Step 7: Create Chain Files
+# Step 6: Create Chain Files
 # Converts MAF alignment files to UCSC chain format for coordinate conversion
-# By default, uses MAF files from align_mutated_assemblies (step 5)
-# Falls back to MAF files from align_assemblies (step 1) if step 5 not run
+# Uses MAF files from align_assemblies (step 1)
 # Uses maf-convert tool (automatically downloaded if missing)
 create_chain_files:
   jobs: 8                                        # Optional: Number of parallel jobs (default: 8)
   # maf_file_input: "/custom/maf/input/"        # Optional: Custom MAF input (file, directory, or text list)
-                                                 #           Default: step 5 MAF outputs, fallback to step 1
+                                                 #           Default: step 1 MAF outputs
   # output: "/custom/chain/output/"              # Optional: Custom output directory
 
-# Step 8: Convert Coordinates
+# Step 7: Convert Coordinates
 # Converts crossover breakpoints from reference coordinates to assembly coordinates
 # Automatically uses refkey files from pick_crossovers and chain files from create_chain_files
 # Uses CrossMap for coordinate conversion via chain files
@@ -166,9 +150,9 @@ convert_coordinates:
   # input_refkey: "/custom/refkey/directory/"    # Optional: Custom refkey directory
   # output: "/custom/coordinates/output/"        # Optional: Custom output directory
 
-# Step 9: Generate Recombined Sequences
+# Step 8: Generate Recombined Sequences
 # Creates recombined FASTA sequences by concatenating segments from parent assemblies
-# Automatically uses founder key files from convert_coordinates (step 8)
+# Automatically uses founder key files from convert_coordinates (step 7)
 # Each founder gets its own recombined FASTA file
 generate_recombined_sequences:
   # assembly_list: "path/to/assembly_list.txt"      # Optional: defaults to assembly list from pick_crossovers
@@ -182,7 +166,7 @@ generate_recombined_sequences:
                                                     #           Defaults to this step's output directory
 
 
-# Step 10: Format Recombined Fastas
+# Step 9: Format Recombined Fastas
 # Reformats recombined FASTA files to have consistent line widths using seqkit
 # Automatically uses recombined FASTA files from generate_recombined_sequences
 # Ensures compatibility with downstream tools
@@ -191,6 +175,20 @@ format_recombined_fastas:
   threads: 8                             # Optional: Number of threads (default: 8)
   # input: "/custom/recombined/fastas/"  # Optional: Custom FASTA input (file, directory, or text list)
   # output: "/custom/formatted/output/"  # Optional: Custom output directory
+
+# Step 10: Align Mutated Assemblies
+# Realigns the formatted recombined FASTA files back to the reference
+# Uses reference GFF and FASTA from align_assemblies (step 1)
+# Uses FASTA files from format_recombined_fastas (step 9) as query input
+align_mutated_assemblies:
+  # ref_gff: "path/to/reference.gff"     # Optional: Reference GFF file
+                                         #           Uses align_assemblies.ref_gff if not specified
+  # ref_fasta: "path/to/reference.fa"    # Optional: Reference FASTA file
+                                         #           Uses align_assemblies.ref_fasta if not specified
+  # fasta_input: "/custom/fasta/input/"  # Optional: Query FASTA input (file, directory, or text list)
+                                         #           Uses format_recombined_fastas output if not specified
+  threads: 1                             # Optional: Number of threads (default: 1)
+  # output: "/custom/alignment/output/"  # Optional: Custom output directory
 
 # ============================================================================
 # PS4G CREATION CONFIGURATION (Steps 11-14)
@@ -258,39 +256,37 @@ convert_ropebwt2ps4g:
 #    ./gradlew run --args="orchestrate --config pipeline_config.yaml"
 #    Note: Environment setup runs automatically if needed on first run!
 #
-# 2. Run only the main pipeline (variant simulation, steps 1-5):
+# 2. Run only the main pipeline (variant simulation, steps 1-4):
 #    run_steps:
 #      - align_assemblies
 #      - maf_to_gvcf
 #      - downsample_gvcf
 #      - convert_to_fasta
-#      - align_mutated_assemblies
 #      # Comment out recombination steps
 #
-# 3. Run only the recombination pipeline with PS4G creation (steps 1, 6-14):
+# 3. Run only the recombination pipeline with PS4G creation (steps 1, 5-14):
 #    run_steps:
 #      - align_assemblies          # Required for MAF files
 #      # - maf_to_gvcf             # Skip GVCF steps
 #      # - downsample_gvcf
 #      # - convert_to_fasta
-#      # - align_mutated_assemblies
 #      - pick_crossovers
 #      - create_chain_files
 #      - convert_coordinates
 #      - generate_recombined_sequences
 #      - format_recombined_fastas
+#      - align_mutated_assemblies  # Realign recombined sequences
 #      - rope_bwt_chr_index        # Create PHG index
 #      - ropebwt_mem               # Align FASTQ reads
 #      - build_spline_knots        # Build spline knots
 #      - convert_ropebwt2ps4g      # Convert BED to PS4G
 #
-# 4. Run steps 1-2-4-5 (skip downsampling):
+# 4. Run steps 1-2-4 (skip downsampling):
 #    run_steps:
 #      - align_assemblies
 #      - maf_to_gvcf
 #      # - downsample_gvcf          # Commented out
 #      - convert_to_fasta           # Will use maf_to_gvcf outputs
-#      - align_mutated_assemblies
 #
 # 5. Rerun only format step (requires previous outputs):
 #    run_steps:
@@ -390,9 +386,9 @@ convert_ropebwt2ps4g:
 # Assembly List Format (for pick_crossovers, convert_coordinates, generate_recombined_sequences):
 # - Tab-separated file with two columns: path and name
 # - MUST have an EVEN number of assemblies (assemblies are paired for crossover simulation)
-# - The same assembly list is shared across steps 6, 8, and 9:
-#   - Step 6 (pick_crossovers): If not provided, auto-generates from step 4 FASTA outputs
-#   - Steps 8 and 9: If not provided, automatically use the assembly list from step 6
+# - The same assembly list is shared across steps 5, 7, and 8:
+#   - Step 5 (pick_crossovers): If not provided, auto-generates from step 4 FASTA outputs
+#   - Steps 7 and 8: If not provided, automatically use the assembly list from step 5
 # - Auto-generated names are derived from filename minus "_mutated" suffix and extension
 # - Example:
 #   /data/assemblies/B73.fa<TAB>B73
@@ -410,20 +406,22 @@ convert_ropebwt2ps4g:
 #   chr3
 #
 # Recombination Pipeline Dependencies:
-# - Step 6 (pick_crossovers) requires: ref_fasta from step 1 or step 5
+# - Step 5 (pick_crossovers) requires: ref_fasta from step 1
 #   - If assembly_list not provided, auto-generates from step 4 FASTA outputs
 #   - MUST have an EVEN number of assemblies (will error if odd)
-#   - Assembly list is saved and shared with steps 8 and 9
-# - Step 7 (create_chain_files) requires: MAF files from step 5 (default) or step 1 (fallback)
-#   - Uses align_mutated_assemblies MAF outputs by default
-#   - Falls back to align_assemblies MAF outputs if step 5 not run
-# - Step 8 (convert_coordinates) requires: outputs from steps 6 and 7
-#   - If assembly_list not provided, uses assembly list from step 6
-# - Step 9 (generate_recombined_sequences) requires: output from step 8
-#   - If assembly_list not provided, uses assembly list from step 6
+#   - Assembly list is saved and shared with steps 7 and 8
+# - Step 6 (create_chain_files) requires: MAF files from step 1
+#   - Uses align_assemblies MAF outputs
+# - Step 7 (convert_coordinates) requires: outputs from steps 5 and 6
+#   - If assembly_list not provided, uses assembly list from step 5
+# - Step 8 (generate_recombined_sequences) requires: output from step 7
+#   - If assembly_list not provided, uses assembly list from step 5
 #   - If chromosome_list not provided, auto-derives from first assembly using BioKotlin
-#   - If assembly_dir not provided, uses step 9 output directory
-# - Step 10 (format_recombined_fastas) requires: output from step 9
+#   - If assembly_dir not provided, uses step 8 output directory
+# - Step 9 (format_recombined_fastas) requires: output from step 8
+# - Step 10 (align_mutated_assemblies) requires: outputs from steps 1 and 9
+#   - Uses ref_gff and ref_fasta from step 1
+#   - Uses FASTA files from step 9 as query input
 #
 # PS4G Creation Dependencies:
 # - Step 11 (rope_bwt_chr_index) requires: formatted FASTA files from step 10

@@ -19,8 +19,8 @@ import kotlin.system.exitProcess
 
 class CreateChainFiles : CliktCommand(name = "create-chain-files") {
     companion object {
-        private const val LOG_FILE_NAME = "07_create_chain_files.log"
-        private const val CHAIN_RESULTS_DIR = "07_chain_results"
+        private const val LOG_FILE_NAME = "06_create_chain_files.log"
+        private const val CHAIN_RESULTS_DIR = "06_chain_results"
         private const val CHAIN_PATHS_FILE = "chain_file_paths.txt"
         private const val BASH_SCRIPT = "src/python/cross/create_chains.sh"
         private const val DEFAULT_JOBS = 8
@@ -49,7 +49,7 @@ class CreateChainFiles : CliktCommand(name = "create-chain-files") {
 
     private val outputDirOption by option(
         "--output-dir", "-o",
-        help = "Custom output directory (default: work_dir/output/07_chain_results)"
+        help = "Custom output directory (default: work_dir/output/06_chain_results)"
     ).path(mustExist = false, canBeFile = false, canBeDir = true)
 
     private fun collectMafFiles(): List<Path> {

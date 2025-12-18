@@ -18,12 +18,12 @@ import kotlin.system.exitProcess
 
 class ConvertCoordinates : CliktCommand(name = "convert-coordinates") {
     companion object {
-        private const val LOG_FILE_NAME = "08_convert_coordinates.log"
-        private const val COORDS_RESULTS_DIR = "08_coordinates_results"
+        private const val LOG_FILE_NAME = "07_convert_coordinates.log"
+        private const val COORDS_RESULTS_DIR = "07_coordinates_results"
         private const val KEY_PATHS_FILE = "key_file_paths.txt"
         private const val FOUNDER_KEY_PATHS_FILE = "founder_key_file_paths.txt"
         private const val PYTHON_SCRIPT = "src/python/cross/convert_coords.py"
-        private const val DEFAULT_REFKEY_DIR = "06_crossovers_results"
+        private const val DEFAULT_REFKEY_DIR = "05_crossovers_results"
     }
 
     private val logger: Logger = LogManager.getLogger(ConvertCoordinates::class.java)
@@ -53,7 +53,7 @@ class ConvertCoordinates : CliktCommand(name = "convert-coordinates") {
 
     private val outputDirOption by option(
         "--output-dir", "-o",
-        help = "Custom output directory (default: work_dir/output/08_coordinates_results)"
+        help = "Custom output directory (default: work_dir/output/07_coordinates_results)"
     ).path(mustExist = false, canBeFile = false, canBeDir = true)
 
     override fun run() {

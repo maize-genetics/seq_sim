@@ -70,8 +70,8 @@ data class ConvertToFastaConfig(
 
 data class AlignMutatedAssembliesConfig(
     val ref_gff: String? = null,      // Optional: Reference GFF (uses align_assemblies.ref_gff if not specified)
-    val ref_fasta: String? = null,    // Optional: Reference FASTA (uses matching ref from step 4 output if not specified)
-    val fasta_input: String? = null,  // Optional: Query FASTA input (uses non-ref files from step 4 if not specified)
+    val ref_fasta: String? = null,    // Optional: Reference FASTA (uses align_assemblies.ref_fasta if not specified)
+    val fasta_input: String? = null,  // Optional: Query FASTA input (uses format_recombined_fastas output if not specified)
     val threads: Int? = null,
     val output: String? = null        // Custom output directory
 )
@@ -392,9 +392,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
         var fastaOutputDir: Path? = null
         var refFasta: Path? = null
         var refGff: Path? = null
-        var mutatedRefFasta: Path? = null  // Mutated reference FASTA from step 5
-        var mutatedMafFilePaths: Path? = null  // MAF file paths from step 5 (align_mutated_assemblies)
-        var assemblyListPath: Path? = null  // Assembly list from step 6 (pick_crossovers)
+        var assemblyListPath: Path? = null  // Assembly list from step 5 (pick_crossovers)
         var refkeyOutputDir: Path? = null
         var chainOutputDir: Path? = null
         var coordinatesOutputDir: Path? = null
@@ -696,160 +694,17 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 logger.info("")
             }
 
-            // Step 5: Align Mutated Assemblies (if configured and should run)
-            if (config.align_mutated_assemblies != null && shouldRunStep("align_mutated_assemblies", config)) {
-                logger.info("=".repeat(80))
-                logger.info("STEP 5: Align Mutated Assemblies")
-                logger.info("=".repeat(80))
-
-                // Determine ref_gff (config value or from step 1)
-                val step5RefGff = config.align_mutated_assemblies.ref_gff?.let { Path.of(it) } ?: refGff
-                if (step5RefGff == null) {
-                    throw RuntimeException("Cannot run align-mutated-assemblies: reference GFF not available (specify 'ref_gff' in config or run align_assemblies first)")
-                }
-
-                // Determine ref_fasta and fasta_input from step 4 output
-                // If fastaOutputDir exists, find the reference FASTA (matching original ref name) and query FASTAs
-                var step5RefFasta: Path? = config.align_mutated_assemblies.ref_fasta?.let { Path.of(it) }
-                var step5FastaInput: Path? = config.align_mutated_assemblies.fasta_input?.let { Path.of(it) }
-
-                // If not explicitly specified, try to derive from step 4 output
-                if (step5RefFasta == null || step5FastaInput == null) {
-                    if (fastaOutputDir != null && fastaOutputDir.exists()) {
-                        // Get the reference FASTA filename (without path) to match against step 4 output
-                        val refFastaName = refFasta?.fileName?.toString()?.replace(Regex("\\.(fa|fasta|fna)(\\.gz)?$"), "")
-
-                        if (refFastaName != null) {
-                            // Find all FASTA files in the output directory
-                            val allFastaFiles = fastaOutputDir.toFile().listFiles { file ->
-                                file.isFile && file.name.matches(Regex(".*\\.(fa|fasta|fna)(\\.gz)?$"))
-                            }?.map { it.toPath() } ?: emptyList()
-
-                            // Find the reference FASTA (filename contains the ref name)
-                            val matchingRefFasta = allFastaFiles.find { path ->
-                                path.fileName.toString().contains(refFastaName, ignoreCase = true)
-                            }
-
-                            // Get non-reference FASTAs
-                            val queryFastas = allFastaFiles.filter { path ->
-                                !path.fileName.toString().contains(refFastaName, ignoreCase = true)
-                            }
-
-                            if (step5RefFasta == null && matchingRefFasta != null) {
-                                step5RefFasta = matchingRefFasta
-                                logger.info("Auto-detected reference FASTA from step 4: $step5RefFasta")
-                            }
-
-                            if (step5FastaInput == null && queryFastas.isNotEmpty()) {
-                                // Create a text file listing the query FASTAs
-                                val queryListFile = fastaOutputDir.resolve("query_fastas.txt")
-                                queryListFile.writeText(queryFastas.joinToString("\n") { it.toAbsolutePath().toString() })
-                                step5FastaInput = queryListFile
-                                logger.info("Auto-detected ${queryFastas.size} query FASTA files from step 4")
-                            }
-                        }
-                    }
-
-                    // Fall back to original behavior if auto-detection failed
-                    if (step5RefFasta == null) {
-                        step5RefFasta = refFasta
-                    }
-                    if (step5FastaInput == null) {
-                        step5FastaInput = fastaOutputDir
-                    }
-                }
-
-                if (step5FastaInput == null) {
-                    throw RuntimeException("Cannot run align-mutated-assemblies: no FASTA input available (specify 'fasta_input' in config or run convert-to-fasta first)")
-                }
-                if (step5RefFasta == null) {
-                    throw RuntimeException("Cannot run align-mutated-assemblies: reference FASTA not available (specify 'ref_fasta' in config or run convert-to-fasta first)")
-                }
-
-                // Determine output directory (custom or default)
-                val customOutput = config.align_mutated_assemblies.output?.let { Path.of(it) }
-
-                val args = buildList {
-                    add("--work-dir=${workDir}")
-                    add("--ref-gff=${step5RefGff}")
-                    add("--ref-fasta=${step5RefFasta}")
-                    add("--fasta-input=${step5FastaInput}")
-                    if (config.align_mutated_assemblies.threads != null) {
-                        add("--threads=${config.align_mutated_assemblies.threads}")
-                    }
-                    if (customOutput != null) {
-                        add("--output-dir=${customOutput}")
-                    }
-                }
-
-                AlignMutatedAssemblies().parse(args)
-                restoreOrchestratorLogging(workDir)
-
-                // Save the mutated reference FASTA for use in step 6
-                mutatedRefFasta = step5RefFasta
-
-                // Save the MAF file paths for use in step 7 (create_chain_files)
-                val step5OutputDir = customOutput ?: workDir.resolve("output").resolve("05_mutated_align_results")
-                mutatedMafFilePaths = step5OutputDir.resolve("maf_file_paths.txt")
-                if (mutatedMafFilePaths!!.exists()) {
-                    logger.info("Step 5 MAF file paths: $mutatedMafFilePaths")
-                } else {
-                    logger.warn("Step 5 MAF file paths not found: $mutatedMafFilePaths")
-                    mutatedMafFilePaths = null
-                }
-
-                logger.info("Step 5 completed successfully")
-                logger.info("")
-            } else {
-                if (config.align_mutated_assemblies != null) {
-                    logger.info("Skipping align-mutated-assemblies (not in run_steps)")
-
-                    // Try to recover mutated ref FASTA from step 5 config or step 4 output
-                    if (config.align_mutated_assemblies.ref_fasta != null) {
-                        mutatedRefFasta = Path.of(config.align_mutated_assemblies.ref_fasta)
-                        logger.info("Using configured mutated reference FASTA: $mutatedRefFasta")
-                    } else if (fastaOutputDir != null && fastaOutputDir.exists()) {
-                        // Try to auto-detect from step 4 output
-                        val refFastaName = refFasta?.fileName?.toString()?.replace(Regex("\\.(fa|fasta|fna)(\\.gz)?$"), "")
-                        if (refFastaName != null) {
-                            val matchingRefFasta = fastaOutputDir.toFile().listFiles { file ->
-                                file.isFile && file.name.matches(Regex(".*\\.(fa|fasta|fna)(\\.gz)?$")) &&
-                                file.name.contains(refFastaName, ignoreCase = true)
-                            }?.firstOrNull()?.toPath()
-                            if (matchingRefFasta != null) {
-                                mutatedRefFasta = matchingRefFasta
-                                logger.info("Auto-detected mutated reference FASTA: $mutatedRefFasta")
-                            }
-                        }
-                    }
-
-                    // Try to recover MAF file paths from previous step 5 run
-                    val customOutput = config.align_mutated_assemblies.output?.let { Path.of(it) }
-                    val step5OutputDir = customOutput ?: workDir.resolve("output").resolve("05_mutated_align_results")
-                    val previousMafPaths = step5OutputDir.resolve("maf_file_paths.txt")
-                    if (previousMafPaths.exists()) {
-                        mutatedMafFilePaths = previousMafPaths
-                        logger.info("Using previous step 5 MAF file paths: $mutatedMafFilePaths")
-                    }
-                } else {
-                    logger.info("Skipping align-mutated-assemblies (not configured)")
-                }
-                logger.info("")
-            }
-
-            // Step 6: Pick Crossovers (if configured and should run)
+            // Step 5: Pick Crossovers (if configured and should run)
             if (config.pick_crossovers != null && shouldRunStep("pick_crossovers", config)) {
                 logger.info("=".repeat(80))
-                logger.info("STEP 6: Pick Crossovers")
+                logger.info("STEP 5: Pick Crossovers")
                 logger.info("=".repeat(80))
 
-                // Use pick_crossovers.ref_fasta if specified, otherwise use mutated ref FASTA from step 5, 
-                // finally fall back to original ref FASTA from step 1
+                // Use pick_crossovers.ref_fasta if specified, otherwise use ref FASTA from step 1
                 val pickCrossoversRefFasta = config.pick_crossovers.ref_fasta?.let { Path.of(it) } 
-                    ?: mutatedRefFasta 
                     ?: refFasta
                 if (pickCrossoversRefFasta == null) {
-                    throw RuntimeException("Cannot run pick-crossovers: reference FASTA not available (specify 'ref_fasta' in pick_crossovers config, run align_mutated_assemblies, or run align_assemblies first)")
+                    throw RuntimeException("Cannot run pick-crossovers: reference FASTA not available (specify 'ref_fasta' in pick_crossovers config or run align_assemblies first)")
                 }
 
                 // Determine assembly list (custom or auto-generated from step 4)
@@ -916,13 +771,13 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 restoreOrchestratorLogging(workDir)
 
                 // Get output directory (use custom or default)
-                refkeyOutputDir = customOutput ?: workDir.resolve("output").resolve("06_crossovers_results")
+                refkeyOutputDir = customOutput ?: workDir.resolve("output").resolve("05_crossovers_results")
 
                 if (!refkeyOutputDir.exists()) {
                     throw RuntimeException("Expected refkey output directory not found: $refkeyOutputDir")
                 }
 
-                logger.info("Step 6 completed successfully")
+                logger.info("Step 5 completed successfully")
                 logger.info("")
             } else {
                 if (config.pick_crossovers != null) {
@@ -930,7 +785,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
 
                     // Check custom output location first, then default
                     val customOutput = config.pick_crossovers.output?.let { Path.of(it) }
-                    val previousRefkeyDir = customOutput ?: workDir.resolve("output").resolve("06_crossovers_results")
+                    val previousRefkeyDir = customOutput ?: workDir.resolve("output").resolve("05_crossovers_results")
                     if (previousRefkeyDir.exists()) {
                         refkeyOutputDir = previousRefkeyDir
                         logger.info("Using previous pick-crossovers outputs: $refkeyOutputDir")
@@ -955,18 +810,17 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 logger.info("")
             }
 
-            // Step 7: Create Chain Files (if configured and should run)
+            // Step 6: Create Chain Files (if configured and should run)
             if (config.create_chain_files != null && shouldRunStep("create_chain_files", config)) {
                 logger.info("=".repeat(80))
-                logger.info("STEP 7: Create Chain Files")
+                logger.info("STEP 6: Create Chain Files")
                 logger.info("=".repeat(80))
 
-                // Determine input (custom, or step 5 MAF files, or step 1 MAF files as fallback)
+                // Determine input (custom or step 1 MAF files)
                 val mafInput = config.create_chain_files.maf_file_input?.let { Path.of(it) } 
-                    ?: mutatedMafFilePaths 
                     ?: mafFilePaths
                 if (mafInput == null) {
-                    throw RuntimeException("Cannot run create-chain-files: no MAF input available (specify 'maf_file_input' in config, run align-mutated-assemblies, or run align-assemblies first)")
+                    throw RuntimeException("Cannot run create-chain-files: no MAF input available (specify 'maf_file_input' in config or run align-assemblies first)")
                 }
                 logger.info("MAF input: $mafInput")
 
@@ -988,13 +842,13 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 restoreOrchestratorLogging(workDir)
 
                 // Get output directory (use custom or default)
-                chainOutputDir = customOutput ?: workDir.resolve("output").resolve("07_chain_results")
+                chainOutputDir = customOutput ?: workDir.resolve("output").resolve("06_chain_results")
 
                 if (!chainOutputDir.exists()) {
                     throw RuntimeException("Expected chain output directory not found: $chainOutputDir")
                 }
 
-                logger.info("Step 7 completed successfully")
+                logger.info("Step 6 completed successfully")
                 logger.info("")
             } else {
                 if (config.create_chain_files != null) {
@@ -1002,19 +856,12 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
 
                     // Check custom output location first, then default
                     val customOutput = config.create_chain_files.output?.let { Path.of(it) }
-                    val previousChainDir = customOutput ?: workDir.resolve("output").resolve("07_chain_results")
+                    val previousChainDir = customOutput ?: workDir.resolve("output").resolve("06_chain_results")
                     if (previousChainDir.exists()) {
                         chainOutputDir = previousChainDir
                         logger.info("Using previous create-chain-files outputs: $chainOutputDir")
                     } else {
                         logger.warn("Previous create-chain-files outputs not found. Downstream steps may fail.")
-                    }
-                    
-                    // Also recover MAF file path info if not already set
-                    if (mutatedMafFilePaths == null && mafFilePaths == null) {
-                        config.create_chain_files.maf_file_input?.let {
-                            logger.info("Custom MAF input configured: $it")
-                        }
                     }
                 } else {
                     logger.info("Skipping create-chain-files (not configured)")
@@ -1022,10 +869,10 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 logger.info("")
             }
 
-            // Step 8: Convert Coordinates (if configured and should run)
+            // Step 7: Convert Coordinates (if configured and should run)
             if (config.convert_coordinates != null && shouldRunStep("convert_coordinates", config)) {
                 logger.info("=".repeat(80))
-                logger.info("STEP 8: Convert Coordinates")
+                logger.info("STEP 7: Convert Coordinates")
                 logger.info("=".repeat(80))
 
                 // Determine chain input (custom or from previous step)
@@ -1065,13 +912,13 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 restoreOrchestratorLogging(workDir)
 
                 // Get output directory (use custom or default)
-                coordinatesOutputDir = customOutput ?: workDir.resolve("output").resolve("08_coordinates_results")
+                coordinatesOutputDir = customOutput ?: workDir.resolve("output").resolve("07_coordinates_results")
 
                 if (!coordinatesOutputDir.exists()) {
                     throw RuntimeException("Expected coordinates output directory not found: $coordinatesOutputDir")
                 }
 
-                logger.info("Step 8 completed successfully")
+                logger.info("Step 7 completed successfully")
                 logger.info("")
             } else {
                 if (config.convert_coordinates != null) {
@@ -1079,7 +926,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
 
                     // Check custom output location first, then default
                     val customOutput = config.convert_coordinates.output?.let { Path.of(it) }
-                    val previousCoordsDir = customOutput ?: workDir.resolve("output").resolve("08_coordinates_results")
+                    val previousCoordsDir = customOutput ?: workDir.resolve("output").resolve("07_coordinates_results")
                     if (previousCoordsDir.exists()) {
                         coordinatesOutputDir = previousCoordsDir
                         logger.info("Using previous convert-coordinates outputs: $coordinatesOutputDir")
@@ -1092,10 +939,10 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 logger.info("")
             }
 
-            // Step 9: Generate Recombined Sequences (if configured and should run)
+            // Step 8: Generate Recombined Sequences (if configured and should run)
             if (config.generate_recombined_sequences != null && shouldRunStep("generate_recombined_sequences", config)) {
                 logger.info("=".repeat(80))
-                logger.info("STEP 9: Generate Recombined Sequences")
+                logger.info("STEP 8: Generate Recombined Sequences")
                 logger.info("=".repeat(80))
 
                 // Use founder key input from previous step (convert_coordinates)
@@ -1136,7 +983,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                     }
                     
                     // Write chromosome list to a temporary file
-                    val chromosomeListFile = workDir.resolve("output").resolve("09_recombined_sequences").resolve("auto_chromosome_list.txt")
+                    val chromosomeListFile = workDir.resolve("output").resolve("08_recombined_sequences").resolve("auto_chromosome_list.txt")
                     chromosomeListFile.parent.createDirectories()
                     chromosomeListFile.writeText(chromosomeIds.joinToString("\n"))
                     logger.info("Auto-generated chromosome list: $chromosomeListFile")
@@ -1145,8 +992,8 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                     chromosomeListFile
                 }
 
-                // Determine output directory (step 9 default output)
-                val outputBase = workDir.resolve("output").resolve("09_recombined_sequences")
+                // Determine output directory (step 8 default output)
+                val outputBase = workDir.resolve("output").resolve("08_recombined_sequences")
 
                 // Determine assembly directory (custom or from step 4 FASTA output)
                 // The Python script needs to read parent FASTA files which are in the FASTA output directory
@@ -1169,14 +1016,14 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 // Get output directory
                 recombinedFastasDir = outputBase.resolve("recombinate_fastas")
 
-                logger.info("Step 9 completed successfully")
+                logger.info("Step 8 completed successfully")
                 logger.info("")
             } else {
                 if (config.generate_recombined_sequences != null) {
                     logger.info("Skipping generate-recombined-sequences (not in run_steps)")
 
                     // Check default output location
-                    val outputBase = workDir.resolve("output").resolve("09_recombined_sequences")
+                    val outputBase = workDir.resolve("output").resolve("08_recombined_sequences")
                     val previousRecombinedDir = outputBase.resolve("recombinate_fastas")
                     if (previousRecombinedDir.exists()) {
                         recombinedFastasDir = previousRecombinedDir
@@ -1190,10 +1037,10 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 logger.info("")
             }
 
-            // Step 10: Format Recombined Fastas (if configured and should run)
+            // Step 9: Format Recombined Fastas (if configured and should run)
             if (config.format_recombined_fastas != null && shouldRunStep("format_recombined_fastas", config)) {
                 logger.info("=".repeat(80))
-                logger.info("STEP 10: Format Recombined Fastas")
+                logger.info("STEP 9: Format Recombined Fastas")
                 logger.info("=".repeat(80))
 
                 // Determine input (custom or from previous step)
@@ -1223,9 +1070,9 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 restoreOrchestratorLogging(workDir)
 
                 // Get output directory (use custom or default)
-                formattedFastasDir = customOutput ?: workDir.resolve("output").resolve("10_formatted_fastas")
+                formattedFastasDir = customOutput ?: workDir.resolve("output").resolve("09_formatted_fastas")
 
-                logger.info("Step 10 completed successfully")
+                logger.info("Step 9 completed successfully")
                 logger.info("")
             } else {
                 if (config.format_recombined_fastas != null) {
@@ -1233,7 +1080,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
 
                     // Check custom output location first, then default
                     val customOutput = config.format_recombined_fastas.output?.let { Path.of(it) }
-                    val previousFormattedDir = customOutput ?: workDir.resolve("output").resolve("10_formatted_fastas")
+                    val previousFormattedDir = customOutput ?: workDir.resolve("output").resolve("09_formatted_fastas")
                     if (previousFormattedDir.exists()) {
                         formattedFastasDir = previousFormattedDir
                         logger.info("Using previous format-recombined-fastas outputs: $formattedFastasDir")
@@ -1242,6 +1089,64 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                     }
                 } else {
                     logger.info("Skipping format-recombined-fastas (not configured)")
+                }
+                logger.info("")
+            }
+
+            // Step 10: Align Mutated Assemblies (if configured and should run)
+            if (config.align_mutated_assemblies != null && shouldRunStep("align_mutated_assemblies", config)) {
+                logger.info("=".repeat(80))
+                logger.info("STEP 10: Align Mutated Assemblies")
+                logger.info("=".repeat(80))
+
+                // Determine ref_gff (config value or from step 1)
+                val step10RefGff = config.align_mutated_assemblies.ref_gff?.let { Path.of(it) } ?: refGff
+                if (step10RefGff == null) {
+                    throw RuntimeException("Cannot run align-mutated-assemblies: reference GFF not available (specify 'ref_gff' in config or run align_assemblies first)")
+                }
+
+                // Determine ref_fasta (config value or from step 1)
+                val step10RefFasta = config.align_mutated_assemblies.ref_fasta?.let { Path.of(it) } ?: refFasta
+                if (step10RefFasta == null) {
+                    throw RuntimeException("Cannot run align-mutated-assemblies: reference FASTA not available (specify 'ref_fasta' in config or run align_assemblies first)")
+                }
+
+                // Determine fasta_input (config value or from format_recombined_fastas output)
+                val step10FastaInput = config.align_mutated_assemblies.fasta_input?.let { Path.of(it) } ?: formattedFastasDir
+                if (step10FastaInput == null) {
+                    throw RuntimeException("Cannot run align-mutated-assemblies: no FASTA input available (specify 'fasta_input' in config or run format-recombined-fastas first)")
+                }
+
+                logger.info("Reference GFF: $step10RefGff")
+                logger.info("Reference FASTA: $step10RefFasta")
+                logger.info("FASTA input: $step10FastaInput")
+
+                // Determine output directory (custom or default)
+                val customOutput = config.align_mutated_assemblies.output?.let { Path.of(it) }
+
+                val args = buildList {
+                    add("--work-dir=${workDir}")
+                    add("--ref-gff=${step10RefGff}")
+                    add("--ref-fasta=${step10RefFasta}")
+                    add("--fasta-input=${step10FastaInput}")
+                    if (config.align_mutated_assemblies.threads != null) {
+                        add("--threads=${config.align_mutated_assemblies.threads}")
+                    }
+                    if (customOutput != null) {
+                        add("--output-dir=${customOutput}")
+                    }
+                }
+
+                AlignMutatedAssemblies().parse(args)
+                restoreOrchestratorLogging(workDir)
+
+                logger.info("Step 10 completed successfully")
+                logger.info("")
+            } else {
+                if (config.align_mutated_assemblies != null) {
+                    logger.info("Skipping align-mutated-assemblies (not in run_steps)")
+                } else {
+                    logger.info("Skipping align-mutated-assemblies (not configured)")
                 }
                 logger.info("")
             }
