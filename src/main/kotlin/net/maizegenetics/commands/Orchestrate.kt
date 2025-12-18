@@ -1245,9 +1245,11 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 }
 
                 // Determine output directory (custom or default) - resolve to absolute path
-                val customOutputDir = config.mutated_maf_to_gvcf.output_dir?.let { 
+                // Always use step 11 output directory by default (not MafToGvcf's default)
+                val mutatedGvcfOutputDir = (config.mutated_maf_to_gvcf.output_dir?.let { 
                     Path.of(it).toAbsolutePath().normalize() 
-                }
+                } ?: workDir.resolve("output").resolve("11_mutated_gvcf_results"))
+                    .toAbsolutePath().normalize()
 
                 // Determine output file if specified - resolve to absolute path
                 val outputFile = config.mutated_maf_to_gvcf.output_file?.let { 
@@ -1256,28 +1258,23 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
 
                 logger.info("Reference FASTA: $step11RefFasta")
                 logger.info("MAF input: $mafInput")
+                logger.info("Output directory: $mutatedGvcfOutputDir")
 
                 val args = buildList {
                     add("--work-dir=$workDir")
                     add("--reference-file=$step11RefFasta")
                     add("--maf-file=$mafInput")
+                    add("--output-dir=$mutatedGvcfOutputDir")  // Always pass output dir to ensure step 11 location
                     if (outputFile != null) {
                         add("--output-file=$outputFile")
                     }
                     if (config.mutated_maf_to_gvcf.sample_name != null) {
                         add("--sample-name=${config.mutated_maf_to_gvcf.sample_name}")
                     }
-                    if (customOutputDir != null) {
-                        add("--output-dir=$customOutputDir")
-                    }
                 }
 
                 MafToGvcf().parse(args)
                 restoreOrchestratorLogging(workDir)
-
-                // Get output directory (use custom or default)
-                val mutatedGvcfOutputDir = (customOutputDir ?: workDir.resolve("output").resolve("11_mutated_gvcf_results"))
-                    .toAbsolutePath().normalize()
 
                 if (!mutatedGvcfOutputDir.exists()) {
                     throw RuntimeException("Expected mutated GVCF output directory not found: $mutatedGvcfOutputDir")
