@@ -31,7 +31,9 @@ data class PipelineConfig(
     val create_chain_files: CreateChainFilesConfig? = null,
     val convert_coordinates: ConvertCoordinatesConfig? = null,
     val generate_recombined_sequences: GenerateRecombinedSequencesConfig? = null,
-    val format_recombined_fastas: FormatRecombinedFastasConfig? = null
+    val format_recombined_fastas: FormatRecombinedFastasConfig? = null,
+    val mutated_maf_to_gvcf: MutatedMafToGvcfConfig? = null,
+    val rope_bwt_chr_index: RopeBwtChrIndexConfig? = null
 )
 
 data class AlignAssembliesConfig(
@@ -106,6 +108,22 @@ data class FormatRecombinedFastasConfig(
     val threads: Int? = null,
     val input: String? = null,   // Custom FASTA input file/directory
     val output: String? = null   // Custom output directory
+)
+
+data class MutatedMafToGvcfConfig(
+    val reference_file: String? = null,  // Optional: Reference FASTA (uses align_assemblies.ref_fasta if not specified)
+    val maf_file: String? = null,        // Optional: MAF file/directory/list (uses align_mutated_assemblies output if not specified)
+    val output_file: String? = null,     // Optional: Output GVCF file name
+    val sample_name: String? = null,     // Optional: Sample name for GVCF
+    val output_dir: String? = null       // Optional: Custom GVCF output directory
+)
+
+data class RopeBwtChrIndexConfig(
+    val keyfile: String? = null,           // Optional: Pre-made keyfile (if not specified, auto-generates from format_recombined_fastas output)
+    val index_file_prefix: String? = null, // Optional: Prefix for index files (default: "phgIndex")
+    val threads: Int? = null,              // Optional: Number of threads (default: 20)
+    val delete_fmr_index: Boolean? = null, // Optional: Delete .fmr files after conversion (default: true)
+    val output: String? = null             // Optional: Custom output directory
 )
 
 class Orchestrate : CliktCommand(name = "orchestrate") {
@@ -328,6 +346,32 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 )
             } else null
 
+            // Parse mutated_maf_to_gvcf - check if key exists (even with empty/null value means "run with defaults")
+            @Suppress("UNCHECKED_CAST")
+            val mutatedMafToGvcfMap = configMap["mutated_maf_to_gvcf"] as? Map<String, Any>
+            val mutatedMafToGvcf = if (configMap.containsKey("mutated_maf_to_gvcf")) {
+                MutatedMafToGvcfConfig(
+                    reference_file = mutatedMafToGvcfMap?.get("reference_file") as? String,
+                    maf_file = mutatedMafToGvcfMap?.get("maf_file") as? String,
+                    output_file = mutatedMafToGvcfMap?.get("output_file") as? String,
+                    sample_name = mutatedMafToGvcfMap?.get("sample_name") as? String,
+                    output_dir = mutatedMafToGvcfMap?.get("output_dir") as? String
+                )
+            } else null
+
+            // Parse rope_bwt_chr_index - check if key exists (even with empty/null value means "run with defaults")
+            @Suppress("UNCHECKED_CAST")
+            val ropeBwtChrIndexMap = configMap["rope_bwt_chr_index"] as? Map<String, Any>
+            val ropeBwtChrIndex = if (configMap.containsKey("rope_bwt_chr_index")) {
+                RopeBwtChrIndexConfig(
+                    keyfile = ropeBwtChrIndexMap?.get("keyfile") as? String,
+                    index_file_prefix = ropeBwtChrIndexMap?.get("index_file_prefix") as? String,
+                    threads = ropeBwtChrIndexMap?.get("threads") as? Int,
+                    delete_fmr_index = ropeBwtChrIndexMap?.get("delete_fmr_index") as? Boolean,
+                    output = ropeBwtChrIndexMap?.get("output") as? String
+                )
+            } else null
+
             return PipelineConfig(
                 work_dir = workDir,
                 run_steps = runSteps,
@@ -340,7 +384,9 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 create_chain_files = createChainFiles,
                 convert_coordinates = convertCoordinates,
                 generate_recombined_sequences = generateRecombinedSequences,
-                format_recombined_fastas = formatRecombinedFastas
+                format_recombined_fastas = formatRecombinedFastas,
+                mutated_maf_to_gvcf = mutatedMafToGvcf,
+                rope_bwt_chr_index = ropeBwtChrIndex
             )
         } catch (e: Exception) {
             logger.error("Failed to parse configuration file: ${e.message}", e)
@@ -398,6 +444,8 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
         var coordinatesOutputDir: Path? = null
         var recombinedFastasDir: Path? = null
         var formattedFastasDir: Path? = null
+        var mutatedMafFilePaths: Path? = null  // MAF file paths from step 10 (align_mutated_assemblies)
+        var ropeBwtIndexDir: Path? = null  // RopeBWT index output directory from step 12
 
         try {
             // Step 1: Align Assemblies (if configured and should run)
@@ -1140,13 +1188,234 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 AlignMutatedAssemblies().parse(args)
                 restoreOrchestratorLogging(workDir)
 
+                // Get output path (use custom or default)
+                val outputBase = customOutput ?: workDir.resolve("output").resolve("10_mutated_alignment_results")
+                mutatedMafFilePaths = outputBase.toAbsolutePath().normalize().resolve("maf_file_paths.txt")
+
+                if (!mutatedMafFilePaths.exists()) {
+                    throw RuntimeException("Expected MAF paths file not found: $mutatedMafFilePaths")
+                }
+
                 logger.info("Step 10 completed successfully")
                 logger.info("")
             } else {
                 if (config.align_mutated_assemblies != null) {
                     logger.info("Skipping align-mutated-assemblies (not in run_steps)")
+
+                    // Check custom output location first, then default
+                    val customOutput = config.align_mutated_assemblies.output?.let { 
+                        Path.of(it).toAbsolutePath().normalize() 
+                    }
+                    val outputBase = (customOutput ?: workDir.resolve("output").resolve("10_mutated_alignment_results"))
+                        .toAbsolutePath().normalize()
+                    val previousMafPaths = outputBase.resolve("maf_file_paths.txt")
+
+                    if (previousMafPaths.exists()) {
+                        mutatedMafFilePaths = previousMafPaths
+                        logger.info("Using previous align-mutated-assemblies outputs: $mutatedMafFilePaths")
+                    } else {
+                        logger.warn("Previous align-mutated-assemblies outputs not found. Downstream steps may fail.")
+                    }
                 } else {
                     logger.info("Skipping align-mutated-assemblies (not configured)")
+                }
+                logger.info("")
+            }
+
+            // Step 11: Mutated MAF to GVCF (if configured and should run)
+            if (config.mutated_maf_to_gvcf != null && shouldRunStep("mutated_maf_to_gvcf", config)) {
+                logger.info("=".repeat(80))
+                logger.info("STEP 11: Mutated MAF to GVCF Conversion")
+                logger.info("=".repeat(80))
+
+                // Determine reference file (custom or from step 1) - resolve to absolute path
+                val step11RefFasta = config.mutated_maf_to_gvcf.reference_file?.let { 
+                    Path.of(it).toAbsolutePath().normalize() 
+                } ?: refFasta
+                if (step11RefFasta == null) {
+                    throw RuntimeException("Cannot run mutated-maf-to-gvcf: reference FASTA not available (specify 'reference_file' in config or run align-assemblies first)")
+                }
+
+                // Determine MAF input (custom or from step 10) - resolve to absolute path
+                val mafInput = config.mutated_maf_to_gvcf.maf_file?.let { 
+                    Path.of(it).toAbsolutePath().normalize() 
+                } ?: mutatedMafFilePaths
+                if (mafInput == null) {
+                    throw RuntimeException("Cannot run mutated-maf-to-gvcf: no MAF input available (specify 'maf_file' in config or run align-mutated-assemblies first)")
+                }
+
+                // Determine output directory (custom or default) - resolve to absolute path
+                val customOutputDir = config.mutated_maf_to_gvcf.output_dir?.let { 
+                    Path.of(it).toAbsolutePath().normalize() 
+                }
+
+                // Determine output file if specified - resolve to absolute path
+                val outputFile = config.mutated_maf_to_gvcf.output_file?.let { 
+                    Path.of(it).toAbsolutePath().normalize() 
+                }
+
+                logger.info("Reference FASTA: $step11RefFasta")
+                logger.info("MAF input: $mafInput")
+
+                val args = buildList {
+                    add("--work-dir=$workDir")
+                    add("--reference-file=$step11RefFasta")
+                    add("--maf-file=$mafInput")
+                    if (outputFile != null) {
+                        add("--output-file=$outputFile")
+                    }
+                    if (config.mutated_maf_to_gvcf.sample_name != null) {
+                        add("--sample-name=${config.mutated_maf_to_gvcf.sample_name}")
+                    }
+                    if (customOutputDir != null) {
+                        add("--output-dir=$customOutputDir")
+                    }
+                }
+
+                MafToGvcf().parse(args)
+                restoreOrchestratorLogging(workDir)
+
+                // Get output directory (use custom or default)
+                val mutatedGvcfOutputDir = (customOutputDir ?: workDir.resolve("output").resolve("11_mutated_gvcf_results"))
+                    .toAbsolutePath().normalize()
+
+                if (!mutatedGvcfOutputDir.exists()) {
+                    throw RuntimeException("Expected mutated GVCF output directory not found: $mutatedGvcfOutputDir")
+                }
+
+                logger.info("Step 11 completed successfully")
+                logger.info("")
+            } else {
+                if (config.mutated_maf_to_gvcf != null) {
+                    logger.info("Skipping mutated-maf-to-gvcf (not in run_steps)")
+                } else {
+                    logger.info("Skipping mutated-maf-to-gvcf (not configured)")
+                }
+                logger.info("")
+            }
+
+            // Step 12: RopeBWT Chr Index (if configured and should run)
+            if (config.rope_bwt_chr_index != null && shouldRunStep("rope_bwt_chr_index", config)) {
+                logger.info("=".repeat(80))
+                logger.info("STEP 12: RopeBWT Chr Index")
+                logger.info("=".repeat(80))
+
+                // Determine output directory (custom or default) - resolve to absolute path
+                val customOutput = config.rope_bwt_chr_index.output?.let { 
+                    Path.of(it).toAbsolutePath().normalize() 
+                }
+                val outputBase = customOutput ?: workDir.resolve("output").resolve("12_rope_bwt_index_results")
+                outputBase.createDirectories()
+
+                // Determine keyfile - either provided or auto-generated from format_recombined_fastas output
+                val actualKeyfile: Path = if (config.rope_bwt_chr_index.keyfile != null) {
+                    // Use provided keyfile
+                    val keyfilePath = Path.of(config.rope_bwt_chr_index.keyfile).toAbsolutePath().normalize()
+                    logger.info("Using provided keyfile: $keyfilePath")
+                    keyfilePath
+                } else {
+                    // Auto-generate keyfile from format_recombined_fastas output
+                    if (formattedFastasDir == null || !formattedFastasDir.exists()) {
+                        throw RuntimeException("Cannot run rope-bwt-chr-index: no FASTA input available (specify 'keyfile' in config or run format-recombined-fastas first)")
+                    }
+                    
+                    logger.info("Auto-generating keyfile from formatted FASTA files in: $formattedFastasDir")
+                    
+                    // Collect FASTA files
+                    val fastaFiles = formattedFastasDir.toFile().listFiles { file ->
+                        file.isFile && file.name.matches(Regex(".*\\.(fa|fasta|fna)(\\.gz)?$"))
+                    }?.map { it.toPath() }?.sorted() ?: emptyList()
+                    
+                    if (fastaFiles.isEmpty()) {
+                        throw RuntimeException("Cannot run rope-bwt-chr-index: no FASTA files found in $formattedFastasDir")
+                    }
+                    
+                    logger.info("Found ${fastaFiles.size} FASTA files")
+                    
+                    // Generate keyfile with sample names derived from filenames
+                    val keyfilePath = outputBase.resolve("phg_keyfile.txt")
+                    val keyfileLines = mutableListOf("Fasta\tSampleName")
+                    val renamedSamples = mutableListOf<Pair<String, String>>()  // original -> fixed
+                    
+                    fastaFiles.forEach { fastaFile ->
+                        var sampleName = fastaFile.fileName.toString()
+                            .replace(Regex("\\.(fa|fasta|fna)(\\.gz)?$"), "")
+                        
+                        // Replace underscores with hyphens and warn
+                        if (sampleName.contains("_")) {
+                            val originalName = sampleName
+                            sampleName = sampleName.replace("_", "-")
+                            renamedSamples.add(Pair(originalName, sampleName))
+                        }
+                        
+                        keyfileLines.add("${fastaFile.toAbsolutePath()}\t$sampleName")
+                    }
+                    
+                    // Write keyfile
+                    keyfilePath.writeText(keyfileLines.joinToString("\n"))
+                    logger.info("Generated keyfile: $keyfilePath")
+                    
+                    // Warn about renamed samples
+                    if (renamedSamples.isNotEmpty()) {
+                        logger.warn("WARNING: The following sample names contained underscores and were converted to hyphens:")
+                        renamedSamples.forEach { (original, fixed) ->
+                            logger.warn("  '$original' -> '$fixed'")
+                        }
+                        logger.warn("PHG uses underscores internally for contig renaming (format: samplename_contig)")
+                    }
+                    
+                    keyfilePath
+                }
+
+                logger.info("Keyfile: $actualKeyfile")
+
+                val args = buildList {
+                    add("--work-dir=$workDir")
+                    add("--keyfile=$actualKeyfile")
+                    if (config.rope_bwt_chr_index.index_file_prefix != null) {
+                        add("--index-file-prefix=${config.rope_bwt_chr_index.index_file_prefix}")
+                    }
+                    if (config.rope_bwt_chr_index.threads != null) {
+                        add("--threads=${config.rope_bwt_chr_index.threads}")
+                    }
+                    if (config.rope_bwt_chr_index.delete_fmr_index != null) {
+                        add("--delete-fmr-index=${config.rope_bwt_chr_index.delete_fmr_index}")
+                    }
+                    if (customOutput != null) {
+                        add("--output-dir=$customOutput")
+                    }
+                }
+
+                RopeBwtChrIndex().parse(args)
+                restoreOrchestratorLogging(workDir)
+
+                // Track output directory
+                ropeBwtIndexDir = outputBase
+
+                if (!ropeBwtIndexDir.exists()) {
+                    throw RuntimeException("Expected RopeBWT index output directory not found: $ropeBwtIndexDir")
+                }
+
+                logger.info("Step 12 completed successfully")
+                logger.info("")
+            } else {
+                if (config.rope_bwt_chr_index != null) {
+                    logger.info("Skipping rope-bwt-chr-index (not in run_steps)")
+
+                    // Check custom output location first, then default
+                    val customOutput = config.rope_bwt_chr_index.output?.let { 
+                        Path.of(it).toAbsolutePath().normalize() 
+                    }
+                    val previousIndexDir = (customOutput ?: workDir.resolve("output").resolve("12_rope_bwt_index_results"))
+                        .toAbsolutePath().normalize()
+                    if (previousIndexDir.exists()) {
+                        ropeBwtIndexDir = previousIndexDir
+                        logger.info("Using previous rope-bwt-chr-index outputs: $ropeBwtIndexDir")
+                    } else {
+                        logger.warn("Previous rope-bwt-chr-index outputs not found. Downstream steps may fail.")
+                    }
+                } else {
+                    logger.info("Skipping rope-bwt-chr-index (not configured)")
                 }
                 logger.info("")
             }

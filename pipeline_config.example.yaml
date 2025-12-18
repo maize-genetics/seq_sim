@@ -6,7 +6,7 @@
 # ============================================================================
 # This pipeline consists of two main workflows:
 #
-# MAIN PIPELINE (Variant Simulation):
+# VARIANT PIPELINE (Generate variants):
 # 01. align-assemblies:              Align query assemblies to reference using AnchorWave
 # 02. maf-to-gvcf:                   Convert MAF alignment files to compressed GVCF format
 # 03. downsample-gvcf:               Downsample variants at specified rates per chromosome
@@ -18,13 +18,14 @@
 # 07. convert-coordinates:           Convert crossover points to assembly coordinates
 # 08. generate-recombined-sequences: Create recombined FASTA files from parent assemblies
 # 09. format-recombined-fastas:      Format recombined FASTA files with consistent line widths
-# 10. align-mutated-assemblies:      Realign formatted recombined FASTA files to reference
 #
 # PS4G CREATION (PHG Indexing for Genotype Imputation):
-# 11. rope-bwt-chr-index:            Create PHGv2 ropebwt3 index from recombined FASTA files
-# 12. ropebwt-mem:                   Align FASTQ reads to ropebwt3 index and generate BED files
-# 13. build-spline-knots:            Build spline knots from hVCF or gVCF files for imputation
-# 14. convert-ropebwt2ps4g:          Convert RopeBWT3 BED alignments to PS4G format
+# 10. align-mutated-assemblies:      Realign formatted recombined FASTA files to reference
+# 11. mutated-maf-to-gvcf:           Convert mutated MAF files to compressed GVCF format
+# 12. rope-bwt-chr-index:            Create PHGv2 ropebwt3 index from recombined FASTA files
+# 13. ropebwt-mem:                   Align FASTQ reads to ropebwt3 index and generate BED files
+# 14. build-spline-knots:            Build spline knots from hVCF or gVCF files for imputation
+# 15. convert-ropebwt2ps4g:          Convert RopeBWT3 BED alignments to PS4G format
 #
 # NOTE (1): Environment setup is automatic! The orchestrate command will automatically
 #       detect if the working directory and required tools (MLImpute, biokotlin-tools, PHGv2)
@@ -53,13 +54,14 @@ run_steps:
   - convert_coordinates            # Step 07: Convert coordinates to assembly space
   - generate_recombined_sequences  # Step 08: Generate recombined sequences
   - format_recombined_fastas       # Step 09: Format recombined FASTA files
-  - align_mutated_assemblies       # Step 10: Realign formatted sequences to reference
 
   # PS4G Creation (PHG Indexing for Genotype Imputation)
-  - rope_bwt_chr_index             # Step 11: Create PHGv2 ropebwt3 index
-  - ropebwt_mem                    # Step 12: Align FASTQ reads to index
-  - build_spline_knots             # Step 13: Build spline knots from VCF files
-  - convert_ropebwt2ps4g           # Step 14: Convert BED alignments to PS4G format
+  - align_mutated_assemblies       # Step 10: Realign formatted sequences to reference
+  - mutated_maf_to_gvcf            # Step 11: Convert mutated MAF files to GVCF
+  - rope_bwt_chr_index             # Step 12: Create PHGv2 ropebwt3 index
+  - ropebwt_mem                    # Step 13: Align FASTQ reads to index
+  - build_spline_knots             # Step 14: Build spline knots from VCF files
+  - convert_ropebwt2ps4g           # Step 15: Convert BED alignments to PS4G format
 
 # ============================================================================
 # MAIN PIPELINE CONFIGURATION (Steps 1-4)
@@ -110,7 +112,7 @@ convert_to_fasta:
   # output: "/custom/fasta/output/"      # Optional: Custom output directory
 
 # ============================================================================
-# RECOMBINATION PIPELINE CONFIGURATION (Steps 5-10)
+# RECOMBINATION PIPELINE CONFIGURATION (Steps 5-9)
 # ============================================================================
 
 # Step 5: Pick Crossovers
@@ -164,8 +166,6 @@ generate_recombined_sequences:
                                                     #           chr3
   # assembly_dir: "path/to/parent_assemblies/"      # Optional: Directory containing parent assembly FASTA files
                                                     #           Defaults to this step's output directory
-
-
 # Step 9: Format Recombined Fastas
 # Reformats recombined FASTA files to have consistent line widths using seqkit
 # Automatically uses recombined FASTA files from generate_recombined_sequences
@@ -175,6 +175,10 @@ format_recombined_fastas:
   threads: 8                             # Optional: Number of threads (default: 8)
   # input: "/custom/recombined/fastas/"  # Optional: Custom FASTA input (file, directory, or text list)
   # output: "/custom/formatted/output/"  # Optional: Custom output directory
+
+# ============================================================================
+# PS4G CREATION CONFIGURATION (Steps 10-15)
+# ============================================================================
 
 # Step 10: Align Mutated Assemblies
 # Realigns the formatted recombined FASTA files back to the reference
@@ -190,26 +194,35 @@ align_mutated_assemblies:
   threads: 1                             # Optional: Number of threads (default: 1)
   # output: "/custom/alignment/output/"  # Optional: Custom output directory
 
-# ============================================================================
-# PS4G CREATION CONFIGURATION (Steps 11-14)
-# ============================================================================
+# Step 11: Mutated MAF to GVCF Conversion
+# Converts MAF files from align_mutated_assemblies to compressed GVCF format
+# Automatically uses ref_fasta from align_assemblies and MAF output from align_mutated_assemblies
+mutated_maf_to_gvcf:
+  # reference_file: "path/to/reference.fa"  # Optional: Reference FASTA file
+                                            #           Uses align_assemblies.ref_fasta if not specified
+  # maf_file: "/custom/maf/files.txt"       # Optional: MAF file, directory, or text list
+                                            #           Uses step 10 MAF outputs if not specified
+  # output_file: "sample.g.vcf.gz"          # Optional: Output GVCF filename (auto-generated if not specified)
+  # sample_name: "optional_sample_name"     # Optional: Override sample name in GVCF
+  # output_dir: "/custom/gvcf/output/"      # Optional: Custom output directory
 
-# Step 11: PHG Rope-BWT-Chr Index
+# Step 12: PHG Rope-BWT-Chr Index
 # Creates a PHGv2 ropebwt3 index from recombined FASTA files for genotype imputation
-# Automatically uses formatted FASTA files from format_recombined_fastas
+# By default, auto-generates a keyfile from format_recombined_fastas (step 9) output:
+#   - Sample names are derived from FASTA filenames (without extension)
+#   - Underscores in sample names are automatically converted to hyphens (logged as warning)
 # Can also accept a pre-made keyfile with custom sample names
 rope_bwt_chr_index:
   index_file_prefix: "phgIndex"          # Optional: Prefix for index files (default: "phgIndex")
   threads: 20                            # Optional: Number of threads (default: 20)
   delete_fmr_index: true                 # Optional: Delete .fmr files after conversion (true/false, default: true)
-  # input: "/custom/fasta/input/"        # Optional: Custom FASTA input (file, directory, or text list)
-  # output: "/custom/phg_index/"         # Optional: Custom output directory (default: work_dir/output/11_rope_bwt_index_results)
-  # keyfile: "/path/to/keyfile.txt"      # Optional: Pre-made keyfile (mutually exclusive with input)
+  # output: "/custom/phg_index/"         # Optional: Custom output directory (default: work_dir/output/12_rope_bwt_index_results)
+  # keyfile: "/path/to/keyfile.txt"      # Optional: Pre-made keyfile (overrides auto-generation)
                                          #           Keyfile format: Tab-delimited with 'Fasta' and 'SampleName' columns
                                          #           WARNING: Sample names should NOT contain underscores
                                          #           PHG uses underscores internally (e.g., samplename_contig)
 
-# Step 12: Ropebwt3 Mem Alignment
+# Step 13: Ropebwt3 Mem Alignment
 # Aligns FASTQ reads to the ropebwt3 index and generates BED alignment files
 # Automatically uses index file from rope_bwt_chr_index and calculates -l parameter
 # Processes multiple FASTQ files iteratively, generating one BED file per sample
@@ -218,35 +231,35 @@ ropebwt_mem:
                                          # Supports: .fq, .fastq, .fq.gz, .fastq.gz
   threads: 40                            # Optional: Number of threads (default: 1)
   p_value: 168                           # Optional: The -p parameter (default: 168)
-  # index_file: "/custom/index.fmd"      # Optional: Custom index file (auto-detected from step 11)
-  # l_value: 100                         # Optional: The -l parameter (auto-calculated as 2 × FASTA count from step 11)
-  # output: "/custom/bed/output/"        # Optional: Custom output directory (default: work_dir/output/12_rope_bwt_mem_results)
+  # index_file: "/custom/index.fmd"      # Optional: Custom index file (auto-detected from step 12)
+  # l_value: 100                         # Optional: The -l parameter (auto-calculated as 2 × FASTA count from step 12)
+  # output: "/custom/bed/output/"        # Optional: Custom output directory (default: work_dir/output/13_rope_bwt_mem_results)
 
-# Step 13: Build Spline Knots
+# Step 14: Build Spline Knots
 # Builds spline knots from hVCF or gVCF files for PHGv2 machine learning imputation
 # This is an independent step that does not depend on previous pipeline outputs
 # Used to create spline representations for downstream imputation tasks
 build_spline_knots:
   vcf_dir: "path/to/vcf_files/"          # Required: Directory containing hVCF or gVCF files
-  vcf_type: "hvcf"                       # Optional: Type of VCFs (hvcf or gvcf, default: hvcf)
+  vcf_type: "gvcf"                       # Optional: Type of VCFs (hvcf or gvcf, default: gvcf)
   min_indel_length: 10                   # Optional: Min indel length for gVCF (default: 10)
   num_bps_per_knot: 50000                # Optional: Max base pairs per knot (default: 50000)
   random_seed: 12345                     # Optional: Random seed for reproducibility (default: 12345)
   # contig_list: "chr1,chr2,chr3"        # Optional: Comma-separated chromosome list (default: all)
-  # output: "/custom/spline/output/"     # Optional: Custom output directory (default: work_dir/output/13_spline_knots_results)
+  # output: "/custom/spline/output/"     # Optional: Custom output directory (default: work_dir/output/14_spline_knots_results)
 
-# Step 14: Convert RopeBWT to PS4G
+# Step 15: Convert RopeBWT to PS4G
 # Converts RopeBWT3 BED alignment files to PS4G format for gamete support tracking
-# Automatically uses BED files from ropebwt_mem (step 12) and spline knots from build_spline_knots (step 13)
+# Automatically uses BED files from ropebwt_mem (step 13) and spline knots from build_spline_knots (step 14)
 # Processes each BED file iteratively, generating one PS4G file per sample
 convert_ropebwt2ps4g:
   min_mem_length: 135                    # Optional: Minimum MEM length threshold in bp (default: 135)
   max_num_hits: 16                       # Optional: Maximum haplotype hits per alignment (default: 16)
   # bed_input: "/custom/bed/files/"      # Optional: Custom BED input (file, directory, or text list)
-                                         #           Auto-detected from step 12 if not specified
-  # spline_knot_dir: "/custom/spline/"   # Optional: Custom spline knot directory
                                          #           Auto-detected from step 13 if not specified
-  # output: "/custom/ps4g/output/"       # Optional: Custom output directory (default: work_dir/output/14_convert_ropebwt2ps4g_results)
+  # spline_knot_dir: "/custom/spline/"   # Optional: Custom spline knot directory
+                                         #           Auto-detected from step 14 if not specified
+  # output: "/custom/ps4g/output/"       # Optional: Custom output directory (default: work_dir/output/15_convert_ropebwt2ps4g_results)
 
 # ============================================================================
 # Usage Examples:
@@ -264,7 +277,7 @@ convert_ropebwt2ps4g:
 #      - convert_to_fasta
 #      # Comment out recombination steps
 #
-# 3. Run only the recombination pipeline with PS4G creation (steps 1, 5-14):
+# 3. Run only the recombination pipeline with PS4G creation (steps 1, 5-15):
 #    run_steps:
 #      - align_assemblies          # Required for MAF files
 #      # - maf_to_gvcf             # Skip GVCF steps
@@ -276,6 +289,7 @@ convert_ropebwt2ps4g:
 #      - generate_recombined_sequences
 #      - format_recombined_fastas
 #      - align_mutated_assemblies  # Realign recombined sequences
+#      - mutated_maf_to_gvcf       # Convert mutated MAF to GVCF
 #      - rope_bwt_chr_index        # Create PHG index
 #      - ropebwt_mem               # Align FASTQ reads
 #      - build_spline_knots        # Build spline knots
@@ -310,23 +324,25 @@ convert_ropebwt2ps4g:
 #      input: "/data/my_gvcf_directory/"
 #      output: "/results/my_fasta_output/"
 #
-# 8. Run only PS4G index creation with custom FASTA files:
-#    run_steps:
-#      - rope_bwt_chr_index
-#    rope_bwt_chr_index:
-#      input: "/path/to/my/fasta/files/"
-#      output_dir: "my_phg_index"
-#      index_file_prefix: "myCustomIndex"
-#      threads: 40
-#
-# 9. Run PS4G index creation with a pre-made keyfile:
+# 8. Run PS4G index creation with a pre-made keyfile:
 #    run_steps:
 #      - rope_bwt_chr_index
 #    rope_bwt_chr_index:
 #      keyfile: "/path/to/my/keyfile.txt"
-#      output_dir: "my_phg_index"
+#      output: "my_phg_index"
+#      index_file_prefix: "myCustomIndex"
+#      threads: 40
 #
-# 10. Run only ropebwt-mem alignment (requires step 11 output):
+# 9. Run PS4G index creation with custom settings (using auto-generated keyfile):
+#    run_steps:
+#      - rope_bwt_chr_index
+#    rope_bwt_chr_index:
+#      # No keyfile = auto-generates from step 9 FASTA files
+#      output: "my_phg_index"
+#      index_file_prefix: "customIndex"
+#      threads: 40
+#
+# 10. Run only ropebwt-mem alignment (requires step 12 output):
 #    run_steps:
 #      - ropebwt_mem
 #    ropebwt_mem:
@@ -361,11 +377,11 @@ convert_ropebwt2ps4g:
 #      contig_list: "chr1,chr2,chr3,chr4,chr5"
 #      output: "/custom/spline/output/"
 #
-# 14. Run convert-ropebwt2ps4g with auto-detection (requires steps 12-13):
+# 14. Run convert-ropebwt2ps4g with auto-detection (requires steps 13-14):
 #    run_steps:
 #      - convert_ropebwt2ps4g
 #    convert_ropebwt2ps4g:
-#      # Auto-detects BED files from step 12 and spline knots from step 13
+#      # Auto-detects BED files from step 13 and spline knots from step 14
 #      min_mem_length: 135
 #      max_num_hits: 16
 #
@@ -422,18 +438,24 @@ convert_ropebwt2ps4g:
 # - Step 10 (align_mutated_assemblies) requires: outputs from steps 1 and 9
 #   - Uses ref_gff and ref_fasta from step 1
 #   - Uses FASTA files from step 9 as query input
+# - Step 11 (mutated_maf_to_gvcf) requires: outputs from steps 1 and 10
+#   - Uses ref_fasta from step 1
+#   - Uses MAF files from step 10 as input
 #
 # PS4G Creation Dependencies:
-# - Step 11 (rope_bwt_chr_index) requires: formatted FASTA files from step 10
-# - Can also accept custom FASTA files or a pre-made keyfile
+# - Step 11 (mutated_maf_to_gvcf) requires: MAF files from step 10 and ref_fasta from step 1
+# - Step 12 (rope_bwt_chr_index) auto-generates keyfile from step 9 FASTA files:
+#   - Sample names derived from filenames (without extension)
+#   - Underscores are auto-converted to hyphens (logged as warning)
+# - Can also accept a pre-made keyfile (overrides auto-generation)
 # - Keyfile must be tab-delimited with 'Fasta' and 'SampleName' columns
 # - Sample names should NOT contain underscores (PHG internal requirement)
-# - Step 12 (ropebwt_mem) requires: index file (.fmd) from step 11
-# - Step 12 auto-calculates -l parameter from keyfile (2 × FASTA count)
+# - Step 13 (ropebwt_mem) requires: index file (.fmd) from step 12
+# - Step 13 auto-calculates -l parameter from keyfile (2 × FASTA count)
 # - FASTQ files can be compressed (.fq.gz, .fastq.gz) or uncompressed (.fq, .fastq)
-# - Step 13 (build_spline_knots) is independent: requires only VCF files
-# - Step 14 (convert_ropebwt2ps4g) requires: BED files from step 12 and spline knots from step 13
-# - Step 14 auto-detects inputs if not specified
+# - Step 14 (build_spline_knots) is independent: requires only VCF files
+# - Step 15 (convert_ropebwt2ps4g) requires: BED files from step 13 and spline knots from step 14
+# - Step 15 auto-detects inputs if not specified
 #
 # Custom Input/Output Paths:
 # - Each step supports optional 'input' and 'output' parameters
