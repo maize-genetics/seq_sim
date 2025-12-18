@@ -1329,9 +1329,9 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                     
                     logger.info("Found ${fastaFiles.size} FASTA files")
                     
-                    // Generate keyfile with sample names derived from filenames
+                    // Generate keyfile with sample names derived from filenames (no header)
                     val keyfilePath = outputBase.resolve("phg_keyfile.txt")
-                    val keyfileLines = mutableListOf("Fasta\tSampleName")
+                    val keyfileLines = mutableListOf<String>()
                     val renamedSamples = mutableListOf<Pair<String, String>>()  // original -> fixed
                     
                     fastaFiles.forEach { fastaFile ->
@@ -1375,8 +1375,9 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                     if (config.rope_bwt_chr_index.threads != null) {
                         add("--threads=${config.rope_bwt_chr_index.threads}")
                     }
-                    if (config.rope_bwt_chr_index.delete_fmr_index != null) {
-                        add("--delete-fmr-index=${config.rope_bwt_chr_index.delete_fmr_index}")
+                    // delete-fmr-index is a presence flag (include only when true)
+                    if (config.rope_bwt_chr_index.delete_fmr_index == true) {
+                        add("--delete-fmr-index")
                     }
                     if (customOutput != null) {
                         add("--output-dir=$customOutput")
