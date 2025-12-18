@@ -76,7 +76,7 @@ data class AlignMutatedAssembliesConfig(
 )
 
 data class PickCrossoversConfig(
-    val assembly_list: String,
+    val assembly_list: String? = null,  // Optional: If not specified, auto-generates from convert_to_fasta output
     val ref_fasta: String? = null,  // Optional: Reference FASTA (uses align_assemblies.ref_fasta if not specified)
     val output: String? = null      // Custom output directory
 )
@@ -272,16 +272,16 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 )
             } else null
 
-            // Parse pick_crossovers
+            // Parse pick_crossovers - check if key exists (even with empty/null value means "run with defaults")
             @Suppress("UNCHECKED_CAST")
             val pickCrossoversMap = configMap["pick_crossovers"] as? Map<String, Any>
-            val pickCrossovers = pickCrossoversMap?.let {
+            val pickCrossovers = if (configMap.containsKey("pick_crossovers")) {
                 PickCrossoversConfig(
-                    assembly_list = it["assembly_list"] as? String ?: throw IllegalArgumentException("pick_crossovers.assembly_list is required"),
-                    ref_fasta = it["ref_fasta"] as? String,
-                    output = it["output"] as? String
+                    assembly_list = pickCrossoversMap?.get("assembly_list") as? String,
+                    ref_fasta = pickCrossoversMap?.get("ref_fasta") as? String,
+                    output = pickCrossoversMap?.get("output") as? String
                 )
-            }
+            } else null
 
             // Parse create_chain_files - check if key exists (even with empty/null value means "run with defaults")
             @Suppress("UNCHECKED_CAST")
@@ -834,13 +834,60 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                     throw RuntimeException("Cannot run pick-crossovers: reference FASTA not available (specify 'ref_fasta' in pick_crossovers config, run align_mutated_assemblies, or run align_assemblies first)")
                 }
 
+                // Determine assembly list (custom or auto-generated from step 4)
+                val assemblyListPath: Path = if (config.pick_crossovers.assembly_list != null) {
+                    Path.of(config.pick_crossovers.assembly_list).toAbsolutePath().normalize()
+                } else {
+                    // Auto-generate assembly list from step 4 output (fastaOutputDir)
+                    if (fastaOutputDir == null || !fastaOutputDir.exists()) {
+                        throw RuntimeException("Cannot run pick-crossovers: no assembly_list provided and no FASTA output directory available from convert_to_fasta step")
+                    }
+                    
+                    // Get all FASTA files from step 4 output
+                    val fastaFiles = fastaOutputDir.toFile().listFiles { file ->
+                        file.isFile && file.name.matches(Regex(".*\\.(fa|fasta|fna)(\\.gz)?$"))
+                    }?.map { it.toPath() }?.sorted() ?: emptyList()
+                    
+                    if (fastaFiles.isEmpty()) {
+                        throw RuntimeException("Cannot run pick-crossovers: no FASTA files found in $fastaOutputDir")
+                    }
+                    
+                    // Create assembly list file with path<TAB>name format
+                    // Name is derived from filename minus "_subsampled" suffix and extension
+                    val assemblyListFile = fastaOutputDir.resolve("auto_assembly_list.txt")
+                    val lines = fastaFiles.map { fastaPath ->
+                        val fileName = fastaPath.fileName.toString()
+                        // Remove extension (including .gz if present)
+                        val baseName = fileName
+                            .replace(Regex("\\.(fa|fasta|fna)(\\.gz)?$"), "")
+                            // Remove "_subsampled" suffix if present
+                            .replace(Regex("_subsampled$"), "")
+                        "${fastaPath.toAbsolutePath()}\t$baseName"
+                    }
+                    assemblyListFile.writeText(lines.joinToString("\n"))
+                    logger.info("Auto-generated assembly list file: $assemblyListFile")
+                    logger.info("  Contains ${fastaFiles.size} assemblies")
+                    
+                    assemblyListFile
+                }
+
+                // Validate that the number of assemblies is even
+                val assemblyCount = assemblyListPath.readLines().filter { it.isNotBlank() }.size
+                if (assemblyCount % 2 != 0) {
+                    throw RuntimeException(
+                        "Cannot run pick-crossovers: assembly list contains $assemblyCount assemblies, " +
+                        "but this step requires an even number of assembly files to work (assemblies are paired for crossover simulation)"
+                    )
+                }
+                logger.info("Assembly list contains $assemblyCount assemblies (validated: even count)")
+
                 // Determine output directory (custom or default)
                 val customOutput = config.pick_crossovers.output?.let { Path.of(it) }
 
                 val args = buildList {
                     add("--work-dir=${workDir}")
                     add("--ref-fasta=${pickCrossoversRefFasta}")
-                    add("--assembly-list=${config.pick_crossovers.assembly_list}")
+                    add("--assembly-list=${assemblyListPath}")
                     if (customOutput != null) {
                         add("--output-dir=${customOutput}")
                     }
