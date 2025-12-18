@@ -147,12 +147,14 @@ pick_crossovers:
 
 # Step 7: Create Chain Files
 # Converts MAF alignment files to UCSC chain format for coordinate conversion
-# Automatically uses MAF files from align_assemblies (step 1)
+# By default, uses MAF files from align_mutated_assemblies (step 5)
+# Falls back to MAF files from align_assemblies (step 1) if step 5 not run
 # Uses maf-convert tool (automatically downloaded if missing)
 create_chain_files:
-  jobs: 8                                     # Optional: Number of parallel jobs (default: 8)
-  # input: "/custom/maf/input/"               # Optional: Custom MAF input (file, directory, or text list)
-  # output: "/custom/chain/output/"           # Optional: Custom output directory
+  jobs: 8                                        # Optional: Number of parallel jobs (default: 8)
+  # maf_file_input: "/custom/maf/input/"        # Optional: Custom MAF input (file, directory, or text list)
+                                                 #           Default: step 5 MAF outputs, fallback to step 1
+  # output: "/custom/chain/output/"              # Optional: Custom output directory
 
 # Step 8: Convert Coordinates
 # Converts crossover breakpoints from reference coordinates to assembly coordinates
@@ -409,7 +411,9 @@ convert_ropebwt2ps4g:
 # - Step 6 (pick_crossovers) requires: ref_fasta from step 1 or step 5
 #   - If assembly_list not provided, auto-generates from step 4 FASTA outputs
 #   - MUST have an EVEN number of assemblies (will error if odd)
-# - Step 7 (create_chain_files) requires: MAF files from step 1
+# - Step 7 (create_chain_files) requires: MAF files from step 5 (default) or step 1 (fallback)
+#   - Uses align_mutated_assemblies MAF outputs by default
+#   - Falls back to align_assemblies MAF outputs if step 5 not run
 # - Step 8 (convert_coordinates) requires: outputs from steps 6 and 7
 # - Step 9 (generate_recombined_sequences) requires: output from step 8
 # - Step 10 (format_recombined_fastas) requires: output from step 9

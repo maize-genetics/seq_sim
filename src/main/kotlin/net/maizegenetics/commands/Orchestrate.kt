@@ -83,8 +83,8 @@ data class PickCrossoversConfig(
 
 data class CreateChainFilesConfig(
     val jobs: Int? = null,
-    val input: String? = null,   // Custom MAF input file/directory
-    val output: String? = null   // Custom output directory
+    val maf_file_input: String? = null,   // Custom MAF input file/directory (default: step 5 MAF outputs)
+    val output: String? = null            // Custom output directory
 )
 
 data class ConvertCoordinatesConfig(
@@ -289,7 +289,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
             val createChainFiles = if (configMap.containsKey("create_chain_files")) {
                 CreateChainFilesConfig(
                     jobs = createChainFilesMap?.get("jobs") as? Int,
-                    input = createChainFilesMap?.get("input") as? String,
+                    maf_file_input = createChainFilesMap?.get("maf_file_input") as? String,
                     output = createChainFilesMap?.get("output") as? String
                 )
             } else null
@@ -396,6 +396,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
         var refFasta: Path? = null
         var refGff: Path? = null
         var mutatedRefFasta: Path? = null  // Mutated reference FASTA from step 5
+        var mutatedMafFilePaths: Path? = null  // MAF file paths from step 5 (align_mutated_assemblies)
         var refkeyOutputDir: Path? = null
         var chainOutputDir: Path? = null
         var coordinatesOutputDir: Path? = null
@@ -789,6 +790,16 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 // Save the mutated reference FASTA for use in step 6
                 mutatedRefFasta = step5RefFasta
 
+                // Save the MAF file paths for use in step 7 (create_chain_files)
+                val step5OutputDir = customOutput ?: workDir.resolve("output").resolve("05_mutated_align_results")
+                mutatedMafFilePaths = step5OutputDir.resolve("maf_file_paths.txt")
+                if (mutatedMafFilePaths!!.exists()) {
+                    logger.info("Step 5 MAF file paths: $mutatedMafFilePaths")
+                } else {
+                    logger.warn("Step 5 MAF file paths not found: $mutatedMafFilePaths")
+                    mutatedMafFilePaths = null
+                }
+
                 logger.info("Step 5 completed successfully")
                 logger.info("")
             } else {
@@ -812,6 +823,15 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                                 logger.info("Auto-detected mutated reference FASTA: $mutatedRefFasta")
                             }
                         }
+                    }
+
+                    // Try to recover MAF file paths from previous step 5 run
+                    val customOutput = config.align_mutated_assemblies.output?.let { Path.of(it) }
+                    val step5OutputDir = customOutput ?: workDir.resolve("output").resolve("05_mutated_align_results")
+                    val previousMafPaths = step5OutputDir.resolve("maf_file_paths.txt")
+                    if (previousMafPaths.exists()) {
+                        mutatedMafFilePaths = previousMafPaths
+                        logger.info("Using previous step 5 MAF file paths: $mutatedMafFilePaths")
                     }
                 } else {
                     logger.info("Skipping align-mutated-assemblies (not configured)")
@@ -930,11 +950,14 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 logger.info("STEP 7: Create Chain Files")
                 logger.info("=".repeat(80))
 
-                // Determine input (custom or from previous step)
-                val mafInput = config.create_chain_files.input?.let { Path.of(it) } ?: mafFilePaths
+                // Determine input (custom, or step 5 MAF files, or step 1 MAF files as fallback)
+                val mafInput = config.create_chain_files.maf_file_input?.let { Path.of(it) } 
+                    ?: mutatedMafFilePaths 
+                    ?: mafFilePaths
                 if (mafInput == null) {
-                    throw RuntimeException("Cannot run create-chain-files: no MAF input available (specify 'input' in config or run align-assemblies first)")
+                    throw RuntimeException("Cannot run create-chain-files: no MAF input available (specify 'maf_file_input' in config, run align-mutated-assemblies, or run align-assemblies first)")
                 }
+                logger.info("MAF input: $mafInput")
 
                 // Determine output directory (custom or default)
                 val customOutput = config.create_chain_files.output?.let { Path.of(it) }
@@ -974,6 +997,13 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                         logger.info("Using previous create-chain-files outputs: $chainOutputDir")
                     } else {
                         logger.warn("Previous create-chain-files outputs not found. Downstream steps may fail.")
+                    }
+                    
+                    // Also recover MAF file path info if not already set
+                    if (mutatedMafFilePaths == null && mafFilePaths == null) {
+                        config.create_chain_files.maf_file_input?.let {
+                            logger.info("Custom MAF input configured: $it")
+                        }
                     }
                 } else {
                     logger.info("Skipping create-chain-files (not configured)")
