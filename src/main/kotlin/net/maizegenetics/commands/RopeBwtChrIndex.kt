@@ -2,8 +2,8 @@ package net.maizegenetics.commands
 
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.parameters.options.default
+import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
-import com.github.ajalt.clikt.parameters.types.boolean
 import com.github.ajalt.clikt.parameters.types.int
 import com.github.ajalt.clikt.parameters.types.path
 import net.maizegenetics.Constants
@@ -20,11 +20,10 @@ import kotlin.system.exitProcess
 class RopeBwtChrIndex : CliktCommand(name = "rope-bwt-chr-index") {
     companion object {
         private const val LOG_FILE_NAME = "11_rope_bwt_chr_index.log"
-        private const val ROPE_BWT_RESULTS_DIR = "11_rope_bwt_index_results"
+        private const val ROPE_BWT_RESULTS_DIR = "12_rope_bwt_index_results"
         private const val KEYFILE_NAME = "phg_keyfile.txt"
         private const val DEFAULT_INDEX_PREFIX = "phgIndex"
         private const val DEFAULT_THREADS = 20
-        private const val DEFAULT_DELETE_FMR = true
     }
 
     private val logger: Logger = LogManager.getLogger(RopeBwtChrIndex::class.java)
@@ -42,12 +41,12 @@ class RopeBwtChrIndex : CliktCommand(name = "rope-bwt-chr-index") {
 
     private val keyfile by option(
         "--keyfile", "-k",
-        help = "Pre-made keyfile (tab-delimited with 'Fasta' and 'SampleName' columns). Mutually exclusive with --fasta-input."
+        help = "Pre-made keyfile (tab-delimited: fasta_path<TAB>sample_name, no header). Mutually exclusive with --fasta-input."
     ).path(mustExist = true, canBeFile = true, canBeDir = false)
 
     private val outputDirOption by option(
         "--output-dir", "-o",
-        help = "Output directory for index files (default: work_dir/output/11_rope_bwt_index_results)"
+        help = "Output directory for index files (default: work_dir/output/12_rope_bwt_index_results)"
     ).path(mustExist = false, canBeFile = false, canBeDir = true)
 
     private val indexFilePrefix by option(
@@ -63,9 +62,8 @@ class RopeBwtChrIndex : CliktCommand(name = "rope-bwt-chr-index") {
 
     private val deleteFmrIndex by option(
         "--delete-fmr-index",
-        help = "Delete .fmr index files after converting to .fmd"
-    ).boolean()
-        .default(DEFAULT_DELETE_FMR)
+        help = "Delete .fmr index files after converting to .fmd (presence flag: include to enable)"
+    ).flag()
 
     private fun collectFastaFiles(): List<Path> {
         return FileUtils.collectFiles(
@@ -80,7 +78,7 @@ class RopeBwtChrIndex : CliktCommand(name = "rope-bwt-chr-index") {
         logger.info("Generating keyfile from FASTA files")
         val keyfilePath = outputDir.resolve(KEYFILE_NAME)
 
-        val keyfileLines = mutableListOf("Fasta\tSampleName")
+val keyfileLines = mutableListOf<String>()
         val problemNames = mutableListOf<String>()
 
         fastaFiles.forEach { fastaFile ->
@@ -119,19 +117,12 @@ class RopeBwtChrIndex : CliktCommand(name = "rope-bwt-chr-index") {
             exitProcess(1)
         }
 
-        val header = lines[0].split("\t")
-        if (header.size != 2 || header[0] != "Fasta" || header[1] != "SampleName") {
-            logger.error("Invalid keyfile header. Expected: 'Fasta\\tSampleName'")
-            logger.error("Got: ${lines[0]}")
-            exitProcess(1)
-        }
-
         val problemNames = mutableListOf<String>()
-        for (i in 1 until lines.size) {
+        for (i in lines.indices) {
             val parts = lines[i].split("\t")
             if (parts.size != 2) {
-                logger.error("Invalid keyfile line $i: ${lines[i]}")
-                logger.error("Expected 2 tab-separated columns")
+                logger.error("Invalid keyfile line ${i + 1}: ${lines[i]}")
+                logger.error("Expected 2 tab-separated columns (fasta_path<TAB>sample_name)")
                 exitProcess(1)
             }
 
@@ -202,14 +193,22 @@ class RopeBwtChrIndex : CliktCommand(name = "rope-bwt-chr-index") {
 
         // Run PHG rope-bwt-chr-index command
         logger.info("Running PHG rope-bwt-chr-index...")
-        val exitCode = ProcessRunner.runCommand(
+        
+        // Build command arguments - delete-fmr-index is a presence flag (no value)
+        val commandArgs = mutableListOf(
             phgBinary.toString(),
             "rope-bwt-chr-index",
             "--keyfile", actualKeyfile.toString(),
             "--output-dir", outputDir.toString(),
             "--index-file-prefix", indexFilePrefix,
-            "--threads", threads.toString(),
-            "--delete-fmr-index", deleteFmrIndex.toString(),
+            "--threads", threads.toString()
+        )
+        if (deleteFmrIndex) {
+            commandArgs.add("--delete-fmr-index")
+        }
+        
+        val exitCode = ProcessRunner.runCommand(
+            *commandArgs.toTypedArray(),
             workingDir = workDir.toFile(),
             logger = logger
         )

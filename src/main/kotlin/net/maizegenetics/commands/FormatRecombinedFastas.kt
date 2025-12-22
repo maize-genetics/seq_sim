@@ -18,12 +18,12 @@ import kotlin.system.exitProcess
 
 class FormatRecombinedFastas : CliktCommand(name = "format-recombined-fastas") {
     companion object {
-        private const val LOG_FILE_NAME = "10_format_recombined_fastas.log"
-        private const val FORMATTED_RESULTS_DIR = "10_formatted_fastas"
+        private const val LOG_FILE_NAME = "09_format_recombined_fastas.log"
+        private const val FORMATTED_RESULTS_DIR = "09_formatted_fastas"
         private const val FORMATTED_FASTA_PATHS_FILE = "formatted_fasta_paths.txt"
         private const val DEFAULT_LINE_WIDTH = 60
         private const val DEFAULT_THREADS = 8
-        private const val DEFAULT_INPUT_DIR = "09_recombined_sequences/recombinate_fastas"
+        private const val DEFAULT_INPUT_DIR = "08_recombined_sequences/recombinate_fastas"
     }
 
     private val logger: Logger = LogManager.getLogger(FormatRecombinedFastas::class.java)
@@ -53,7 +53,7 @@ class FormatRecombinedFastas : CliktCommand(name = "format-recombined-fastas") {
 
     private val outputDirOption by option(
         "--output-dir", "-o",
-        help = "Custom output directory (default: work_dir/output/10_formatted_fastas)"
+        help = "Custom output directory (default: work_dir/output/09_formatted_fastas)"
     ).path(mustExist = false, canBeFile = false, canBeDir = true)
 
     private fun collectFastaFiles(): List<Path> {
