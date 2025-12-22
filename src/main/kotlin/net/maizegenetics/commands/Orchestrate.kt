@@ -129,6 +129,9 @@ data class RopeBwtChrIndexConfig(
 class Orchestrate : CliktCommand(name = "orchestrate") {
     companion object {
         private const val LOG_FILE_NAME = "00_orchestrate.log"
+        // Regex patterns reused across multiple operations
+        private val FASTA_FILE_PATTERN = Regex(".*\\.(fa|fasta|fna)(\\.gz)?$")
+        private val FASTA_EXTENSION_PATTERN = Regex("\\.(fa|fasta|fna)(\\.gz)?$")
     }
 
     private val logger: Logger = LogManager.getLogger(Orchestrate::class.java)
@@ -766,7 +769,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                     
                     // Get all FASTA files from step 4 output
                     val fastaFiles = fastaOutputDir.toFile().listFiles { file ->
-                        file.isFile && file.name.matches(Regex(".*\\.(fa|fasta|fna)(\\.gz)?$"))
+                        file.isFile && file.name.matches(FASTA_FILE_PATTERN)
                     }?.map { it.toPath() }?.sorted() ?: emptyList()
                     
                     if (fastaFiles.isEmpty()) {
@@ -779,8 +782,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                     val lines = fastaFiles.map { fastaPath ->
                         val fileName = fastaPath.fileName.toString()
                         // Remove extension (including .gz if present)
-                        val baseName = fileName
-                            .replace(Regex("\\.(fa|fasta|fna)(\\.gz)?$"), "")
+                        val baseName = fileName.replace(FASTA_EXTENSION_PATTERN, "")
                         "${fastaPath.toAbsolutePath()}\t$baseName"
                     }
                     assemblyListFile.writeText(lines.joinToString("\n"))
@@ -1320,7 +1322,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                     
                     // Collect FASTA files
                     val fastaFiles = formattedFastasDir.toFile().listFiles { file ->
-                        file.isFile && file.name.matches(Regex(".*\\.(fa|fasta|fna)(\\.gz)?$"))
+                        file.isFile && file.name.matches(FASTA_FILE_PATTERN)
                     }?.map { it.toPath() }?.sorted() ?: emptyList()
                     
                     if (fastaFiles.isEmpty()) {
@@ -1336,7 +1338,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                     
                     fastaFiles.forEach { fastaFile ->
                         var sampleName = fastaFile.fileName.toString()
-                            .replace(Regex("\\.(fa|fasta|fna)(\\.gz)?$"), "")
+                            .replace(FASTA_EXTENSION_PATTERN, "")
                         
                         // Replace underscores with hyphens and warn
                         if (sampleName.contains("_")) {
