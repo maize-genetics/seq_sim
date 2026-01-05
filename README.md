@@ -5,7 +5,7 @@ Sequence simulator pipeline and orchestrator for MLImpute - A comprehensive bioi
 ## Requirements
 
 - Java 21
-- Gradle (included via wrapper)
+- A `seq_sim` executable available on your `PATH` (from a release distribution, or built from source)
 - [pixi](https://pixi.sh/) for managing the virtual environment
 - [conda](https://anaconda.org) for managing PHGv2's virtual environment
 
@@ -14,15 +14,12 @@ Sequence simulator pipeline and orchestrator for MLImpute - A comprehensive bioi
 ### One-Command Pipeline Execution (Recommended)
 
 ```bash
-# 1. Build the application
-./gradlew build
-
-# 2. Create your pipeline configuration
+# 1. Create your pipeline configuration
 cp pipeline_config.example.yaml my_pipeline.yaml
 # Edit my_pipeline.yaml with your file paths
 
-# 3. Run the entire pipeline (automatic environment setup!)
-./gradlew run --args="orchestrate --config my_pipeline.yaml"
+# 2. Run the entire pipeline (automatic environment setup!)
+seq_sim orchestrate --config my_pipeline.yaml
 ```
 
 The orchestrate command automatically:
@@ -34,33 +31,30 @@ The orchestrate command automatically:
 ### Manual Step-by-Step Execution
 
 ```bash
-# 1. Build the application
-./gradlew build
+# 1. Set up environment (automatic with orchestrate, or run manually)
+seq_sim setup-environment
 
-# 2. Set up environment (automatic with orchestrate, or run manually)
-./gradlew run --args="setup-environment"
+# 2. Align assemblies
+seq_sim align-assemblies --ref-gff ref.gff --ref-fasta ref.fa --query-fasta queries/
 
-# 3. Align assemblies
-./gradlew run --args="align-assemblies --ref-gff ref.gff --ref-fasta ref.fa --query-fasta queries/"
+# 3. Convert to GVCF
+seq_sim maf-to-gvcf --reference-file ref.fa --maf-file seq_sim_work/output/01_anchorwave_results/maf_file_paths.txt
 
-# 4. Convert to GVCF
-./gradlew run --args="maf-to-gvcf --reference-file ref.fa --maf-file seq_sim_work/output/01_anchorwave_results/maf_file_paths.txt"
+# 4. Downsample variants
+seq_sim downsample-gvcf --gvcf-dir seq_sim_work/output/02_gvcf_results/
 
-# 5. Downsample variants
-./gradlew run --args="downsample-gvcf --gvcf-dir seq_sim_work/output/02_gvcf_results/"
+# 5. Generate mutated FASTA files
+seq_sim convert-to-fasta --ref-fasta ref.fa --gvcf-file seq_sim_work/output/03_downsample_results/
 
-# 6. Generate mutated FASTA files
-./gradlew run --args="convert-to-fasta --ref-fasta ref.fa --gvcf-file seq_sim_work/output/03_downsample_results/"
-
-# 7. Realign mutated assemblies
-./gradlew run --args="align-mutated-assemblies --ref-gff ref.gff --ref-fasta ref.fa --fasta-input seq_sim_work/output/04_fasta_results/"
+# 6. Realign mutated assemblies
+seq_sim align-mutated-assemblies --ref-gff ref.gff --ref-fasta ref.fa --fasta-input seq_sim_work/output/04_fasta_results/
 ```
 
 ## Pipeline Overview
 
 The pipeline consists of two main workflows:
 
-### Variant Simulation Workflow (Steps 01-05)
+### Variant Simulation Workflow (Steps 00-04)
 
 | Step | Command | Description |
 |------|---------|-------------|
@@ -69,16 +63,23 @@ The pipeline consists of two main workflows:
 | 02 | **maf-to-gvcf** | Convert MAF alignments to compressed GVCF format |
 | 03 | **downsample-gvcf** | Downsample variants at specified rates per chromosome |
 | 04 | **convert-to-fasta** | Generate FASTA files from downsampled variants |
-| 05 | **align-mutated-assemblies** | Realign mutated sequences back to reference for comparison |
 
-### Recombination Workflow (Steps 06-09)
+### Recombination Workflow (Steps 05-09)
 
 | Step | Command | Description |
 |------|---------|-------------|
-| 06 | **pick-crossovers** | Generate crossover points and create ancestry tracking BED files |
-| 07 | **create-chain-files** | Convert MAF alignments to CHAIN format for coordinate transformations |
-| 08 | **convert-coordinates** | Convert reference coordinates to assembly coordinates using chain files |
-| 09 | **generate-recombined-sequences** | Generate recombined FASTA sequences from parent assemblies |
+| 05 | **pick-crossovers** | Generate crossover points and create ancestry tracking BED files |
+| 06 | **create-chain-files** | Convert MAF alignments to CHAIN format for coordinate transformations |
+| 07 | **convert-coordinates** | Convert reference coordinates to assembly coordinates using chain files |
+| 08 | **generate-recombined-sequences** | Generate recombined FASTA sequences from parent assemblies |
+| 09 | **format-recombined-fastas** | Format FASTA output (line wrapping, threading) |
+
+### Optional / Downstream Commands
+
+| Command | Description |
+|---------|-------------|
+| **align-mutated-assemblies** | Realign FASTA sequences back to reference for comparison |
+| **rope-bwt-chr-index** | Build RopeBWT index from FASTA/keyfile inputs |
 
 ### Helper Commands
 
@@ -96,7 +97,7 @@ Each command generates logs in `<work-dir>/logs/` and outputs in `<work-dir>/out
 
 **Usage:**
 ```bash
-./gradlew run --args="orchestrate [OPTIONS]"
+seq_sim orchestrate [OPTIONS]
 ```
 
 **Options:**
@@ -178,11 +179,11 @@ generate_recombined_sequences:
 **Example:**
 ```bash
 # Full pipeline (environment setup runs automatically if needed)
-./gradlew run --args="orchestrate --config pipeline.yaml"
+seq_sim orchestrate --config pipeline.yaml
 
 # Rerun only last two steps (uses previous outputs)
 # Edit yaml: run_steps: [convert_to_fasta, align_mutated_assemblies]
-./gradlew run --args="orchestrate --config pipeline.yaml"
+seq_sim orchestrate --config pipeline.yaml
 ```
 
 ---
@@ -193,7 +194,7 @@ Initializes the environment and downloads dependencies. **Note: This runs automa
 
 **Usage:**
 ```bash
-./gradlew run --args="setup-environment [OPTIONS]"
+seq_sim setup-environment [OPTIONS]
 ```
 
 **Options:**
@@ -219,7 +220,7 @@ Initializes the environment and downloads dependencies. **Note: This runs automa
 
 **Example:**
 ```bash
-./gradlew run --args="setup-environment -w my_workdir"
+seq_sim setup-environment -w my_workdir
 ```
 
 ---
@@ -230,7 +231,7 @@ Aligns multiple query assemblies to a reference genome using AnchorWave and mini
 
 **Usage:**
 ```bash
-./gradlew run --args="align-assemblies [OPTIONS]"
+seq_sim align-assemblies [OPTIONS]
 ```
 
 **Options:**
@@ -264,13 +265,13 @@ Aligns multiple query assemblies to a reference genome using AnchorWave and mini
 **Examples:**
 ```bash
 # Single query with threads
-./gradlew run --args="align-assemblies -g ref.gff -r ref.fa -q query1.fa -t 8"
+seq_sim align-assemblies -g ref.gff -r ref.fa -q query1.fa -t 8
 
 # Directory of queries
-./gradlew run --args="align-assemblies -g ref.gff -r ref.fa -q queries/"
+seq_sim align-assemblies -g ref.gff -r ref.fa -q queries/
 
 # Text list of query paths
-./gradlew run --args="align-assemblies -g ref.gff -r ref.fa -q queries.txt -t 4"
+seq_sim align-assemblies -g ref.gff -r ref.fa -q queries.txt -t 4
 ```
 
 ---
@@ -281,7 +282,7 @@ Converts MAF alignment files to compressed GVCF format using biokotlin-tools.
 
 **Usage:**
 ```bash
-./gradlew run --args="maf-to-gvcf [OPTIONS]"
+seq_sim maf-to-gvcf [OPTIONS]
 ```
 
 **Options:**
@@ -309,13 +310,13 @@ Converts MAF alignment files to compressed GVCF format using biokotlin-tools.
 **Examples:**
 ```bash
 # Using path list from align-assemblies (recommended)
-./gradlew run --args="maf-to-gvcf -r ref.fa -m seq_sim_work/output/01_anchorwave_results/maf_file_paths.txt"
+seq_sim maf-to-gvcf -r ref.fa -m seq_sim_work/output/01_anchorwave_results/maf_file_paths.txt
 
 # Directory of MAF files
-./gradlew run --args="maf-to-gvcf -r ref.fa -m mafs/"
+seq_sim maf-to-gvcf -r ref.fa -m mafs/
 
 # Single MAF with custom name
-./gradlew run --args="maf-to-gvcf -r ref.fa -m sample.maf -s Sample1"
+seq_sim maf-to-gvcf -r ref.fa -m sample.maf -s Sample1
 ```
 
 ---
@@ -326,7 +327,7 @@ Downsamples GVCF files at specified rates using MLImpute's DownsampleGvcf tool.
 
 **Usage:**
 ```bash
-./gradlew run --args="downsample-gvcf [OPTIONS]"
+seq_sim downsample-gvcf [OPTIONS]
 ```
 
 **Options:**
@@ -352,7 +353,7 @@ Downsamples GVCF files at specified rates using MLImpute's DownsampleGvcf tool.
 
 **Example:**
 ```bash
-./gradlew run --args="downsample-gvcf -g seq_sim_work/output/02_gvcf_results/ --rates 0.1,0.2,0.3 --seed 42"
+seq_sim downsample-gvcf -g seq_sim_work/output/02_gvcf_results/ --rates 0.1,0.2,0.3 --seed 42
 ```
 
 ---
@@ -363,7 +364,7 @@ Generates FASTA files from downsampled GVCF files using MLImpute's ConvertToFast
 
 **Usage:**
 ```bash
-./gradlew run --args="convert-to-fasta [OPTIONS]"
+seq_sim convert-to-fasta [OPTIONS]
 ```
 
 **Options:**
@@ -389,7 +390,7 @@ Generates FASTA files from downsampled GVCF files using MLImpute's ConvertToFast
 
 **Example:**
 ```bash
-./gradlew run --args="convert-to-fasta -r ref.fa -g seq_sim_work/output/03_downsample_results/"
+seq_sim convert-to-fasta -r ref.fa -g seq_sim_work/output/03_downsample_results/
 ```
 
 ---
@@ -400,7 +401,7 @@ Realigns mutated FASTA files (from convert-to-fasta) back to the reference genom
 
 **Usage:**
 ```bash
-./gradlew run --args="align-mutated-assemblies [OPTIONS]"
+seq_sim align-mutated-assemblies [OPTIONS]
 ```
 
 **Options:**
@@ -420,15 +421,15 @@ Realigns mutated FASTA files (from convert-to-fasta) back to the reference genom
 - Generates `maf_file_paths.txt` with all output paths
 
 **Output:**
-- `<work-dir>/output/05_mutated_alignment_results/{refBase}_cds.fa`
-- `<work-dir>/output/05_mutated_alignment_results/{refBase}.sam`
-- `<work-dir>/output/05_mutated_alignment_results/{fastaName}/` containing alignments
-- `<work-dir>/output/05_mutated_alignment_results/maf_file_paths.txt`
-- `<work-dir>/logs/05_align_mutated_assemblies.log`
+- `<work-dir>/output/10_mutated_alignment_results/{refBase}_cds.fa`
+- `<work-dir>/output/10_mutated_alignment_results/{refBase}.sam`
+- `<work-dir>/output/10_mutated_alignment_results/{fastaName}/` containing alignments
+- `<work-dir>/output/10_mutated_alignment_results/maf_file_paths.txt`
+- `<work-dir>/logs/10_align_mutated_assemblies.log`
 
 **Example:**
 ```bash
-./gradlew run --args="align-mutated-assemblies -g ref.gff -r ref.fa -f seq_sim_work/output/04_fasta_results/ -t 8"
+seq_sim align-mutated-assemblies -g ref.gff -r ref.fa -f seq_sim_work/output/04_fasta_results/ -t 8
 ```
 
 ---
@@ -439,7 +440,7 @@ Generates crossover points in reference coordinates and creates refkey BED files
 
 **Usage:**
 ```bash
-./gradlew run --args="pick-crossovers [OPTIONS]"
+seq_sim pick-crossovers [OPTIONS]
 ```
 
 **Options:**
@@ -454,13 +455,13 @@ Generates crossover points in reference coordinates and creates refkey BED files
 - Supports multiple rounds of breeding simulation
 
 **Output:**
-- `<work-dir>/output/06_crossovers_results/{founder}_refkey.bed` (reference coordinates)
-- `<work-dir>/output/06_crossovers_results/refkey_file_paths.txt`
-- `<work-dir>/logs/06_pick_crossovers.log`
+- `<work-dir>/output/05_crossovers_results/{founder}_refkey.bed` (reference coordinates)
+- `<work-dir>/output/05_crossovers_results/refkey_file_paths.txt`
+- `<work-dir>/logs/05_pick_crossovers.log`
 
 **Example:**
 ```bash
-./gradlew run --args="pick-crossovers -r reference.fa -a assembly_list.txt"
+seq_sim pick-crossovers -r reference.fa -a assembly_list.txt
 ```
 
 **Assembly list format (assembly_list.txt):**
@@ -477,7 +478,7 @@ Converts MAF alignment files to CHAIN format, which describes coordinate transfo
 
 **Usage:**
 ```bash
-./gradlew run --args="create-chain-files [OPTIONS]"
+seq_sim create-chain-files [OPTIONS]
 ```
 
 **Options:**
@@ -495,17 +496,17 @@ Converts MAF alignment files to CHAIN format, which describes coordinate transfo
 - Chain format describes coordinate mapping between reference and query sequences
 
 **Output:**
-- `<work-dir>/output/07_chain_results/*.chain`
-- `<work-dir>/output/07_chain_results/chain_file_paths.txt`
-- `<work-dir>/logs/07_create_chain_files.log`
+- `<work-dir>/output/06_chain_results/*.chain`
+- `<work-dir>/output/06_chain_results/chain_file_paths.txt`
+- `<work-dir>/logs/06_create_chain_files.log`
 
 **Examples:**
 ```bash
 # Using MAF paths from align-assemblies (recommended)
-./gradlew run --args="create-chain-files -m seq_sim_work/output/01_anchorwave_results/maf_file_paths.txt -j 12"
+seq_sim create-chain-files -m seq_sim_work/output/01_anchorwave_results/maf_file_paths.txt -j 12
 
 # Directory of MAF files
-./gradlew run --args="create-chain-files -m mafs/ -j 8"
+seq_sim create-chain-files -m mafs/ -j 8
 ```
 
 ---
@@ -516,7 +517,7 @@ Converts reference coordinates from refkey BED files to assembly coordinates usi
 
 **Usage:**
 ```bash
-./gradlew run --args="convert-coordinates [OPTIONS]"
+seq_sim convert-coordinates [OPTIONS]
 ```
 
 **Options:**
@@ -532,15 +533,15 @@ Converts reference coordinates from refkey BED files to assembly coordinates usi
 - Generates both assembly-specific and founder-specific key files
 
 **Output:**
-- `<work-dir>/output/08_coordinates_results/{assembly}_key.bed` (assembly coordinates)
-- `<work-dir>/output/08_coordinates_results/{founder}_key.bed` (FASTA coordinates)
-- `<work-dir>/output/08_coordinates_results/key_file_paths.txt`
-- `<work-dir>/output/08_coordinates_results/founder_key_file_paths.txt`
-- `<work-dir>/logs/08_convert_coordinates.log`
+- `<work-dir>/output/07_coordinates_results/{assembly}_key.bed` (assembly coordinates)
+- `<work-dir>/output/07_coordinates_results/{founder}_key.bed` (FASTA coordinates)
+- `<work-dir>/output/07_coordinates_results/key_file_paths.txt`
+- `<work-dir>/output/07_coordinates_results/founder_key_file_paths.txt`
+- `<work-dir>/logs/07_convert_coordinates.log`
 
 **Example:**
 ```bash
-./gradlew run --args="convert-coordinates -a assembly_list.txt -c seq_sim_work/output/07_chain_results/"
+seq_sim convert-coordinates -a assembly_list.txt -c seq_sim_work/output/06_chain_results/
 ```
 
 ---
@@ -551,7 +552,7 @@ Generates recombined FASTA sequences by concatenating segments from parent assem
 
 **Usage:**
 ```bash
-./gradlew run --args="generate-recombined-sequences [OPTIONS]"
+seq_sim generate-recombined-sequences [OPTIONS]
 ```
 
 **Options:**
@@ -568,13 +569,13 @@ Generates recombined FASTA sequences by concatenating segments from parent assem
 - Uses pysam for efficient sequence retrieval and multiprocessing for parallelization
 
 **Output:**
-- `<work-dir>/output/09_recombined_sequences/recombinate_fastas/{founder}.fa`
-- `<work-dir>/output/09_recombined_sequences/recombined_fasta_paths.txt`
-- `<work-dir>/logs/09_generate_recombined_sequences.log`
+- `<work-dir>/output/08_recombined_sequences/recombinate_fastas/{founder}.fa`
+- `<work-dir>/output/08_recombined_sequences/recombined_fasta_paths.txt`
+- `<work-dir>/logs/08_generate_recombined_sequences.log`
 
 **Example:**
 ```bash
-./gradlew run --args="generate-recombined-sequences -a assembly_list.txt -c chromosomes.txt -d data/assemblies/"
+seq_sim generate-recombined-sequences -a assembly_list.txt -c chromosomes.txt -d data/assemblies/
 ```
 
 **Chromosome list format (chromosomes.txt):**
@@ -586,13 +587,149 @@ chr3
 
 ---
 
+### 11. format-recombined-fastas
+
+Formats recombined FASTA files (line wrapping) using `seqkit` (runs via pixi).
+
+**Usage:**
+```bash
+seq_sim format-recombined-fastas [OPTIONS]
+```
+
+**Options:**
+- `--work-dir`, `-w`: Working directory (default: `seq_sim_work`)
+- `--fasta-input`, `-f`: FASTA input (optional; auto-detects from `output/08_recombined_sequences/recombinate_fastas/`)
+- `--line-width`, `-l`: FASTA line width (default: 60)
+- `--threads`, `-t`: Threads for seqkit (default: 8)
+
+**Output:**
+- `<work-dir>/output/09_formatted_fastas/*.fa`
+- `<work-dir>/output/09_formatted_fastas/formatted_fasta_paths.txt`
+- `<work-dir>/logs/09_format_recombined_fastas.log`
+
+**Example:**
+```bash
+seq_sim format-recombined-fastas -w seq_sim_work -f seq_sim_work/output/08_recombined_sequences/recombinate_fastas/ -l 60 -t 8
+```
+
+---
+
+### 12. rope-bwt-chr-index
+
+Builds a PHG RopeBWT chromosome index from FASTA inputs (requires PHGv2 to be installed via `setup-environment`).
+
+**Usage:**
+```bash
+seq_sim rope-bwt-chr-index [OPTIONS]
+```
+
+**Options:**
+- `--work-dir`, `-w`: Working directory (default: `seq_sim_work`)
+- `--fasta-input`, `-f`: FASTA input (mutually exclusive with `--keyfile`)
+- `--keyfile`, `-k`: Pre-made keyfile (`path<TAB>sample_name`, no header; mutually exclusive with `--fasta-input`)
+- `--index-file-prefix`, `-p`: Prefix for generated index files (default: `phgIndex`)
+- `--threads`, `-t`: Threads for index creation (default: 20)
+- `--delete-fmr-index`: Delete intermediate `.fmr` files after converting to `.fmd` (flag)
+
+**Output:**
+- `<work-dir>/output/12_rope_bwt_index_results/` (PHG index outputs)
+- `<work-dir>/output/12_rope_bwt_index_results/phg_keyfile.txt` (if `--fasta-input` is used)
+- `<work-dir>/logs/11_rope_bwt_chr_index.log`
+
+**Example:**
+```bash
+seq_sim rope-bwt-chr-index -w seq_sim_work -f seq_sim_work/output/09_formatted_fastas/ -p phgIndex -t 20 --delete-fmr-index
+```
+
+---
+
+### 13. ropebwt-mem
+
+Aligns FASTQ reads against a RopeBWT index using `ropebwt3 mem` (runs via pixi).
+
+**Usage:**
+```bash
+seq_sim ropebwt-mem [OPTIONS]
+```
+
+**Options:**
+- `--work-dir`, `-w`: Working directory (default: `seq_sim_work`)
+- `--fastq-input`, `-f`: FASTQ input (file/dir/list)
+- `--index-file`, `-i`: Path to the `.fmd` index file (optional; auto-detects from `output/12_rope_bwt_index_results/`)
+- `--l-value`, `-l`: Value for `ropebwt3 mem -l` (optional; auto-calculated from the keyfile if available)
+- `--p-value`, `-p`: Value for `ropebwt3 mem -p` (default: 168)
+- `--threads`, `-t`: Threads for ropebwt3 mem (default: 1)
+
+**Output:**
+- `<work-dir>/output/12_ropebwt_mem_results/*.bed`
+- `<work-dir>/output/12_ropebwt_mem_results/bed_file_paths.txt`
+- `<work-dir>/logs/12_ropebwt_mem.log`
+
+**Example:**
+```bash
+seq_sim ropebwt-mem -w seq_sim_work -f reads/ -i seq_sim_work/output/12_rope_bwt_index_results/phgIndex.fmd -t 8
+```
+
+---
+
+### 14. build-spline-knots
+
+Runs PHG `build-spline-knots` to generate spline knot files (requires PHGv2 to be installed via `setup-environment`).
+
+**Usage:**
+```bash
+seq_sim build-spline-knots [OPTIONS]
+```
+
+**Options:**
+- `--work-dir`, `-w`: Working directory (default: `seq_sim_work`)
+- `--vcf-dir`, `-v`: Directory containing hVCF/gVCF files (required)
+- `--vcf-type`, `-t`: `hvcf` or `gvcf` (default: `hvcf`)
+
+**Output:**
+- `<work-dir>/output/13_spline_knots_results/`
+- `<work-dir>/logs/13_build_spline_knots.log`
+
+**Example:**
+```bash
+seq_sim build-spline-knots -w seq_sim_work -v path/to/vcfs -t hvcf
+```
+
+---
+
+### 15. convert-ropebwt2ps4g
+
+Converts RopeBWT BED outputs to PS4G using PHG (requires outputs from `ropebwt-mem` and `build-spline-knots`).
+
+**Usage:**
+```bash
+seq_sim convert-ropebwt2ps4g [OPTIONS]
+```
+
+**Options:**
+- `--work-dir`, `-w`: Working directory (default: `seq_sim_work`)
+- `--bed-input`, `-b`: BED input (optional; auto-detects from `output/12_ropebwt_mem_results/`)
+- `--spline-knot-dir`, `-s`: Spline knot directory (optional; auto-detects from `output/13_spline_knots_results/`)
+
+**Output:**
+- `<work-dir>/output/14_convert_ropebwt2ps4g_results/*.ps4g`
+- `<work-dir>/output/14_convert_ropebwt2ps4g_results/ps4g_file_paths.txt`
+- `<work-dir>/logs/14_convert_ropebwt2ps4g.log`
+
+**Example:**
+```bash
+seq_sim convert-ropebwt2ps4g -w seq_sim_work -b seq_sim_work/output/12_ropebwt_mem_results/ -s seq_sim_work/output/13_spline_knots_results/
+```
+
+---
+
 ### Helper: extract-chrom-ids
 
 Extracts unique chromosome IDs from GVCF files. Standalone utility, not part of main pipeline.
 
 **Usage:**
 ```bash
-./gradlew run --args="extract-chrom-ids [OPTIONS]"
+seq_sim extract-chrom-ids [OPTIONS]
 ```
 
 **Options:**
@@ -604,7 +741,7 @@ Extracts unique chromosome IDs from GVCF files. Standalone utility, not part of 
 
 **Example:**
 ```bash
-./gradlew run --args="extract-chrom-ids -g gvcf_files/ -o chroms.txt"
+seq_sim extract-chrom-ids -g gvcf_files/ -o chroms.txt
 ```
 
 ## Complete Workflow Examples
@@ -614,10 +751,7 @@ Extracts unique chromosome IDs from GVCF files. Standalone utility, not part of 
 #### Option 1: Using Orchestrate (Recommended)
 
 ```bash
-# 1. Build
-./gradlew build
-
-# 2. Create configuration
+# Create configuration
 cat > pipeline.yaml <<EOF
 work_dir: "my_analysis"
 
@@ -647,20 +781,17 @@ align_mutated_assemblies:
   threads: 8
 EOF
 
-# 3. Run entire pipeline (automatic setup!)
-./gradlew run --args="orchestrate --config pipeline.yaml"
+# Run entire pipeline (automatic setup!)
+seq_sim orchestrate --config pipeline.yaml
 ```
 
 #### Option 2: Manual Execution
 
 ```bash
-# 1. Build
-./gradlew build
+# Setup (only once)
+seq_sim setup-environment -w my_work
 
-# 2. Setup (only once)
-./gradlew run --args="setup-environment -w my_work"
-
-# 3-7. Run each step manually (see individual command examples above)
+# Run each step manually (see individual command examples above)
 ```
 
 ---
@@ -672,14 +803,11 @@ The recombination workflow generates recombined sequences by simulating crossove
 #### Using Orchestrate (Recommended)
 
 ```bash
-# 1. Build
-./gradlew build
-
-# 2. Prepare input files
+# Prepare input files
 # - assembly_list.txt (tab-separated: /path/to/assembly.fa<TAB>name)
 # - chromosomes.txt (one chromosome name per line)
 
-# 3. Create recombination configuration
+# Create recombination configuration
 cat > recombination.yaml <<EOF
 work_dir: "recomb_analysis"
 
@@ -711,33 +839,30 @@ generate_recombined_sequences:
   assembly_dir: "data/assemblies/"
 EOF
 
-# 4. Run entire recombination pipeline
-./gradlew run --args="orchestrate --config recombination.yaml"
+# Run entire recombination pipeline
+seq_sim orchestrate --config recombination.yaml
 ```
 
 #### Manual Execution
 
 ```bash
-# 1. Build
-./gradlew build
+# Setup (only once)
+seq_sim setup-environment
 
-# 2. Setup (only once)
-./gradlew run --args="setup-environment"
+# Align assemblies to reference
+seq_sim align-assemblies -g ref.gff -r ref.fa -q assemblies.txt -t 8
 
-# 3. Align assemblies to reference
-./gradlew run --args="align-assemblies -g ref.gff -r ref.fa -q assemblies.txt -t 8"
+# Pick crossover points
+seq_sim pick-crossovers -r ref.fa -a assembly_list.txt
 
-# 4. Pick crossover points
-./gradlew run --args="pick-crossovers -r ref.fa -a assembly_list.txt"
+# Create chain files from MAF alignments
+seq_sim create-chain-files -m seq_sim_work/output/01_anchorwave_results/maf_file_paths.txt -j 12
 
-# 5. Create chain files from MAF alignments
-./gradlew run --args="create-chain-files -m seq_sim_work/output/01_anchorwave_results/maf_file_paths.txt -j 12"
+# Convert coordinates
+seq_sim convert-coordinates -a assembly_list.txt -c seq_sim_work/output/06_chain_results/
 
-# 6. Convert coordinates
-./gradlew run --args="convert-coordinates -a assembly_list.txt -c seq_sim_work/output/07_chain_results/"
-
-# 7. Generate recombined sequences
-./gradlew run --args="generate-recombined-sequences -a assembly_list.txt -c chromosomes.txt -d data/assemblies/"
+# Generate recombined sequences
+seq_sim generate-recombined-sequences -a assembly_list.txt -c chromosomes.txt -d data/assemblies/
 ```
 
 **Data Flow:**
@@ -755,66 +880,6 @@ align-assemblies -> MAF files
         generate-recombined-sequences → Recombined FASTA files
 ```
 
-## Working Directory Structure
-
-After running the complete pipeline:
-
-```
-seq_sim_work/                                    # Working directory
-├── pixi.toml                                    # Pixi configuration
-├── pixi.lock                                    # Pixi lock file
-├── .pixi/                                       # Pixi environment
-├── src/                                         # Downloaded tools
-│   ├── MLImpute/                                # MLImpute repository
-│   └── biokotlin-tools/                         # biokotlin-tools binary
-├── logs/                                        # Log files
-│   ├── 00_orchestrate.log                       # Orchestrate log (if used)
-│   ├── 00_setup_environment.log
-│   ├── 01_align_assemblies.log
-│   ├── 02_maf_to_gvcf.log
-│   ├── 03_downsample_gvcf.log
-│   ├── 04_convert_to_fasta.log
-│   ├── 05_align_mutated_assemblies.log
-│   ├── 06_pick_crossovers.log                   # Recombination workflow logs
-│   ├── 07_create_chain_files.log
-│   ├── 08_convert_coordinates.log
-│   └── 09_generate_recombined_sequences.log
-└── output/                                      # Pipeline outputs
-    ├── 01_anchorwave_results/                   # Original alignments
-    │   ├── {refBase}_cds.fa
-    │   ├── {refBase}.sam
-    │   ├── {queryName}/
-    │   └── maf_file_paths.txt
-    ├── 02_gvcf_results/                         # GVCF files
-    │   ├── *.g.vcf.gz
-    │   └── gvcf_file_paths.txt
-    ├── 03_downsample_results/                   # Downsampled variants
-    │   ├── *_subsampled.gvcf
-    │   └── *_subsampled_block_sizes.tsv
-    ├── 04_fasta_results/                        # Mutated FASTA files
-    │   ├── *.fasta
-    │   └── fasta_file_paths.txt
-    ├── 05_mutated_alignment_results/            # Realignments
-    │   ├── {refBase}_cds.fa
-    │   ├── {refBase}.sam
-    │   ├── {fastaName}/
-    │   └── maf_file_paths.txt
-    ├── 06_crossovers_results/                   # Recombination workflow outputs
-    │   ├── {founder}_refkey.bed                 # Reference coordinates
-    │   └── refkey_file_paths.txt
-    ├── 07_chain_results/                        # Coordinate transformation files
-    │   ├── *.chain
-    │   └── chain_file_paths.txt
-    ├── 08_coordinates_results/                  # Converted coordinates
-    │   ├── {assembly}_key.bed                   # Assembly coordinates
-    │   ├── {founder}_key.bed                    # FASTA coordinates
-    │   ├── key_file_paths.txt
-    │   └── founder_key_file_paths.txt
-    └── 09_recombined_sequences/                 # Recombined sequences
-        ├── recombinate_fastas/
-        │   └── {founder}.fa                     # 0.fa, 1.fa, 2.fa, etc.
-        └── recombined_fasta_paths.txt
-```
 
 ## Important Notes
 
@@ -833,51 +898,4 @@ seq_sim_work/                                    # Working directory
 
 6. **Selective Execution**: With orchestrate, comment out steps in `run_steps` to skip them. Useful for reruns.
 
-7. **Circular Workflow**: Step 5 (align-mutated-assemblies) creates a comparison loop - compare original vs. mutated alignments.
-
-## Troubleshooting
-
-**Issue**: `UnsupportedClassVersionError` when running maf-to-gvcf
-
-**Solution**: Ensure Java 21 is in your pixi environment. Commands run biokotlin-tools through `pixi run` automatically.
-
----
-
-**Issue**: No MAF files generated by align-assemblies
-
-**Solution**:
-1. AnchorWave is Linux-only
-2. Check input file extensions (`.fa`, `.fasta`, `.fna`)
-3. Validate reference GFF and FASTA
-4. Check `logs/01_align_assemblies.log`
-
----
-
-**Issue**: Orchestrate fails with "environment validation failed"
-
-**Solution**: Ensure pixi is installed and accessible. Check logs for specific missing tools.
-
----
-
-**Issue**: Permission denied errors
-
-**Solution**: Ensure working directory is writable and you have execute permissions.
-
-## Development
-
-- **Language:** Kotlin 2.2.20 (JVM target: Java 21)
-- **CLI Framework:** Clikt 5.0.3
-- **Logging:** Log4j2 2.24.3
-- **YAML Parser:** SnakeYAML 2.3
-- **Build Tool:** Gradle with Kotlin DSL
-- **Environment Manager:** pixi (conda-based)
-
-### Build Commands
-
-```bash
-./gradlew build          # Build project
-./gradlew test           # Run tests
-./gradlew clean build    # Clean build
-./gradlew jar            # Generate JAR
-```
 
