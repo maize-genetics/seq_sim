@@ -18,12 +18,12 @@ import kotlin.system.exitProcess
 
 class ConvertCoordinates : CliktCommand(name = "convert-coordinates") {
     companion object {
-        private const val LOG_FILE_NAME = "08_convert_coordinates.log"
-        private const val COORDS_RESULTS_DIR = "08_coordinates_results"
+        private const val LOG_FILE_NAME = "07_convert_coordinates.log"
+        private const val COORDS_RESULTS_DIR = "07_coordinates_results"
         private const val KEY_PATHS_FILE = "key_file_paths.txt"
         private const val FOUNDER_KEY_PATHS_FILE = "founder_key_file_paths.txt"
         private const val PYTHON_SCRIPT = "src/python/cross/convert_coords.py"
-        private const val DEFAULT_REFKEY_DIR = "06_crossovers_results"
+        private const val DEFAULT_REFKEY_DIR = "05_crossovers_results"
     }
 
     private val logger: Logger = LogManager.getLogger(ConvertCoordinates::class.java)
@@ -53,7 +53,7 @@ class ConvertCoordinates : CliktCommand(name = "convert-coordinates") {
 
     private val outputDirOption by option(
         "--output-dir", "-o",
-        help = "Custom output directory (default: work_dir/output/08_coordinates_results)"
+        help = "Custom output directory (default: work_dir/output/07_coordinates_results)"
     ).path(mustExist = false, canBeFile = false, canBeDir = true)
 
     override fun run() {
@@ -112,14 +112,16 @@ class ConvertCoordinates : CliktCommand(name = "convert-coordinates") {
 
         // Run convert_coords.py
         // Set PYTHONPATH so Python can find the 'python' package for imports
-        val pythonPath = mlimputeDir.resolve("src").toString()
+        // Use absolute paths since the working directory is set to outputDir
+        // Use sh -c to set PYTHONPATH inside pixi's environment
+        val pythonPath = mlimputeDir.resolve("src").toAbsolutePath().toString()
+        val scriptPath = pythonScript.toAbsolutePath().toString()
+        val assemblyListPath = assemblyList.toAbsolutePath().toString()
+        val chainDirPath = chainDir.toAbsolutePath().toString()
+        val shellCommand = "PYTHONPATH='$pythonPath' python '$scriptPath' --assembly-list '$assemblyListPath' --chain-dir '$chainDirPath'"
         logger.info("Running convert_coords.py")
         val exitCode = ProcessRunner.runCommand(
-            "env", "PYTHONPATH=$pythonPath",
-            "pixi", "run",
-            "python", pythonScript.toString(),
-            "--assembly-list", assemblyList.toString(),
-            "--chain-dir", chainDir.toString(),
+            "pixi", "run", "sh", "-c", shellCommand,
             workingDir = outputDir.toFile(),
             logger = logger
         )

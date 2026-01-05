@@ -19,8 +19,8 @@ import kotlin.system.exitProcess
 
 class CreateChainFiles : CliktCommand(name = "create-chain-files") {
     companion object {
-        private const val LOG_FILE_NAME = "07_create_chain_files.log"
-        private const val CHAIN_RESULTS_DIR = "07_chain_results"
+        private const val LOG_FILE_NAME = "06_create_chain_files.log"
+        private const val CHAIN_RESULTS_DIR = "06_chain_results"
         private const val CHAIN_PATHS_FILE = "chain_file_paths.txt"
         private const val BASH_SCRIPT = "src/python/cross/create_chains.sh"
         private const val DEFAULT_JOBS = 8
@@ -49,7 +49,7 @@ class CreateChainFiles : CliktCommand(name = "create-chain-files") {
 
     private val outputDirOption by option(
         "--output-dir", "-o",
-        help = "Custom output directory (default: work_dir/output/07_chain_results)"
+        help = "Custom output directory (default: work_dir/output/06_chain_results)"
     ).path(mustExist = false, canBeFile = false, canBeDir = true)
 
     private fun collectMafFiles(): List<Path> {
@@ -128,20 +128,34 @@ class CreateChainFiles : CliktCommand(name = "create-chain-files") {
         logger.info("Cleaning up temporary MAF directory")
         tempMafDir.toFile().deleteRecursively()
 
-        // Collect generated chain files
+        // Collect generated chain files (all files with .chain extension)
         val chainFiles = outputDir.listDirectoryEntries()
             .filter { it.isRegularFile() && it.extension == "chain" }
             .sorted()
 
-        if (chainFiles.isEmpty()) {
+        // Rename chain files to include "_subsampled" suffix if not already present
+        val renamedChainFiles = chainFiles.map { chainFile ->
+            val fileName = chainFile.nameWithoutExtension
+            if (!fileName.endsWith("_subsampled")) {
+                val newFileName = "${fileName}_subsampled.chain"
+                val newPath = chainFile.parent.resolve(newFileName)
+                chainFile.moveTo(newPath, overwrite = true)
+                logger.info("Renamed ${chainFile.fileName} to $newFileName")
+                newPath
+            } else {
+                chainFile
+            }
+        }.sorted()
+
+        if (renamedChainFiles.isEmpty()) {
             logger.warn("No chain files generated")
         } else {
-            logger.info("Generated ${chainFiles.size} chain file(s):")
-            chainFiles.forEach { logger.info("  $it") }
+            logger.info("Generated ${renamedChainFiles.size} chain file(s):")
+            renamedChainFiles.forEach { logger.info("  $it") }
 
             // Write chain file paths to text file
             FileUtils.writeFilePaths(
-                chainFiles,
+                renamedChainFiles,
                 outputDir.resolve(CHAIN_PATHS_FILE),
                 logger,
                 "Chain file"
