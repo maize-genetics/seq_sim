@@ -109,9 +109,9 @@ class CreateChainFiles : CliktCommand(name = "create-chain-files") {
         // Run create_chains.sh
         logger.info("Running create_chains.sh")
         val exitCode = ProcessRunner.runCommand(
-            "bash", bashScript.toString(),
-            "-i", tempMafDir.toString(),
-            "-o", outputDir.toString(),
+            "bash", bashScript.toAbsolutePath().toString(),
+            "-i", tempMafDir.toAbsolutePath().toString(),
+            "-o", outputDir.toAbsolutePath().toString(),
             "-j", jobs.toString(),
             workingDir = workDir.toFile(),
             logger = logger
