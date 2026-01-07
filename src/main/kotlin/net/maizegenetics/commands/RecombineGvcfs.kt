@@ -1,5 +1,8 @@
 package net.maizegenetics.net.maizegenetics.commands
 
+import biokotlin.seq.NucSeq
+import biokotlin.seq.NucSeqRecord
+import biokotlin.seqIO.NucSeqIO
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.options.required
@@ -7,6 +10,10 @@ import com.github.ajalt.clikt.parameters.types.path
 import com.google.common.collect.Range
 import com.google.common.collect.RangeMap
 import com.google.common.collect.TreeRangeMap
+import htsjdk.variant.variantcontext.Allele
+import htsjdk.variant.variantcontext.GenotypeBuilder
+import htsjdk.variant.variantcontext.VariantContext
+import htsjdk.variant.variantcontext.VariantContextBuilder
 import htsjdk.variant.variantcontext.writer.Options
 import htsjdk.variant.variantcontext.writer.VariantContextWriter
 import htsjdk.variant.variantcontext.writer.VariantContextWriterBuilder
@@ -33,13 +40,20 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
         .path(canBeFile = false, canBeDir = true)
         .required()
 
+    private val refFile by option(help = "Ref file")
+        .path(canBeFile = true, canBeDir = false)
+        .required()
+
 
     override fun run() {
         // Implementation goes here
-        recombineGvcfs(inputBedDir, inputGvcfDir, outputDir)
+        recombineGvcfs(inputBedDir, inputGvcfDir, outputDir,refFile)
     }
 
-    fun recombineGvcfs(inputBedDir: Path, inputGvcfDir: java.nio.file.Path, outputDir: java.nio.file.Path) {
+    fun recombineGvcfs(inputBedDir: Path, inputGvcfDir: Path, outputDir: Path, refFile: Path) {
+        println("Loading in the reference Genome from $refFile")
+        val refSeq = NucSeqIO(refFile.toFile().path).readAll()
+
         // Placeholder for the actual recombination logic
         println("Recombining GVCFs from $inputGvcfDir using BED files from $inputBedDir into $outputDir")
 
@@ -48,7 +62,7 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
         //Build Output writers for each sample name
         val outputWriters = buildOutputWriterMap(sampleNames, outputDir)
         //Process GVCFs and write out recombined files
-        processGvcfsAndWrite(recombinationMap, inputGvcfDir, outputWriters)
+        processGvcfsAndWrite(recombinationMap, inputGvcfDir, outputWriters, refSeq)
         //Close the GVCF writers
         outputWriters.values.forEach { it.close() }
 
@@ -77,31 +91,7 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
         }
         return Pair(recombinationMap, targetNames.toList())
     }
-
-//    fun buildRecombinationMap(inputBedDir: Path): Pair<Map<String, List<RecombinationRange>>, List<String>> {
-//        //loop through each file in the inputBedDir
-//        val recombinationMap = mutableMapOf<String, MutableList<RecombinationRange>>()
-//        val targetNames = mutableSetOf<String>()
-//        inputBedDir.toFile().listFiles()?.forEach { bedFile ->
-//            val bedFileSampleName = bedFile.name.substringBeforeLast("_")
-//            bedFile.forEachLine { line ->
-//                val parts = line.split("\t")
-//                if (parts.size >= 4) {
-//                    val chrom = parts[0]
-//                    val start = parts[1].toInt()
-//                    val end = parts[2].toInt()
-//                    val targetSampleName = parts[3]
-//
-//                    val range = RecombinationRange(chrom, start, end, targetSampleName)
-//                    recombinationMap.computeIfAbsent(bedFileSampleName) { mutableListOf() }.add(range)
-//                    targetNames.add(targetSampleName)
-//                }
-//            }
-//        }
-//        return Pair(recombinationMap, targetNames.toList())
-//    }
-
-
+    
 
     fun buildOutputWriterMap(sampleNames: List<String>, outputDir: Path): Map<String, VariantContextWriter> {
         return sampleNames.associateWith { sampleName ->
@@ -121,14 +111,15 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
     fun processGvcfsAndWrite(
         recombinationMap: Map<String, RangeMap<Position,String>>,
         inputGvcfDir: Path,
-        outputWriters: Map<String, VariantContextWriter>
+        outputWriters: Map<String, VariantContextWriter>,
+        refSeq :Map<String, NucSeqRecord>
     ) {
         inputGvcfDir.toFile().listFiles()?.forEach { gvcfFile ->
             val sampleName = gvcfFile.name.substringBeforeLast(".g.vcf")
             val ranges = recombinationMap[sampleName] ?: return@forEach
 
             VCFFileReader(gvcfFile, false).use { gvcfReader ->
-                processSingleGVCFFile(gvcfReader, ranges, outputWriters)
+                processSingleGVCFFile(gvcfReader, ranges, outputWriters, refSeq)
             }
         }
     }
@@ -151,7 +142,8 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
     fun processSingleGVCFFile(
         gvcfReader: VCFReader,
         ranges: RangeMap<Position,String>,
-        outputWriters: Map<String, VariantContextWriter>
+        outputWriters: Map<String, VariantContextWriter>,
+        refSeq :Map<String, NucSeqRecord>
     ) {
         //Need to loop through each range and each gvcf record.
         //We need to see if the variant falls within the range. If so, write it to the appropriate output writer.
@@ -166,42 +158,95 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
             val startPos = Position(vc.contig, vc.start)
             val endPos = Position(vc.contig, vc.end)
 
-            val targetSampleName = ranges.get(startPos) ?: continue
+            var targetSampleName = ranges.get(startPos) ?: continue
 
-            val outputWriter = outputWriters[targetSampleName] ?: continue
+            var outputWriter = outputWriters[targetSampleName] ?: continue
 
-            if((vc.reference.length() == 1) && (vc.alternateAlleles.first().displayString == "NON_REF" || vc.reference.length() == vc.alternateAlleles[0].length())) {
-                //RefBlock or SNP polymorphism
-                outputWriter.add(vc)
-            } else {
-                //Indel case, need to check if it spans multiple ranges
-                TODO("Handle Indel spanning multiple ranges")
-                var currentStartPos = startPos
-                var currentEndPos = endPos
-                var currentVc = vc
-
-                while (true) {
-                    val rangeTargetSampleName = ranges.get(currentStartPos) ?: break
-                    val range = ranges.asMapOfRanges().entries.find { it.value == rangeTargetSampleName }?.key ?: break
-
-                    if (range.contains(currentEndPos)) {
-                        //Fully contained within the range
-                        outputWriter.add(currentVc)
-                        break
-                    } else {
-                        //Partially contained, need to resize and write out
-                        val resizedEndPos = Position(range.upperEndpoint().contig, range.upperEndpoint().position)
-//                        val resizedVc = VariantContextUtils.resizeVariantContext(currentVc, currentStartPos.position, resizedEndPos.position)
-
-//                        outputWriter.add(resizedVc)
-
-                        //Move to the next range
-                        currentStartPos = Position(currentVc.contig, resizedEndPos.position + 1)
-//                        currentVc = VariantContextUtils.resizeVariantContext(currentVc, currentStartPos.position, currentEndPos.position)
-                    }
-                }
+            if((vc.reference.length() == 1) &&  vc.reference.length() == vc.alternateAlleles[0].length()) {
+                // SNP polymorphism
+                //can write out directly as it is only 1 position and will not overlap but will need to change the genotype name
+                val newVc = changeSampleName(vc, targetSampleName)
+                outputWriter.add(newVc)
+            }
+            else if(vc.reference.length() == 1 && vc.alternateAlleles.first().displayString == "NON_REF"){
+                //This is a RefBlock
+                //We need to 'walk through' the refBlock by splitting it up into multiple refBlocks and write out to the correct output writer
+                //Get the current start position
+                processRefBlockOverlap(startPos, endPos, ranges, outputWriters, refSeq, vc)
             }
         }
+    }
+
+    fun processRefBlockOverlap(
+        startPos: Position,
+        endPos: Position,
+        ranges: RangeMap<Position, String>,
+        outputWriters: Map<String, VariantContextWriter>,
+        refSeq: Map<String, NucSeq>,
+        vc: VariantContext
+    ){
+        var currentStartPos = startPos
+        while (currentStartPos <= endPos) {
+            //Get the target sample name for the current start position
+            val rangesEntry = ranges.getEntry(currentStartPos) ?: break
+            val range = rangesEntry.key
+            val targetSampleName = rangesEntry.value
+
+            val outputWriter = outputWriters[targetSampleName] ?: break
+
+            val refAllele = refSeq[vc.contig]!!.get(currentStartPos.position - 1).char
+
+            //Check to see if the refBlock is fully contained within the range
+            if (range.contains(endPos)) {
+                //Fully contained within the range, write out and break
+                val newVc = buildRefBlock(
+                    vc.contig,
+                    currentStartPos.position,
+                    endPos.position,
+                    "$refAllele",
+                    targetSampleName
+                )
+                outputWriter.add(newVc)
+                break
+            } else {
+                //Partially contained, need to resize and write out
+                val resizedEndPos = Position(range.upperEndpoint().contig, range.upperEndpoint().position)
+                val newVc = buildRefBlock(
+                    vc.contig,
+                    currentStartPos.position,
+                    range.upperEndpoint().position,
+                    "$refAllele",
+                    targetSampleName
+                )
+                outputWriter.add(newVc)
+                //move up the start
+                currentStartPos = Position(vc.contig, resizedEndPos.position + 1)
+            }
+        }
+    }
+
+    fun changeSampleName(vc: VariantContext, newSampleName: String): VariantContext {
+        val builder = VariantContextBuilder(vc)
+        val genotypes = vc.genotypes.map { genotype ->
+            GenotypeBuilder(genotype)
+                .name(newSampleName)
+                .make()
+        }
+        builder.genotypes(genotypes)
+        return builder.make()
+    }
+
+    fun buildRefBlock(chrom: String, start: Int, end: Int, refAllele: String, sampleName: String): VariantContext {
+        return VariantContextBuilder()
+            .chr(chrom)
+            .start(start.toLong())
+            .stop(end.toLong())
+            .alleles(listOf(refAllele, "<NON_REF>"))
+            .genotypes(
+                listOf(
+                    GenotypeBuilder(sampleName).alleles(listOf(Allele.create(refAllele,true))).make()
+                )
+            ).make()
     }
 
 }
