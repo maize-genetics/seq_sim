@@ -1,4 +1,4 @@
-package net.maizegenetics.net.maizegenetics.utils
+package net.maizegenetics.utils
 
 import htsjdk.variant.vcf.VCFFormatHeaderLine
 import htsjdk.variant.vcf.VCFHeader

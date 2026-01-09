@@ -14,17 +14,10 @@ import htsjdk.variant.variantcontext.VariantContextBuilder
 import htsjdk.variant.variantcontext.writer.Options
 import htsjdk.variant.variantcontext.writer.VariantContextWriterBuilder
 import htsjdk.variant.vcf.VCFFileReader
-import htsjdk.variant.vcf.VCFFormatHeaderLine
-import htsjdk.variant.vcf.VCFHeader
-import htsjdk.variant.vcf.VCFHeaderLine
-import htsjdk.variant.vcf.VCFHeaderLineCount
-import htsjdk.variant.vcf.VCFHeaderLineType
-import htsjdk.variant.vcf.VCFInfoHeaderLine
-import net.maizegenetics.net.maizegenetics.utils.Position
-import net.maizegenetics.net.maizegenetics.utils.SimpleVariant
-import net.maizegenetics.net.maizegenetics.utils.VariantContextUtils
+import net.maizegenetics.utils.Position
+import net.maizegenetics.utils.SimpleVariant
+import net.maizegenetics.utils.VariantContextUtils
 import java.io.File
-import java.util.HashSet
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
 

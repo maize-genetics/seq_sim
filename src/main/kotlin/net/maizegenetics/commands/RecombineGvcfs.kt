@@ -20,12 +20,11 @@ import htsjdk.variant.variantcontext.writer.VariantContextWriter
 import htsjdk.variant.variantcontext.writer.VariantContextWriterBuilder
 import htsjdk.variant.vcf.VCFFileReader
 import htsjdk.variant.vcf.VCFReader
-import net.maizegenetics.net.maizegenetics.utils.Position
-import net.maizegenetics.net.maizegenetics.utils.SimpleVariant
-import net.maizegenetics.net.maizegenetics.utils.VariantContextUtils
+import net.maizegenetics.utils.Position
+import net.maizegenetics.utils.SimpleVariant
+import net.maizegenetics.utils.VariantContextUtils
 import java.io.File
 import java.nio.file.Path
-import kotlin.io.path.bufferedReader
 
 data class RecombinationRange(val chrom: String, val start: Int, val end: Int, val targetSampleName: String)
 
