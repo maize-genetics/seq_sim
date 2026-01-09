@@ -7,9 +7,9 @@ import htsjdk.variant.variantcontext.Allele
 import htsjdk.variant.variantcontext.VariantContextBuilder
 import htsjdk.variant.vcf.VCFFileReader
 import net.maizegenetics.net.maizegenetics.commands.MutateAssemblies
-import net.maizegenetics.net.maizegenetics.utils.Position
-import net.maizegenetics.net.maizegenetics.utils.SimpleVariant
-import net.maizegenetics.net.maizegenetics.utils.VariantContextUtils
+import net.maizegenetics.utils.Position
+import net.maizegenetics.utils.SimpleVariant
+import net.maizegenetics.utils.VariantContextUtils
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
