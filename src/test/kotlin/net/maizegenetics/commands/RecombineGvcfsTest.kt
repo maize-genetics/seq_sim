@@ -1,10 +1,11 @@
+package net.maizegenetics.commands
+
 import htsjdk.variant.variantcontext.Allele
 import htsjdk.variant.variantcontext.GenotypeBuilder
 import htsjdk.variant.variantcontext.VariantContextBuilder
 import net.maizegenetics.net.maizegenetics.commands.RecombineGvcfs
 import kotlin.test.DefaultAsserter.assertEquals
 import kotlin.test.Test
-import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 
 class RecombineGvcfsTest {
@@ -31,13 +32,17 @@ class RecombineGvcfsTest {
         val renamed = recombineGvcfs.changeSampleName(originalVariantContext, newSampleName)
 
         assertEquals("SampleName was not updated", newSampleName, renamed.genotypes.sampleNames.first())
-        assertEquals("Alleles were not preserved", originalVariantContext.genotypes.first().alleles, renamed.genotypes.first().alleles)
+        assertEquals(
+            "Alleles were not preserved",
+            originalVariantContext.genotypes.first().alleles,
+            renamed.genotypes.first().alleles
+        )
         //check that the rest of the variant matches and that Sample1 does not exist
-        assertEquals("Contigs do not match",originalVariantContext.contig, renamed.contig)
-        assertEquals("Start positions do not match",originalVariantContext.start, renamed.start)
-        assertEquals("Stop positions do not match",originalVariantContext.end, renamed.end)
-        assertEquals("IDs do not match",originalVariantContext.id, renamed.id)
-        assertEquals("Alleles do not match",originalVariantContext.alleles, renamed.alleles)
-        assertFalse( renamed.genotypes.sampleNames.contains("Sample1"), "Old sample name still exists")
+        assertEquals("Contigs do not match", originalVariantContext.contig, renamed.contig)
+        assertEquals("Start positions do not match", originalVariantContext.start, renamed.start)
+        assertEquals("Stop positions do not match", originalVariantContext.end, renamed.end)
+        assertEquals("IDs do not match", originalVariantContext.id, renamed.id)
+        assertEquals("Alleles do not match", originalVariantContext.alleles, renamed.alleles)
+        assertFalse(renamed.genotypes.sampleNames.contains("Sample1"), "Old sample name still exists")
     }
 }

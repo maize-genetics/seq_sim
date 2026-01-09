@@ -3,6 +3,7 @@ package net.maizegenetics.net.maizegenetics.commands
 import biokotlin.seq.NucSeq
 import biokotlin.seq.NucSeqRecord
 import biokotlin.seqIO.NucSeqIO
+import biokotlin.util.bufferedReader
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.options.required
@@ -20,9 +21,11 @@ import htsjdk.variant.variantcontext.writer.VariantContextWriterBuilder
 import htsjdk.variant.vcf.VCFFileReader
 import htsjdk.variant.vcf.VCFReader
 import net.maizegenetics.net.maizegenetics.utils.Position
+import net.maizegenetics.net.maizegenetics.utils.SimpleVariant
 import net.maizegenetics.net.maizegenetics.utils.VariantContextUtils
 import java.io.File
 import java.nio.file.Path
+import kotlin.io.path.bufferedReader
 
 data class RecombinationRange(val chrom: String, val start: Int, val end: Int, val targetSampleName: String)
 
@@ -44,13 +47,17 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
         .path(canBeFile = true, canBeDir = false)
         .required()
 
+    private val outputBedDir by option(help = "Output Bed dir")
+        .path(canBeFile = false, canBeDir = true)
+        .required()
+
 
     override fun run() {
         // Implementation goes here
-        recombineGvcfs(inputBedDir, inputGvcfDir, outputDir,refFile)
+        recombineGvcfs(inputBedDir, inputGvcfDir, refFile, outputDir, outputBedDir)
     }
 
-    fun recombineGvcfs(inputBedDir: Path, inputGvcfDir: Path, outputDir: Path, refFile: Path) {
+    fun recombineGvcfs(inputBedDir: Path, inputGvcfDir: Path, refFile: Path, outputDir: Path,  outputBedDir: Path) {
         println("Loading in the reference Genome from $refFile")
         val refSeq = NucSeqIO(refFile.toFile().path).readAll()
 
@@ -59,6 +66,12 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
 
         //Build BedFile Map
         val (recombinationMap, sampleNames) = buildRecombinationMap(inputBedDir)
+
+        println("Resizing recombination maps for large indels from the GVCF files")
+        resizeRecombinationMapsForIndels(recombinationMap, inputGvcfDir)
+        println("Writing out the new BED files to $outputBedDir")
+        writeResizedBedFiles(recombinationMap, outputBedDir)
+
         //Build Output writers for each sample name
         val outputWriters = buildOutputWriterMap(sampleNames, outputDir)
         //Process GVCFs and write out recombined files
@@ -91,7 +104,158 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
         }
         return Pair(recombinationMap, targetNames.toList())
     }
-    
+
+
+    fun resizeRecombinationMapsForIndels(recombinationMap: Map<String, RangeMap<Position, String>>, gvcfDir: Path) {
+        println("Collecting indels that require resizing of recombination ranges")
+
+
+        //loop through the gvcf files and process them to find indels that will require resizing
+        //Do this quickly by just parsing the file like normal and not use htsjdk
+        val indelsForResizing = findAllOverlappingIndels(recombinationMap, gvcfDir)
+
+        if(indelsForResizing.isEmpty()) {
+            println("No overlapping indels found that require resizing of recombination ranges")
+            return
+        }
+
+        //Need to flip the region map so we can follow the target sample names when we have an overlapping indel
+        val flippedRecombinationMap = flipRecombinationMap(recombinationMap)
+
+        //Now we can loop through the indels and resize the original ranges
+        resizeMaps(indelsForResizing, recombinationMap, flippedRecombinationMap)
+
+    }
+
+    fun findAllOverlappingIndels(recombinationMap: Map<String, RangeMap<Position, String>>, gvcfDir: Path): List<Triple<String, String, SimpleVariant>> {
+        return gvcfDir.toFile().listFiles()?.flatMap { gvcfFile ->
+            val sampleName = gvcfFile.name.substringBeforeLast(".g.vcf")
+            val ranges =
+                recombinationMap[sampleName] ?: return@flatMap emptyList<Triple<String, String, SimpleVariant>>()
+
+            findOverlappingIndelsInGvcf(sampleName, gvcfFile, ranges)
+        }?: emptyList()
+    }
+
+    fun findOverlappingIndelsInGvcf(sampleName: String, gvcfFile: File, ranges: RangeMap<Position,String>): List<Triple<String, String,SimpleVariant>> {
+        val reader = bufferedReader(gvcfFile.absolutePath)
+
+        var currentLine = reader.readLine()
+        val overlappingIndels = mutableListOf<Triple<String, String,SimpleVariant>>()
+        while(currentLine != null) {
+            if(currentLine.startsWith("#")) {
+                currentLine = reader.readLine()
+                continue
+            }
+            val parts = currentLine.split("\t")
+            val chrom = parts[0]
+            val pos = parts[1].toInt()
+            val ref = parts[3]
+            val alt = parts[4]
+
+            val startPos = Position(chrom, pos)
+            val endPos = Position(chrom, pos + ref.length - 1)
+
+            //check if its an indel first
+            if(ref.length != alt.length && alt != "<NON_REF>") {
+                //It's an indel
+                //Now check to see if it overlaps more than one range.  This can be done by checking the ranges coming out of the start and end positions
+                val startRange = ranges.getEntry(startPos)
+                val endRange = ranges.getEntry(endPos)
+                if(startRange != null && endRange != null && startRange != endRange) {
+                    //It overlaps more than one range
+                    val simpleVariant = SimpleVariant(startPos, endPos, ref, alt)
+                    println("Found overlapping indel at $chrom:$pos $ref->$alt")
+                    overlappingIndels.add(Triple(sampleName, startRange.value, simpleVariant))
+                }
+            }
+            currentLine = reader.readLine()
+        }
+        return overlappingIndels
+    }
+
+    fun flipRecombinationMap(recombinationMap: Map<String, RangeMap<Position, String>>): Map<String, RangeMap<Position, String>> {
+        val flippedMap = mutableMapOf<String, RangeMap<Position, String>>()
+
+        for((sampleName, rangeMap) in recombinationMap) {
+            for(entry in rangeMap.asMapOfRanges().entries) {
+                val range = entry.key
+                val targetSampleName = entry.value
+
+                flippedMap.computeIfAbsent(targetSampleName) { TreeRangeMap.create() }.put(range, sampleName)
+            }
+        }
+
+        return flippedMap
+    }
+
+    fun resizeMaps(
+        indelsForResizing: List<Triple<String, String, SimpleVariant>>,
+        recombinationMap: Map<String, RangeMap<Position, String>>,
+        flippedRecombinationMap: Map<String, RangeMap<Position, String>>
+    ) {
+
+        TODO("Implement resizing of recombination maps for overlapping indels")
+//        for((sourceSampleName, targetSampleName, indel) in indelsForResizing) {
+//            val sourceRangeMap = recombinationMap[sourceSampleName] ?: continue
+//            val targetRangeMap = flippedRecombinationMap[targetSampleName] ?: continue
+//
+//            //Find the ranges that the indel overlaps in the source map
+//            val startRangeEntry = sourceRangeMap.getEntry(indel.start)
+//            val endRangeEntry = sourceRangeMap.getEntry(indel.end)
+//
+//            if(startRangeEntry == null || endRangeEntry == null) continue
+//
+//            val startRange = startRangeEntry.key
+//            val endRange = endRangeEntry.key
+//
+//            //Now we need to resize the ranges between startRange and endRange
+//            val rangesToResize = sourceRangeMap.asMapOfRanges().keys.filter { range ->
+//                range.isConnected(Range.closed(indel.start, indel.end))
+//            }
+//
+//            for(range in rangesToResize) {
+//                sourceRangeMap.remove(range)
+//            }
+//
+//            //Re-add the resized ranges
+//            var currentStartPos = startRange.lowerEndpoint().position
+//            for(range in rangesToResize) {
+//                val newEndPos = if(range == endRange) {
+//                    endRange.upperEndpoint().position
+//                } else {
+//                    range.upperEndpoint().position - 1
+//                }
+//
+//                val newRange = Range.closed(
+//                    Position(range.lowerEndpoint().contig, currentStartPos),
+//                    Position(range.lowerEndpoint().contig, newEndPos)
+//                )
+//                sourceRangeMap.put(newRange, sourceRangeMap.get(range)!!)
+//
+//                currentStartPos = newEndPos + 1
+//            }
+//        }
+    }
+
+    fun writeResizedBedFiles(recombinationMap: Map<String, RangeMap<Position, String>>, outputBedDir: Path) {
+        println("Writing resized BED files")
+        for((sampleName, rangeMap) in recombinationMap) {
+            val outputBedFile = File(outputBedDir.toFile(), "${sampleName}_resized.bed")
+            outputBedFile.bufferedWriter().use { writer ->
+                for(entry in rangeMap.asMapOfRanges().entries) {
+                    val range = entry.key
+                    val targetSampleName = entry.value
+                    val chrom = range.lowerEndpoint().contig
+                    val start = range.lowerEndpoint().position - 1 //Convert back to 0 based for BED
+                    val end = range.upperEndpoint().position
+
+                    writer.write("$chrom\t$start\t$end\t$targetSampleName\n")
+                }
+            }
+        }
+    }
+
 
     fun buildOutputWriterMap(sampleNames: List<String>, outputDir: Path): Map<String, VariantContextWriter> {
         return sampleNames.associateWith { sampleName ->
@@ -173,6 +337,12 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
                 //We need to 'walk through' the refBlock by splitting it up into multiple refBlocks and write out to the correct output writer
                 //Get the current start position
                 processRefBlockOverlap(startPos, endPos, ranges, outputWriters, refSeq, vc)
+            }
+            else {
+                //Its an indel or complex polymorphism
+                //We will need to resize some variants when we do the sort though as we could potentially have an overlapping indel
+                val newVc = changeSampleName(vc, targetSampleName)
+                outputWriter.add(newVc)
             }
         }
     }
