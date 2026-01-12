@@ -11,6 +11,7 @@ import net.maizegenetics.utils.Position
 import java.io.File
 import kotlin.io.path.Path
 import kotlin.test.DefaultAsserter.assertEquals
+import kotlin.test.DefaultAsserter.assertTrue
 import kotlin.test.Test
 import kotlin.test.assertFalse
 
@@ -19,6 +20,187 @@ class RecombineGvcfsTest {
     val homeDir = System.getProperty("user.home").replace('\\', '/')
 
     val outputDir = "$homeDir/temp/seq_sim/recombine_gvcf_test/"
+
+    @Test
+    fun buildRecombinationMap() {
+        val bedDir = "./data/RecombineGvcfs/bed/"
+        val recombineGvcfs = RecombineGvcfs()
+        val (recombinationMap, targetNameList) = recombineGvcfs.buildRecombinationMap(Path(bedDir))
+        //Check that the map has the correct number of samples
+        assertEquals(
+            "Recombination map should have 3 samples",
+            3,
+            recombinationMap.size
+        )
+
+        //Check to make sure that the recombination maps are correct
+        checkRecombinationMapContents(recombinationMap, "sampleA", listOf("sampleX", "sampleY", "sampleZ"))
+        checkRecombinationMapContents(recombinationMap, "sampleB", listOf("sampleY", "sampleZ", "sampleX"))
+        checkRecombinationMapContents(recombinationMap, "sampleC", listOf("sampleZ", "sampleX", "sampleY"))
+
+
+        //targetNameList should also have 3 samples
+        assertEquals(
+            "Target name list should have 3 samples",
+            3,
+            targetNameList.size
+        )
+
+        //Should have sampleX, sampleY, sampleZ
+        assertTrue(
+            "Target name list does not contain sampleX",
+            targetNameList.contains("sampleX")
+        )
+        assertTrue(
+            "Target name list does not contain sampleY",
+            targetNameList.contains("sampleY")
+        )
+        assertTrue(
+            "Target name list does not contain sampleZ",
+            targetNameList.contains("sampleZ")
+        )
+    }
+
+    private fun checkRecombinationMapContents(recombinationMap: Map<String, RangeMap<Position, String>>, sampleName: String, expectedTargetSamples: List<String>) {
+        val sampleMap = recombinationMap[sampleName]
+        require(sampleMap != null) { "Range map for $sampleName is null" }
+        assertEquals(
+            "${sampleName} should have 3 ranges",
+            3,
+            sampleMap.asMapOfRanges().size
+        )
+        //From 1 -10 should be sampleX, from 10 to 19 should be sampleY, from 20 to 29 should be sampleZ
+        val range1 = sampleMap.getEntry(Position("chr1", 5))
+        assertEquals(
+            "${sampleName} first range not correct",
+            Range.closed(Position("chr1", 1), Position("chr1", 10)),
+            range1?.key
+        )
+        assertEquals(
+            "${sampleName} first range target not correct",
+            expectedTargetSamples[0],
+            range1?.value
+        )
+        val range2 = sampleMap.getEntry(Position("chr1", 15))
+        assertEquals(
+            "${sampleName} second range not correct",
+            Range.closed(Position("chr1", 11), Position("chr1", 20)),
+            range2?.key
+        )
+        assertEquals(
+            "${sampleName} second range target not correct",
+            expectedTargetSamples[1],
+            range2?.value
+        )
+        val range3 = sampleMap.getEntry(Position("chr1", 25))
+        assertEquals(
+            "${sampleName} third range not correct",
+            Range.closed(Position("chr1", 21), Position("chr1", 30)),
+            range3?.key
+        )
+        assertEquals(
+            "${sampleName} third range target not correct",
+            expectedTargetSamples[2],
+            range3?.value
+        )
+    }
+
+
+    @Test
+    fun testFindOverlappingIndelsInGvcf() {
+        val bedDir = "./data/RecombineGvcfs/bed/"
+        val gvcfFile = "./data/RecombineGvcfs/gvcf/"
+
+        val recombineGvcfs = RecombineGvcfs()
+        val (recombinationMap, targetNameList) = recombineGvcfs.buildRecombinationMap(Path(bedDir))
+
+        //Test SampleB and Sample C.  SampleB does not have an overlapping indel so the list should be empty
+        val sampleBIndels = recombineGvcfs.findOverlappingIndelsInGvcf("sampleB", File("$gvcfFile/sampleB.gvcf"),recombinationMap["sampleB"]!!)
+
+        assertEquals(
+            "SampleB should have 0 overlapping indels",
+            0,
+            sampleBIndels.size
+        )
+
+        //SampleC should have one overlapping indel at chr1:9-11 hitting position 10 in the recombination map
+        val sampleCIndels = recombineGvcfs.findOverlappingIndelsInGvcf("sampleC", File("$gvcfFile/sampleC.gvcf"),recombinationMap["sampleC"]!!)
+        assertEquals(
+            "SampleC should have 1 overlapping indel",
+            1,
+            sampleCIndels.size
+        )
+        val indel = sampleCIndels[0]
+
+        assertEquals(
+            "Indel contig does not match",
+            "chr1",
+            indel.third.refStart.contig
+        )
+        assertEquals(
+            "Indel start does not match",
+            9,
+            indel.third.refStart.position
+        )
+        assertEquals(
+            "Indel end does not match",
+            11,
+            indel.third.refEnd.position
+        )
+        //check source and target sample names
+        assertEquals(
+            "Indel source sample name does not match",
+            "sampleC",
+            indel.first
+        )
+        assertEquals(
+            "Indel target sample name does not match",
+            "sampleZ",
+            indel.second
+        )
+    }
+
+    @Test
+    fun testFindAllOverlappingIndels() {
+        val bedDir = "./data/RecombineGvcfs/bed/"
+        val gvcfDir = "./data/RecombineGvcfs/gvcf/"
+        val recombineGvcfs = RecombineGvcfs()
+        val (recombinationMap, targetNameList) = recombineGvcfs.buildRecombinationMap(Path(bedDir))
+        val allIndels = recombineGvcfs.findAllOverlappingIndels(recombinationMap, Path(gvcfDir))
+        //There should be only one indel from sampleC
+        assertEquals(
+            "There should be 1 overlapping indel in total",
+            1,
+            allIndels.size
+        )
+        val indel = allIndels[0]
+        assertEquals(
+            "Indel source sample name does not match",
+            "sampleC",
+            indel.first
+        )
+        assertEquals(
+            "Indel target sample name does not match",
+            "sampleZ",
+            indel.second
+        )
+        assertEquals(
+            "Indel contig does not match",
+            "chr1",
+            indel.third.refStart.contig
+        )
+        assertEquals(
+            "Indel start does not match",
+            9,
+            indel.third.refStart.position
+        )
+        assertEquals(
+            "Indel end does not match",
+            11,
+            indel.third.refEnd.position
+        )
+
+    }
 
     @Test
     fun testFlipRecombinationMap() {
@@ -71,8 +253,17 @@ class RecombineGvcfsTest {
             range4
         )
 
+        //Flip it back and see if the original map is recovered
+        val reflippedMap = recombineGvcfs.flipRecombinationMap(flippedMap)
+        assertEquals(
+            "Reflipped map should be equal to original map",
+            recombinationMap,
+            reflippedMap
+        )
 
     }
+
+
 
 
 
