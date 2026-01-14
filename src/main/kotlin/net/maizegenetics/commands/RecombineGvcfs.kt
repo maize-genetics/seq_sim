@@ -26,8 +26,6 @@ import net.maizegenetics.utils.VariantContextUtils
 import java.io.File
 import java.nio.file.Path
 
-data class RecombinationRange(val chrom: String, val start: Int, val end: Int, val targetSampleName: String)
-
 class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
 
     private val inputBedDir by option(help = "Input Bed dir")
@@ -122,10 +120,10 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
         val flippedRecombinationMap = flipRecombinationMap(recombinationMap)
 
         //Now we can loop through the indels and resize the original ranges
-        resizeMaps(indelsForResizing, flippedRecombinationMap)
+        val resizedMap = resizeMaps(indelsForResizing, flippedRecombinationMap)
 
         //reflip the maps
-        return flipRecombinationMap(flippedRecombinationMap)
+        return flipRecombinationMap(resizedMap)
 
     }
 
@@ -198,15 +196,16 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
     fun resizeMaps(
         indelsForResizing: List<Triple<String, String, SimpleVariant>>,
         flippedRecombinationMap: Map<String, RangeMap<Position, String>>
-    ) {
+    ): Map<String, RangeMap<Position, String>> {
 
         //work completely with flippedRecombinationMap then we need to flip back at the end
-
+        val resizedMap = flippedRecombinationMap.toMutableMap()
         //Walk through the indelsForResizing list
         for((sourceSampleName, targetSampleName, indel) in indelsForResizing) {
             //Get the source and target range maps
 
-            val targetRangeMap = flippedRecombinationMap[targetSampleName] ?: continue
+//            val targetRangeMap = flippedRecombinationMap[targetSampleName] ?: continue
+            val targetRangeMap = resizedMap[targetSampleName] ?: continue
 
             //this list will hold all of the ranges and their corresponding source sample names that need to be added back in after resizing
             val newRanges = mutableListOf<Pair<Range<Position>, String>>()
@@ -226,7 +225,7 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
                 startRangeEntry.key.lowerEndpoint(),
                 Position(
                     startRangeEntry.key.upperEndpoint().contig,
-                    indel.refEnd.position - 1))
+                    indel.refEnd.position))
 
             newRanges.add(Pair(resizedRange, startRangeEntry.value))
 
@@ -237,10 +236,10 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
                 //add existing range to delete list
                 toDeleteRanges.add(currentRangeEntry.key)
                 //Check to see if this is the last overlapping range
-                if (currentRangeEntry.key.contains(indel.refEnd)) {
+                if (currentRangeEntry.key.contains(indel.refEnd) && currentRangeEntry.key.upperEndpoint()!= indel.refEnd) {
                     //Resize this range
                     val resizedLastRange = Range.closed(
-                        Position(currentRangeEntry.key.lowerEndpoint().contig, indel.refEnd.position),
+                        Position(currentRangeEntry.key.lowerEndpoint().contig, indel.refEnd.position+1), //Need to shift the position up by 1
                         currentRangeEntry.key.upperEndpoint()
                     )
                     newRanges.add(Pair(resizedLastRange, currentRangeEntry.value))
@@ -258,8 +257,9 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
             for((range, sourceSample) in newRanges) {
                 targetRangeMap.put(range, sourceSample)
             }
-
+            resizedMap[targetSampleName] = targetRangeMap
         }
+        return resizedMap
     }
 
     fun writeResizedBedFiles(recombinationMap: Map<String, RangeMap<Position, String>>, outputBedDir: Path) {

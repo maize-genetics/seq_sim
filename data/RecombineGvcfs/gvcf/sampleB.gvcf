@@ -12,7 +12,7 @@
 ##INFO=<ID=DP,Number=1,Type=Integer,Description="Total Depth">
 ##INFO=<ID=END,Number=1,Type=Integer,Description="Stop position of the interval">
 ##INFO=<ID=NS,Number=1,Type=Integer,Description="Number of Samples With Data">
-#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	sampleA
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	sampleB
 chr1	1	.	A	<NON_REF>	.	.	END=4	GT	0
 chr1	5	.	A	T	.	.	GT	1
 chr1	6	.	A	<NON_REF>	.	.	END=14	GT	0

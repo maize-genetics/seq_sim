@@ -6,10 +6,15 @@ import com.google.common.collect.TreeRangeMap
 import htsjdk.variant.variantcontext.Allele
 import htsjdk.variant.variantcontext.GenotypeBuilder
 import htsjdk.variant.variantcontext.VariantContextBuilder
+import htsjdk.variant.variantcontext.writer.VariantContextWriter
+import htsjdk.variant.vcf.VCFFileReader
 import net.maizegenetics.net.maizegenetics.commands.RecombineGvcfs
 import net.maizegenetics.utils.Position
+import net.maizegenetics.utils.SimpleVariant
 import java.io.File
 import kotlin.io.path.Path
+import kotlin.test.AfterTest
+import kotlin.test.BeforeTest
 import kotlin.test.DefaultAsserter.assertEquals
 import kotlin.test.DefaultAsserter.assertTrue
 import kotlin.test.Test
@@ -21,8 +26,20 @@ class RecombineGvcfsTest {
 
     val outputDir = "$homeDir/temp/seq_sim/recombine_gvcf_test/"
 
+    @BeforeTest
+    fun setupTest() {
+        // Runs before each test in common code
+        File(outputDir).mkdirs()
+    }
+
+    @AfterTest
+    fun teardownTest() {
+        // Runs after each test in common code
+        File(outputDir).deleteRecursively()
+    }
+
     @Test
-    fun buildRecombinationMap() {
+    fun testBuildRecombinationMap() {
         val bedDir = "./data/RecombineGvcfs/bed/"
         val recombineGvcfs = RecombineGvcfs()
         val (recombinationMap, targetNameList) = recombineGvcfs.buildRecombinationMap(Path(bedDir))
@@ -105,6 +122,18 @@ class RecombineGvcfsTest {
         )
     }
 
+
+    @Test
+    fun testResizeRecombinationMapsForIndels() {
+        //Each of the units are tested in other functions.  Here we just need to test that the overall resizing works as expected
+        val bedDir = "./data/RecombineGvcfs/bed/"
+        val gvcfFile = "./data/RecombineGvcfs/gvcf/"
+        val recombineGvcfs = RecombineGvcfs()
+        val (recombinationMap, targetNameList) = recombineGvcfs.buildRecombinationMap(Path(bedDir))
+        val resizedMap = recombineGvcfs.resizeRecombinationMapsForIndels(recombinationMap, Path(gvcfFile))
+
+        TODO("Implement test for resizeRecombinationMapsForIndels" )
+    }
 
     @Test
     fun testFindOverlappingIndelsInGvcf() {
@@ -264,6 +293,81 @@ class RecombineGvcfsTest {
     }
 
 
+    @Test
+    fun testResizeMaps() {
+        val bedDir = "./data/RecombineGvcfs/bed/"
+        val recombineGvcfs = RecombineGvcfs()
+        val (recombinationMap, targetNameList) = recombineGvcfs.buildRecombinationMap(Path(bedDir))
+
+        //Need to flip the map
+        val flippedMap = recombineGvcfs.flipRecombinationMap(recombinationMap)
+        val indelsForResizingEmpty = emptyList<Triple<String, String, SimpleVariant>>()
+
+        val nonResizedMap = recombineGvcfs.resizeMaps(indelsForResizingEmpty, flippedMap)
+        //Check that the map is the same as the flipped map
+        assertEquals(
+            "No-resize map should be equal to flipped map",
+            flippedMap,
+            nonResizedMap
+        )
+
+        //Make an overlapping indel SampleC is the donor for TargetSampleZ at chr1:9-11
+        //chr1	9	.	AAA	A	.	.	GT	1
+        val indelToResize = Triple(
+            "sampleC",
+            "sampleZ",
+            SimpleVariant(
+                Position("chr1",9),
+                Position("chr1",11),
+                refAllele =  "AAA",
+                altAllele = "A"
+            )
+        )
+
+        val indelsForResizing = listOf(indelToResize)
+        val zIndel1ResizedMap = recombineGvcfs.resizeMaps(indelsForResizing, flippedMap)
+        //Now check that the map has been resized correctly
+
+        val targetSampleZRangeMap = zIndel1ResizedMap["sampleZ"]
+        assertEquals(
+            "sampleZ should have 3 ranges",
+            3,
+            targetSampleZRangeMap?.asMapOfRanges()?.size
+        )
+        val firstRegion = targetSampleZRangeMap?.getEntry(Position("chr1",5))
+        assertEquals(
+            "First region should be from 1-11",
+            Range.closed(Position("chr1",1), Position("chr1",11)),
+            firstRegion?.key
+        )
+        assertEquals(
+            "First region should be from sampleC",
+            "sampleC",
+            firstRegion?.value
+        )
+        val secondRegion = targetSampleZRangeMap?.getEntry(Position("chr1",15))
+        assertEquals(
+            "Second region should be from 12-20",
+            Range.closed(Position("chr1",12), Position("chr1",20)),
+            secondRegion?.key
+        )
+        assertEquals(
+            "Second region should be from sampleB",
+            "sampleB",
+            secondRegion?.value
+        )
+        val thirdRegion = targetSampleZRangeMap?.getEntry(Position("chr1",25))
+        assertEquals(
+            "Third region should be from 21-30",
+            Range.closed(Position("chr1",21), Position("chr1",30)),
+            thirdRegion?.key
+        )
+        assertEquals(
+            "Third region should be from sampleA",
+            "sampleA",
+            thirdRegion?.value
+        )
+    }
 
 
 
@@ -272,8 +376,6 @@ class RecombineGvcfsTest {
         val recombinationMap = buildSimpleRecombinationMap()
 
         val recombineGvcfs = RecombineGvcfs()
-
-        File(outputDir).mkdirs()
 
         recombineGvcfs.writeResizedBedFiles(recombinationMap, Path(outputDir))
 
@@ -288,11 +390,6 @@ class RecombineGvcfsTest {
         val targetSampleBContent = targetSampleBBedFile.readText().trim()
         val expectedTargetSampleBContent = "chr1\t99\t200\tTargetSampleB\nchr1\t200\t300\tTargetSampleA"
         assertEquals("TargetSampleB.bed content is incorrect", expectedTargetSampleBContent, targetSampleBContent)
-
-        //Delete the output directory
-        File(outputDir).deleteRecursively()
-
-
     }
 
     private fun buildSimpleRecombinationMap(): Map<String, RangeMap<Position, String>> {
@@ -309,6 +406,56 @@ class RecombineGvcfsTest {
         return recombinationMap
     }
 
+
+    @Test
+    fun testBuildOutputWriterMap() {
+        val sampleNames = listOf("Sample1", "Sample2", "Sample3")
+        val recombineGvcfs = RecombineGvcfs()
+        val writerMap = recombineGvcfs.buildOutputWriterMap(sampleNames, Path(outputDir))
+        //Check that the map has the correct number of writers
+        assertEquals(
+            "Writer map should have 3 writers",
+            3,
+            writerMap.size
+        )
+        //Check that the writers are correctly named
+        sampleNames.forEach { sampleName ->
+            checkSampleNameToOutputFile(sampleName, writerMap)
+        }
+    }
+
+    private fun checkSampleNameToOutputFile(
+        sampleName: String,
+        writerMap: Map<String, VariantContextWriter>
+    ) {
+        assertTrue(
+            "Writer map should contain writer for $sampleName",
+            writerMap.containsKey(sampleName)
+        )
+        //close out the writers
+        writerMap[sampleName]?.close()
+        //Open up the file and check that the sample name is right
+        val outputFile = File("$outputDir/${sampleName}_recombined.gvcf")
+        assertEquals(
+            "Output file for $sampleName was not created",
+            true,
+            outputFile.isFile
+        )
+
+        val vcfReader = VCFFileReader(outputFile,false)
+        val headerSampleNames = vcfReader.fileHeader.sampleNamesInOrder
+        assertEquals(
+            "Output VCF for $sampleName should have 1 sample",
+            1,
+            headerSampleNames.size
+        )
+        assertEquals(
+            "Output VCF for $sampleName has incorrect sample name",
+            sampleName,
+            headerSampleNames.first()
+        )
+        vcfReader.close()
+    }
 
     @Test
     fun testChangeSampleName() {
