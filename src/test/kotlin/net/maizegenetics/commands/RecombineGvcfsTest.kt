@@ -132,7 +132,98 @@ class RecombineGvcfsTest {
         val (recombinationMap, targetNameList) = recombineGvcfs.buildRecombinationMap(Path(bedDir))
         val resizedMap = recombineGvcfs.resizeRecombinationMapsForIndels(recombinationMap, Path(gvcfFile))
 
-        TODO("Implement test for resizeRecombinationMapsForIndels" )
+        //resized map should be the same except for the first range of sampleC which should be resized to 1-11 for target sampleZ
+        //And the second range of sampleB which should be resized to 12-20 for target sampleZ
+        //Check the parts that have not changed first
+        //SampleA should be unchanged
+        val sampleARangeMap = resizedMap["sampleA"]
+        assertEquals(
+            "SampleA should have 3 ranges",
+            3,
+            sampleARangeMap?.asMapOfRanges()?.size
+        )
+        assertEquals("SampleA matches original", recombinationMap["sampleA"], sampleARangeMap)
+
+        //SamplesB and C should have one resized region each
+        val sampleBRangeMap = resizedMap["sampleB"]
+        assertEquals(
+            "SampleB should have 3 ranges",
+            3,
+            sampleBRangeMap?.asMapOfRanges()?.size
+        )
+        val sampleBFirstRange = sampleBRangeMap?.getEntry(Position("chr1",5))
+        assertEquals(
+            "SampleB first range should be unchanged",
+            Range.closed(Position("chr1",1), Position("chr1",10)),
+            sampleBFirstRange?.key
+        )
+        assertEquals(
+            "SampleB first range target should be unchanged",
+            "sampleY",
+            sampleBFirstRange?.value
+        )
+        val sampleBSecondRange = sampleBRangeMap?.getEntry(Position("chr1",15))
+        assertEquals(
+            "SampleB second range should be resized to 12-20",
+            Range.closed(Position("chr1",12), Position("chr1",20)),
+            sampleBSecondRange?.key
+        )
+        assertEquals(
+            "SampleB second range target should be sampleZ",
+            "sampleZ",
+            sampleBSecondRange?.value
+        )
+        val sampleBThirdRange = sampleBRangeMap?.getEntry(Position("chr1",25))
+        assertEquals(
+            "SampleB third range should be unchanged",
+            Range.closed(Position("chr1",21), Position("chr1",30)),
+            sampleBThirdRange?.key
+        )
+        assertEquals(
+            "SampleB third range target should be unchanged",
+            "sampleX",
+            sampleBThirdRange?.value
+        )
+
+        val sampleCRangeMap = resizedMap["sampleC"]
+        assertEquals(
+            "SampleC should have 3 ranges",
+            3,
+            sampleCRangeMap?.asMapOfRanges()?.size
+        )
+        val sampleCFirstRange = sampleCRangeMap?.getEntry(Position("chr1",5))
+        assertEquals(
+            "SampleC first range should be resized to 1-11",
+            Range.closed(Position("chr1",1), Position("chr1",11)),
+            sampleCFirstRange?.key
+        )
+        assertEquals(
+            "SampleC first range target should be sampleZ",
+            "sampleZ",
+            sampleCFirstRange?.value
+        )
+        val sampleCSecondRange = sampleCRangeMap?.getEntry(Position("chr1",15))
+        assertEquals(
+            "SampleC second range has changed",
+            Range.closed(Position("chr1",12), Position("chr1",20)),
+            sampleCSecondRange?.key
+        )
+        assertEquals(
+            "SampleC second range target should be unchanged",
+            "sampleX",
+            sampleCSecondRange?.value
+        )
+        val sampleCThirdRange = sampleCRangeMap?.getEntry(Position("chr1",25))
+        assertEquals(
+            "SampleC third range should be unchanged",
+            Range.closed(Position("chr1",21), Position("chr1",30)),
+            sampleCThirdRange?.key
+        )
+        assertEquals(
+            "SampleC third range target should be unchanged",
+            "sampleY",
+            sampleCThirdRange?.value
+        )
     }
 
     @Test
@@ -303,7 +394,7 @@ class RecombineGvcfsTest {
         val flippedMap = recombineGvcfs.flipRecombinationMap(recombinationMap)
         val indelsForResizingEmpty = emptyList<Triple<String, String, SimpleVariant>>()
 
-        val nonResizedMap = recombineGvcfs.resizeMaps(indelsForResizingEmpty, flippedMap)
+        val nonResizedMap = recombineGvcfs.resizeMaps(indelsForResizingEmpty, recombinationMap,flippedMap)
         //Check that the map is the same as the flipped map
         assertEquals(
             "No-resize map should be equal to flipped map",
@@ -325,7 +416,7 @@ class RecombineGvcfsTest {
         )
 
         val indelsForResizing = listOf(indelToResize)
-        val zIndel1ResizedMap = recombineGvcfs.resizeMaps(indelsForResizing, flippedMap)
+        val zIndel1ResizedMap = recombineGvcfs.resizeMaps(indelsForResizing, recombinationMap,flippedMap)
         //Now check that the map has been resized correctly
 
         val targetSampleZRangeMap = zIndel1ResizedMap["sampleZ"]
