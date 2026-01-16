@@ -278,16 +278,12 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
 
             //Now we can remove the old ranges from the targetRangeMap
             for((target,range) in toDeleteRanges) {
-//                targetRangeMap.remove(range)
                 resizedMap[target]!!.remove(range)
             }
             //Now we can add back in the new resized ranges
             for((target, range, sourceSample) in newRanges) {
-//                targetRangeMap.put(range, sourceSample)
                 resizedMap[target]!!.put(range, sourceSample)
-//                targetRangeMap.put(range, sourceSample)
             }
-//            resizedMap[targetSampleName] = targetRangeMap
         }
         return resizedMap
     }
@@ -332,8 +328,15 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
         outputWriters: Map<String, VariantContextWriter>,
         refSeq :Map<String, NucSeqRecord>
     ) {
+        val pattern = Regex("""^(.+?)\.g(?:\.?vcf|vcs)(?:\.gz)?$""")
+
         inputGvcfDir.toFile().listFiles()?.forEach { gvcfFile ->
-            val sampleName = gvcfFile.name.substringBeforeLast(".g.vcf")
+            val match = pattern.matchEntire(gvcfFile.name)
+            if (match == null) {
+                println("Skipping file ${gvcfFile.name} as it does not match expected GVCF naming pattern.")
+                return@forEach
+            }
+            val sampleName = match.groupValues[1]
             val ranges = recombinationMap[sampleName] ?: return@forEach
 
             VCFFileReader(gvcfFile, false).use { gvcfReader ->
@@ -395,12 +398,19 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
         refSeq: Map<String, NucSeq>,
         vc: VariantContext
     ){
+        val subRanges = ranges.subRangeMap(Range.closed(startPos, endPos))
         var currentStartPos = startPos
-        while (currentStartPos <= endPos) {
-            //Get the target sample name for the current start position
-            val rangesEntry = ranges.getEntry(currentStartPos) ?: break
-            val range = rangesEntry.key
-            val targetSampleName = rangesEntry.value
+        var currentRangeIdx = 0
+        val rangeEntries = subRanges.asMapOfRanges().entries.toList()
+        while (currentStartPos <= endPos && currentRangeIdx < rangeEntries.size) {
+            val rangeEntry = rangeEntries[currentRangeIdx]
+            val range = rangeEntry.key
+            val targetSampleName = rangeEntry.value
+            if(currentStartPos <range.lowerEndpoint()) { //
+                //Move the current start Pos up 1
+                currentStartPos = range.lowerEndpoint()
+                continue
+            }
 
             val outputWriter = outputWriters[targetSampleName] ?: break
 
@@ -431,6 +441,7 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
                 outputWriter.add(newVc)
                 //move up the start
                 currentStartPos = Position(vc.contig, resizedEndPos.position + 1)
+                currentRangeIdx++
             }
         }
     }

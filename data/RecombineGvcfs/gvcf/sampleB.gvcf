@@ -17,6 +17,6 @@ chr1	1	.	A	<NON_REF>	.	.	END=4	GT	0
 chr1	5	.	A	T	.	.	.	GT	1
 chr1	6	.	A	<NON_REF>	.	.	END=14	GT	0
 chr1	15	.	A	T	.	.	.	GT	1
-chr1	16	.	A	<NON_REF>	.	.	GT	0
+chr1	16	.	A	<NON_REF>	.	.	END=24	GT	0
 chr1	25	.	A	T	.	.	.	GT	1
 chr1	26	.	A	<NON_REF>	.	.	END=30	GT	0

@@ -550,22 +550,166 @@ class RecombineGvcfsTest {
         vcfReader.close()
     }
 
+    @Test
+    fun testProcessGvcfsAndWrite(){
+        val gvcfDir = "./data/RecombineGvcfs/gvcf/"
+        val bedDir = "./data/RecombineGvcfs/bed/"
+        val recombineGvcfs = RecombineGvcfs()
+        val (recombinationMap, targetNameList) = recombineGvcfs.buildRecombinationMap(Path(bedDir))
+        //Need to resize the recombination map first
+        val resizedRecombinationMap = recombineGvcfs.resizeRecombinationMapsForIndels(recombinationMap, Path(gvcfDir))
+        val outputWriters = recombineGvcfs.buildOutputWriterMap(targetNameList, Path(outputDir))
+        val refString = "A".repeat(30) //Length should be 30
+        val refSeq = mapOf(Pair("chr1",NucSeqRecord(NucSeq(refString), "chr1")))
+        recombineGvcfs.processGvcfsAndWrite(
+            resizedRecombinationMap,
+            Path(gvcfDir),
+            outputWriters,
+            refSeq
+        )
+        //Close out the writers
+        outputWriters.values.forEach { it.close() }
+        //Now check that the output files were created
+        checkAllResults(outputDir)
+    }
+
+    fun checkAllResults(outputDir: String) {
+        val expectedSamples = listOf("sampleX", "sampleY", "sampleZ")
+        //Check sampleX's output
+        //load in sampleX_recombined.gvcf and check that it has the expected variants but the variants are not sorted so we need to sort by start position
+        //It will have A refBlock from 1-10, A RefBlock from 12-16, a Deletion at 17-19 and a SNP at 20 then A refBlock from 21-25 a SNP at 15 and a refBlock from 26-30
+        val sampleXFile = File("$outputDir/sampleX_recombined.gvcf")
+        assertEquals("sampleX output file was not created", true, sampleXFile.isFile)
+        val sampleXReader = VCFFileReader(sampleXFile,false)
+        val sampleXVariants = sampleXReader.iterator().toList().sortedBy { it.start }
+        assertEquals("sampleX should have 7 variants", 7, sampleXVariants.size)
+        //Check first variant
+        val firstVariantX = sampleXVariants[0]
+        assertEquals("sampleX first variant contig does not match", "chr1", firstVariantX.contig)
+        assertEquals("sampleX first variant start does not match", 1, firstVariantX.start)
+        assertEquals("sampleX first variant end does not match", 10, firstVariantX.end)
+        //Check second variant
+        val secondVariantX = sampleXVariants[1]
+        assertEquals("sampleX second variant contig does not match", "chr1", secondVariantX.contig)
+        assertEquals("sampleX second variant start does not match", 12, secondVariantX.start)
+        assertEquals("sampleX second variant end does not match",  16, secondVariantX.end)
+        //Check third variant
+        val thirdVariantX = sampleXVariants[2]
+        assertEquals("sampleX third variant contig does not match", "chr1", thirdVariantX.contig)
+        assertEquals("sampleX third variant start does not match", 17 , thirdVariantX.start)
+        assertEquals("sampleX third variant end does not match", 19 , thirdVariantX.end)
+        //Check fourth variant
+        val fourthVariantX = sampleXVariants[3]
+        assertEquals("sampleX fourth variant contig does not match", "chr1", fourthVariantX.contig)
+        assertEquals("sampleX fourth variant start does not match", 20 , fourthVariantX.start)
+        assertEquals("sampleX fourth variant end does not match", 20 , fourthVariantX.end)
+        //Check fifth variant
+        val fifthVariantX = sampleXVariants[4]
+        assertEquals("sampleX fifth variant contig does not match", "chr1", fifthVariantX.contig)
+        assertEquals("sampleX fifth variant start does not match", 21 , fifthVariantX.start)
+        assertEquals("sampleX fifth variant end does not match", 24 , fifthVariantX.end)
+        //Check sixth variant
+        val sixthVariantX = sampleXVariants[5]
+        assertEquals("sampleX sixth variant contig does not match", "chr1", sixthVariantX.contig)
+        assertEquals("sampleX sixth variant start does not match", 25 , sixthVariantX.start)
+        assertEquals("sampleX sixth variant end does not match", 25 , sixthVariantX.end)
+        //Check seventh variant
+        val seventhVariantX = sampleXVariants[6]
+        assertEquals("sampleX sixth variant contig does not match", "chr1", seventhVariantX.contig)
+        assertEquals("sampleX sixth variant start does not match", 26 , seventhVariantX.start)
+        assertEquals("sampleX sixth variant end does not match", 30 , seventhVariantX.end)
+        sampleXReader.close()
+
+
+        //Check sampleY's output
+        //There is a Refblock from 1-4, a SNP at 5, A ref block from 6-10, then ref block from 11-20 and ref block from 21-30
+        val sampleYFile = File("$outputDir/sampleY_recombined.gvcf")
+        assertEquals("sampleY output file was not created", true, sampleYFile.isFile)
+        val sampleYReader = VCFFileReader(sampleYFile,false)
+        val sampleYVariants = sampleYReader.iterator().toList().sortedBy { it.start }
+        assertEquals("sampleY should have 5 variants", 5, sampleYVariants.size)
+        //Check first variant
+        val firstVariantY = sampleYVariants[0]
+        assertEquals("sampleY first variant contig does not match", "chr1", firstVariantY.contig)
+        assertEquals("sampleY first variant start does not match", 1, firstVariantY.start)
+        assertEquals("sampleY first variant end does not match", 4, firstVariantY.end)
+        //Check second variant
+        val secondVariantY = sampleYVariants[1]
+        assertEquals("sampleY second variant contig does not match", "chr1", secondVariantY.contig)
+        assertEquals("sampleY second variant start does not match", 5, secondVariantY.start)
+        assertEquals("sampleY second variant end does not match", 5, secondVariantY.end)
+        //Check third variant
+        val thirdVariantY = sampleYVariants[2]
+        assertEquals("sampleY third variant contig does not match", "chr1", thirdVariantY.contig)
+        assertEquals("sampleY third variant start does not match", 6 , thirdVariantY.start)
+        assertEquals("sampleY third variant end does not match", 10 , thirdVariantY.end)
+        //Check fourth variant
+        val fourthVariantY = sampleYVariants[3]
+        assertEquals("sampleY fourth variant contig does not match", "chr1", fourthVariantY.contig)
+        assertEquals("sampleY fourth variant start does not match", 11 , fourthVariantY.start)
+        assertEquals("sampleY fourth variant end does not match", 20 , fourthVariantY.end)
+        //Check fifth variant
+        val fifthVariantY = sampleYVariants[4]
+        assertEquals("sampleY fifth variant contig does not match", "chr1", fifthVariantY.contig)
+        assertEquals("sampleY fifth variant start does not match", 21 , fifthVariantY.start)
+        assertEquals("sampleY fifth variant end does not match", 30 , fifthVariantY.end)
+        sampleYReader.close()
+
+        //Check sampleZ's output
+        //There is a ref block from 1-8, an indel at 9-11, ref block from 12-14, SNP at 15, ref block from 15-20, ref block from 21-30
+        val sampleZFile = File("$outputDir/sampleZ_recombined.gvcf")
+        assertEquals("sampleZ output file was not created", true, sampleZFile.isFile)
+        val sampleZReader = VCFFileReader(sampleZFile,false)
+        val sampleZVariants = sampleZReader.iterator().toList().sortedBy { it.start }
+        assertEquals("sampleZ should have 6 variants", 6, sampleZVariants.size)
+        //Check first variant
+        val firstVariantZ = sampleZVariants[0]
+        assertEquals("sampleZ first variant contig does not match", "chr1", firstVariantZ.contig)
+        assertEquals("sampleZ first variant start does not match", 1, firstVariantZ.start)
+        assertEquals("sampleZ first variant end does not match", 8, firstVariantZ.end)
+        //Check second variant
+        val secondVariantZ = sampleZVariants[1]
+        assertEquals("sampleZ second variant contig does not match", "chr1", secondVariantZ.contig)
+        assertEquals("sampleZ second variant start does not match", 9, secondVariantZ.start)
+        assertEquals("sampleZ second variant end does not match", 11, secondVariantZ.end)
+        //Check ref and alt alleles for the indel
+        assertEquals("sampleZ second variant ref allele does not match", "AAA", secondVariantZ.reference.baseString)
+        assertEquals("sampleZ second variant alt allele does not match", "A", secondVariantZ.alternateAlleles[0].baseString)
+        //Check third variant
+        val thirdVariantZ = sampleZVariants[2]
+        assertEquals("sampleZ third variant contig does not match", "chr1", thirdVariantZ.contig)
+        assertEquals("sampleZ third variant start does not match", 12 , thirdVariantZ.start)
+        assertEquals("sampleZ third variant end does not match", 14 , thirdVariantZ.end)
+        //Check fourth variant
+        val fourthVariantZ = sampleZVariants[3]
+        assertEquals("sampleZ fourth variant contig does not match", "chr1", fourthVariantZ.contig)
+        assertEquals("sampleZ fourth variant start does not match", 15 , fourthVariantZ.start)
+        assertEquals("sampleZ fourth variant end does not match", 15 , fourthVariantZ.end)
+        //Check fifth variant
+        val fifthVariantZ = sampleZVariants[4]
+        assertEquals("sampleZ fifth variant contig does not match", "chr1", fifthVariantZ.contig)
+        assertEquals("sampleZ fifth variant start does not match", 16 , fifthVariantZ.start)
+        assertEquals("sampleZ fifth variant end does not match", 20 , fifthVariantZ.end)
+        //Check sixth variant
+        val sixthVariantZ = sampleZVariants[5]
+        assertEquals("sampleZ sixth variant contig does not match", "chr1", sixthVariantZ.contig)
+        assertEquals("sampleZ sixth variant start does not match", 21 , sixthVariantZ.start)
+        assertEquals("sampleZ sixth variant end does not match", 30 , sixthVariantZ.end)
+        sampleZReader.close()
+    }
 
     @Test
     fun testProcessSingleGVCFFile() {
-        //gvcfReader: VCFReader,
-        //        ranges: RangeMap<Position,String>,
-        //        outputWriters: Map<String, VariantContextWriter>,
-        //        refSeq :Map<String, NucSeqRecord>
-
         //Lets test SampleC as it has an overlapping index, a standard indel and a SNP so we should hit all the edge cases we handle
         val gvcfFile = "./data/RecombineGvcfs/gvcf/sampleC.gvcf"
+//        val gvcfFile = "./data/RecombineGvcfs/gvcf/sampleB.gvcf"
         val bedDir = "./data/RecombineGvcfs/bed/"
         val recombineGvcfs = RecombineGvcfs()
         val (recombinationMap, targetNameList) = recombineGvcfs.buildRecombinationMap(Path(bedDir))
         //Need to resize the recombination map first
         val resizedRecombinationMap = recombineGvcfs.resizeRecombinationMapsForIndels(recombinationMap, Path("./data/RecombineGvcfs/gvcf/"))
         val sampleCRanges = resizedRecombinationMap["sampleC"]!!
+//        val sampleCRanges = resizedRecombinationMap["sampleB"]!!
         val outputWriters = recombineGvcfs.buildOutputWriterMap(targetNameList, Path(outputDir))
         val gvcfReader = VCFFileReader(File(gvcfFile), false)
         val refString = "A".repeat(30) //Length should be 30
