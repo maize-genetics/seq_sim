@@ -1,5 +1,6 @@
 package net.maizegenetics.commands
 
+import biokotlin.seq.NucSeq
 import com.google.common.collect.Range
 import com.google.common.collect.RangeMap
 import com.google.common.collect.TreeRangeMap
@@ -546,6 +547,66 @@ class RecombineGvcfsTest {
             headerSampleNames.first()
         )
         vcfReader.close()
+    }
+
+
+    @Test
+    fun testProcessRefBlockOverlap() {
+        val recombineGvcfs = RecombineGvcfs()
+        val outputWriters = recombineGvcfs.buildOutputWriterMap(listOf("sampleX", "sampleY", "sampleZ"), Path(outputDir))
+
+        //Build a rangeMap -> Target map
+        val rangeMap = TreeRangeMap.create<Position, String>()
+        rangeMap.put(Range.closed(Position("chr1", 1), Position("chr1", 10)), "sampleX")
+        rangeMap.put(Range.closed(Position("chr1",11), Position("chr1", 20)), "sampleY")
+        rangeMap.put(Range.closed(Position("chr1",21), Position("chr1", 30)), "sampleZ")
+
+        //Build a refBlock from 5-25
+        val refBlock = recombineGvcfs.buildRefBlock("chr1", 5, 25, "A", "sampleA")
+
+        val refString = "A".repeat(30) //Length should be 30
+        val refSeq = mapOf(Pair("chr1",NucSeq(refString)))
+
+        recombineGvcfs.processRefBlockOverlap(Position("chr1",5),Position("chr1",25),rangeMap,outputWriters, refSeq , refBlock )
+
+        //Close out the writers
+        outputWriters.values.forEach { it.close() }
+
+        //Now check that the output files have the correct refBlocks
+        //We will have 3 output files each with one variant in them.
+        //sampleX should have a refBlock from 5-10
+        val sampleXFile = File("$outputDir/sampleX_recombined.gvcf")
+        assertEquals("sampleX output file was not created", true, sampleXFile.isFile)
+        val sampleXReader = VCFFileReader(sampleXFile,false)
+        val sampleXVariants = sampleXReader.iterator().toList()
+        assertEquals("sampleX should have 1 variant", 1, sampleXVariants.size)
+        val sampleXVariant = sampleXVariants[0]
+        assertEquals("sampleX variant contig does not match", "chr1", sampleXVariant.contig)
+        assertEquals("sampleX variant start does not match", 5, sampleXVariant.start)
+        assertEquals("sampleX variant end does not match", 10, sampleXVariant.end)
+        sampleXReader.close()
+        //sampleY should have a refBlock from 11-20
+        val sampleYFile = File("$outputDir/sampleY_recombined.gvcf")
+        assertEquals("sampleY output file was not created", true, sampleYFile.isFile)
+        val sampleYReader = VCFFileReader(sampleYFile,false)
+        val sampleYVariants = sampleYReader.iterator().toList()
+        assertEquals("sampleY should have 1 variant", 1, sampleYVariants.size)
+        val sampleYVariant = sampleYVariants[0]
+        assertEquals("sampleY variant contig does not match", "chr1", sampleYVariant.contig)
+        assertEquals("sampleY variant start does not match", 11, sampleYVariant.start)
+        assertEquals("sampleY variant end does not match", 20, sampleYVariant.end)
+        sampleYReader.close()
+        //sampleZ should have a refBlock from 21-25
+        val sampleZFile = File("$outputDir/sampleZ_recombined.gvcf")
+        assertEquals("sampleZ output file was not created", true, sampleZFile.isFile)
+        val sampleZReader = VCFFileReader(sampleZFile,false)
+        val sampleZVariants = sampleZReader.iterator().toList()
+        assertEquals("sampleZ should have 1 variant", 1, sampleZVariants.size)
+        val sampleZVariant = sampleZVariants[0]
+        assertEquals("sampleZ variant contig does not match", "chr1", sampleZVariant.contig)
+        assertEquals("sampleZ variant start does not match", 21, sampleZVariant.start)
+        assertEquals("sampleZ variant end does not match", 25, sampleZVariant.end)
+        sampleZReader.close()
     }
 
     @Test

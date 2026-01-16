@@ -451,6 +451,7 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
             .chr(chrom)
             .start(start.toLong())
             .stop(end.toLong())
+            .attribute("END", end)
             .alleles(listOf(refAllele, "<NON_REF>"))
             .genotypes(
                 listOf(
