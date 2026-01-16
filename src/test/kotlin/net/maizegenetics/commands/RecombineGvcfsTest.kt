@@ -1,6 +1,7 @@
 package net.maizegenetics.commands
 
 import biokotlin.seq.NucSeq
+import biokotlin.seq.NucSeqRecord
 import com.google.common.collect.Range
 import com.google.common.collect.RangeMap
 import com.google.common.collect.TreeRangeMap
@@ -549,6 +550,91 @@ class RecombineGvcfsTest {
         vcfReader.close()
     }
 
+
+    @Test
+    fun testProcessSingleGVCFFile() {
+        //gvcfReader: VCFReader,
+        //        ranges: RangeMap<Position,String>,
+        //        outputWriters: Map<String, VariantContextWriter>,
+        //        refSeq :Map<String, NucSeqRecord>
+
+        //Lets test SampleC as it has an overlapping index, a standard indel and a SNP so we should hit all the edge cases we handle
+        val gvcfFile = "./data/RecombineGvcfs/gvcf/sampleC.gvcf"
+        val bedDir = "./data/RecombineGvcfs/bed/"
+        val recombineGvcfs = RecombineGvcfs()
+        val (recombinationMap, targetNameList) = recombineGvcfs.buildRecombinationMap(Path(bedDir))
+        //Need to resize the recombination map first
+        val resizedRecombinationMap = recombineGvcfs.resizeRecombinationMapsForIndels(recombinationMap, Path("./data/RecombineGvcfs/gvcf/"))
+        val sampleCRanges = resizedRecombinationMap["sampleC"]!!
+        val outputWriters = recombineGvcfs.buildOutputWriterMap(targetNameList, Path(outputDir))
+        val gvcfReader = VCFFileReader(File(gvcfFile), false)
+        val refString = "A".repeat(30) //Length should be 30
+        val refSeq = mapOf(Pair("chr1",NucSeqRecord(NucSeq(refString), "chr1")))
+        recombineGvcfs.processSingleGVCFFile(
+            gvcfReader,
+            sampleCRanges,
+            outputWriters,
+            refSeq
+        )
+        //Close out the writers
+        outputWriters.values.forEach { it.close() }
+        //Now check that the output files have the correct variants
+        //We will have 3 output files
+        //targetSampleZ whould have 2 variants: refBlock from 1-8 and Indel at 9 - 11
+        val targetSampleZFile = File("$outputDir/sampleZ_recombined.gvcf")
+        assertEquals("sampleZ output file was not created", true, targetSampleZFile.isFile)
+        val targetSampleZReader = VCFFileReader(targetSampleZFile,false)
+        val targetSampleZVariants = targetSampleZReader.iterator().toList()
+        assertEquals("sampleZ should have 2 variants", 2, targetSampleZVariants.size)
+        val firstVariantZ = targetSampleZVariants[0]
+        assertEquals("sampleZ first variant contig does not match", "chr1", firstVariantZ.contig)
+        assertEquals("sampleZ first variant start does not match", 1, firstVariantZ.start)
+        assertEquals("sampleZ first variant end does not match", 8, firstVariantZ.end)
+        val secondVariantZ = targetSampleZVariants[1]
+        assertEquals("sampleZ second variant contig does not match", "chr1", secondVariantZ.contig)
+        assertEquals("sampleZ second variant start does not match", 9, secondVariantZ.start)
+        assertEquals("sampleZ second variant end does not match", 11, secondVariantZ.end)
+        //check ref and alt alleles for the indel
+        assertEquals("sampleZ second variant ref allele does not match", "AAA", secondVariantZ.reference.baseString)
+        assertEquals("sampleZ second variant alt allele does not match", "A", secondVariantZ.alternateAlleles[0].baseString)
+        targetSampleZReader.close()
+        //targetSampleX should have 3 variant: Deletion at 17-19 and SNP at 20 and a refBlock from 12-16
+        val targetSampleXFile = File("$outputDir/sampleX_recombined.gvcf")
+        assertEquals("sampleX output file was not created", true, targetSampleXFile.isFile)
+        val targetSampleXReader = VCFFileReader(targetSampleXFile,false)
+        val targetSampleXVariants = targetSampleXReader.iterator().toList()
+        assertEquals("sampleX should have 3 variants", 3, targetSampleXVariants.size)
+        val firstVariantX = targetSampleXVariants[0]
+        assertEquals("sampleX first variant contig does not match", "chr1", firstVariantX.contig)
+        assertEquals("sampleX first variant start does not match", 12, firstVariantX.start)
+        assertEquals("sampleX first variant end does not match", 16, firstVariantX.end)
+        val secondVariantX = targetSampleXVariants[1]
+        assertEquals("sampleX second variant contig does not match", "chr1", secondVariantX.contig)
+        assertEquals("sampleX second variant start does not match", 17, secondVariantX.start)
+        assertEquals("sampleX second variant end does not match", 19, secondVariantX.end)
+        //check ref and alt alleles for the deletion
+        assertEquals("sampleX second variant ref allele does not match", "AAA", secondVariantX.reference.baseString)
+        assertEquals("sampleX second variant alt allele does not match", "A", secondVariantX.alternateAlleles[0].baseString)
+        val thirdVariantX = targetSampleXVariants[2]
+        assertEquals("sampleX third variant contig does not match", "chr1", thirdVariantX.contig)
+        assertEquals("sampleX third variant start does not match", 20, thirdVariantX.start)
+        assertEquals("sampleX third variant end does not match", 20, thirdVariantX.end)
+        //check ref and alt alleles for the SNP
+        assertEquals("sampleX third variant ref allele does not match", "A", thirdVariantX.reference.baseString)
+        assertEquals("sampleX third variant alt allele does not match", "T", thirdVariantX.alternateAlleles[0].baseString)
+        targetSampleXReader.close()
+        //targetSampleY should have 1 variant: refBlock from 21-30
+        val targetSampleYFile = File("$outputDir/sampleY_recombined.gvcf")
+        assertEquals("sampleY output file was not created", true, targetSampleYFile.isFile)
+        val targetSampleYReader = VCFFileReader(targetSampleYFile,false)
+        val targetSampleYVariants = targetSampleYReader.iterator().toList()
+        assertEquals("sampleY should have 1 variant", 1, targetSampleYVariants.size)
+        val firstVariantY = targetSampleYVariants[0]
+        assertEquals("sampleY variant contig does not match", "chr1", firstVariantY.contig)
+        assertEquals("sampleY variant start does not match", 21, firstVariantY.start)
+        assertEquals("sampleY variant end does not match", 30, firstVariantY.end)
+        targetSampleYReader.close()
+    }
 
     @Test
     fun testProcessRefBlockOverlap() {

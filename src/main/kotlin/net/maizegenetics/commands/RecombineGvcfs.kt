@@ -371,7 +371,7 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
                 val newVc = changeSampleName(vc, targetSampleName)
                 outputWriter.add(newVc)
             }
-            else if(vc.reference.length() == 1 && vc.alternateAlleles.first().displayString == "NON_REF"){
+            else if(vc.reference.length() == 1 && vc.alternateAlleles.first().displayString == "<NON_REF>"){
                 //This is a RefBlock
                 //We need to 'walk through' the refBlock by splitting it up into multiple refBlocks and write out to the correct output writer
                 //Get the current start position
