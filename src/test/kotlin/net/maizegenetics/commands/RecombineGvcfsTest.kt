@@ -26,18 +26,45 @@ class RecombineGvcfsTest {
 
     val homeDir = System.getProperty("user.home").replace('\\', '/')
 
-    val outputDir = "$homeDir/temp/seq_sim/recombine_gvcf_test/"
+    val outputGvcfDir = "$homeDir/temp/seq_sim/recombine_gvcf_test/gvcf/"
+    val outputBedDir = "$homeDir/temp/seq_sim/recombine_gvcf_test/bed/"
 
     @BeforeTest
     fun setupTest() {
         // Runs before each test in common code
-        File(outputDir).mkdirs()
+        File(outputGvcfDir).mkdirs()
+        File(outputBedDir).mkdirs()
     }
 
     @AfterTest
     fun teardownTest() {
         // Runs after each test in common code
-        File(outputDir).deleteRecursively()
+        File(outputGvcfDir).deleteRecursively()
+        File(outputBedDir).deleteRecursively()
+    }
+
+    @Test
+    fun testRecombineGvcfs() {
+        //recombineGvcfs(inputBedDir: Path, inputGvcfDir: Path, refFile: Path, outputDir: Path,  outputBedDir: Path)
+        val bedDir = "./data/RecombineGvcfs/bed/"
+        val gvcfFile = "./data/RecombineGvcfs/gvcf/"
+        val refFile = "./data/RecombineGvcfs/ref.fa"
+        val recombineGvcfs = RecombineGvcfs()
+        recombineGvcfs.recombineGvcfs(
+            Path(bedDir),
+            Path(gvcfFile),
+            Path(refFile),
+            Path(outputGvcfDir),
+            Path(outputBedDir)
+        )
+        //Check that the output files were created
+        val outputFiles = File(outputGvcfDir).listFiles().filter { it.name.endsWith(".gvcf") }
+        assertEquals(
+            "There should be 3 output gvcf files",
+            3,
+            outputFiles.size
+        )
+        checkAllResults(outputGvcfDir)
     }
 
     @Test
@@ -470,15 +497,15 @@ class RecombineGvcfsTest {
 
         val recombineGvcfs = RecombineGvcfs()
 
-        recombineGvcfs.writeResizedBedFiles(recombinationMap, Path(outputDir))
+        recombineGvcfs.writeResizedBedFiles(recombinationMap, Path(outputGvcfDir))
 
         //Check that the files were created and have the correct content
-        val targetSampleABedFile = File("$outputDir/Sample1_resized.bed")
+        val targetSampleABedFile = File("$outputGvcfDir/Sample1_resized.bed")
         assertEquals("TargetSampleA.bed file was not created", true, targetSampleABedFile.isFile)
         val targetSampleAContent = targetSampleABedFile.readText().trim()
         val expectedTargetSampleAContent = "chr1\t99\t200\tTargetSampleA\nchr1\t200\t300\tTargetSampleB"
         assertEquals("TargetSampleA.bed content is incorrect", expectedTargetSampleAContent, targetSampleAContent)
-        val targetSampleBBedFile = File("$outputDir/Sample2_resized.bed")
+        val targetSampleBBedFile = File("$outputGvcfDir/Sample2_resized.bed")
         assertEquals("TargetSampleB.bed file was not created", true, targetSampleBBedFile.isFile)
         val targetSampleBContent = targetSampleBBedFile.readText().trim()
         val expectedTargetSampleBContent = "chr1\t99\t200\tTargetSampleB\nchr1\t200\t300\tTargetSampleA"
@@ -504,7 +531,7 @@ class RecombineGvcfsTest {
     fun testBuildOutputWriterMap() {
         val sampleNames = listOf("Sample1", "Sample2", "Sample3")
         val recombineGvcfs = RecombineGvcfs()
-        val writerMap = recombineGvcfs.buildOutputWriterMap(sampleNames, Path(outputDir))
+        val writerMap = recombineGvcfs.buildOutputWriterMap(sampleNames, Path(outputGvcfDir))
         //Check that the map has the correct number of writers
         assertEquals(
             "Writer map should have 3 writers",
@@ -528,7 +555,7 @@ class RecombineGvcfsTest {
         //close out the writers
         writerMap[sampleName]?.close()
         //Open up the file and check that the sample name is right
-        val outputFile = File("$outputDir/${sampleName}_recombined.gvcf")
+        val outputFile = File("$outputGvcfDir/${sampleName}_recombined.gvcf")
         assertEquals(
             "Output file for $sampleName was not created",
             true,
@@ -558,7 +585,7 @@ class RecombineGvcfsTest {
         val (recombinationMap, targetNameList) = recombineGvcfs.buildRecombinationMap(Path(bedDir))
         //Need to resize the recombination map first
         val resizedRecombinationMap = recombineGvcfs.resizeRecombinationMapsForIndels(recombinationMap, Path(gvcfDir))
-        val outputWriters = recombineGvcfs.buildOutputWriterMap(targetNameList, Path(outputDir))
+        val outputWriters = recombineGvcfs.buildOutputWriterMap(targetNameList, Path(outputGvcfDir))
         val refString = "A".repeat(30) //Length should be 30
         val refSeq = mapOf(Pair("chr1",NucSeqRecord(NucSeq(refString), "chr1")))
         recombineGvcfs.processGvcfsAndWrite(
@@ -570,7 +597,7 @@ class RecombineGvcfsTest {
         //Close out the writers
         outputWriters.values.forEach { it.close() }
         //Now check that the output files were created
-        checkAllResults(outputDir)
+        checkAllResults(outputGvcfDir)
     }
 
     fun checkAllResults(outputDir: String) {
@@ -710,7 +737,7 @@ class RecombineGvcfsTest {
         val resizedRecombinationMap = recombineGvcfs.resizeRecombinationMapsForIndels(recombinationMap, Path("./data/RecombineGvcfs/gvcf/"))
         val sampleCRanges = resizedRecombinationMap["sampleC"]!!
 //        val sampleCRanges = resizedRecombinationMap["sampleB"]!!
-        val outputWriters = recombineGvcfs.buildOutputWriterMap(targetNameList, Path(outputDir))
+        val outputWriters = recombineGvcfs.buildOutputWriterMap(targetNameList, Path(outputGvcfDir))
         val gvcfReader = VCFFileReader(File(gvcfFile), false)
         val refString = "A".repeat(30) //Length should be 30
         val refSeq = mapOf(Pair("chr1",NucSeqRecord(NucSeq(refString), "chr1")))
@@ -725,7 +752,7 @@ class RecombineGvcfsTest {
         //Now check that the output files have the correct variants
         //We will have 3 output files
         //targetSampleZ whould have 2 variants: refBlock from 1-8 and Indel at 9 - 11
-        val targetSampleZFile = File("$outputDir/sampleZ_recombined.gvcf")
+        val targetSampleZFile = File("$outputGvcfDir/sampleZ_recombined.gvcf")
         assertEquals("sampleZ output file was not created", true, targetSampleZFile.isFile)
         val targetSampleZReader = VCFFileReader(targetSampleZFile,false)
         val targetSampleZVariants = targetSampleZReader.iterator().toList()
@@ -743,7 +770,7 @@ class RecombineGvcfsTest {
         assertEquals("sampleZ second variant alt allele does not match", "A", secondVariantZ.alternateAlleles[0].baseString)
         targetSampleZReader.close()
         //targetSampleX should have 3 variant: Deletion at 17-19 and SNP at 20 and a refBlock from 12-16
-        val targetSampleXFile = File("$outputDir/sampleX_recombined.gvcf")
+        val targetSampleXFile = File("$outputGvcfDir/sampleX_recombined.gvcf")
         assertEquals("sampleX output file was not created", true, targetSampleXFile.isFile)
         val targetSampleXReader = VCFFileReader(targetSampleXFile,false)
         val targetSampleXVariants = targetSampleXReader.iterator().toList()
@@ -768,7 +795,7 @@ class RecombineGvcfsTest {
         assertEquals("sampleX third variant alt allele does not match", "T", thirdVariantX.alternateAlleles[0].baseString)
         targetSampleXReader.close()
         //targetSampleY should have 1 variant: refBlock from 21-30
-        val targetSampleYFile = File("$outputDir/sampleY_recombined.gvcf")
+        val targetSampleYFile = File("$outputGvcfDir/sampleY_recombined.gvcf")
         assertEquals("sampleY output file was not created", true, targetSampleYFile.isFile)
         val targetSampleYReader = VCFFileReader(targetSampleYFile,false)
         val targetSampleYVariants = targetSampleYReader.iterator().toList()
@@ -783,7 +810,7 @@ class RecombineGvcfsTest {
     @Test
     fun testProcessRefBlockOverlap() {
         val recombineGvcfs = RecombineGvcfs()
-        val outputWriters = recombineGvcfs.buildOutputWriterMap(listOf("sampleX", "sampleY", "sampleZ"), Path(outputDir))
+        val outputWriters = recombineGvcfs.buildOutputWriterMap(listOf("sampleX", "sampleY", "sampleZ"), Path(outputGvcfDir))
 
         //Build a rangeMap -> Target map
         val rangeMap = TreeRangeMap.create<Position, String>()
@@ -805,7 +832,7 @@ class RecombineGvcfsTest {
         //Now check that the output files have the correct refBlocks
         //We will have 3 output files each with one variant in them.
         //sampleX should have a refBlock from 5-10
-        val sampleXFile = File("$outputDir/sampleX_recombined.gvcf")
+        val sampleXFile = File("$outputGvcfDir/sampleX_recombined.gvcf")
         assertEquals("sampleX output file was not created", true, sampleXFile.isFile)
         val sampleXReader = VCFFileReader(sampleXFile,false)
         val sampleXVariants = sampleXReader.iterator().toList()
@@ -816,7 +843,7 @@ class RecombineGvcfsTest {
         assertEquals("sampleX variant end does not match", 10, sampleXVariant.end)
         sampleXReader.close()
         //sampleY should have a refBlock from 11-20
-        val sampleYFile = File("$outputDir/sampleY_recombined.gvcf")
+        val sampleYFile = File("$outputGvcfDir/sampleY_recombined.gvcf")
         assertEquals("sampleY output file was not created", true, sampleYFile.isFile)
         val sampleYReader = VCFFileReader(sampleYFile,false)
         val sampleYVariants = sampleYReader.iterator().toList()
@@ -827,7 +854,7 @@ class RecombineGvcfsTest {
         assertEquals("sampleY variant end does not match", 20, sampleYVariant.end)
         sampleYReader.close()
         //sampleZ should have a refBlock from 21-25
-        val sampleZFile = File("$outputDir/sampleZ_recombined.gvcf")
+        val sampleZFile = File("$outputGvcfDir/sampleZ_recombined.gvcf")
         assertEquals("sampleZ output file was not created", true, sampleZFile.isFile)
         val sampleZReader = VCFFileReader(sampleZFile,false)
         val sampleZVariants = sampleZReader.iterator().toList()
