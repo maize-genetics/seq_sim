@@ -19,8 +19,8 @@ import kotlin.system.exitProcess
 
 class AlignMutatedAssemblies : CliktCommand(name = "align-mutated-assemblies") {
     companion object {
-        private const val LOG_FILE_NAME = "05_align_mutated_assemblies.log"
-        private const val MUTATED_ALIGNMENT_RESULTS_DIR = "05_mutated_alignment_results"
+        private const val LOG_FILE_NAME = "10_align_mutated_assemblies.log"
+        private const val MUTATED_ALIGNMENT_RESULTS_DIR = "10_mutated_alignment_results"
         private const val MAF_PATHS_FILE = "maf_file_paths.txt"
 
         // minimap2 parameters
@@ -71,7 +71,7 @@ class AlignMutatedAssemblies : CliktCommand(name = "align-mutated-assemblies") {
 
     private val outputDir by option(
         "--output-dir", "-o",
-        help = "Custom output directory (default: work_dir/output/05_mutated_alignment_results)"
+        help = "Custom output directory (default: work_dir/output/10_mutated_alignment_results)"
     ).path(mustExist = false, canBeFile = false, canBeDir = true)
 
     private fun collectFastaFiles(): List<Path> {

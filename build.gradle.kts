@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "net.maizegenetics"
-version = "0.2.4"
+version = "0.2.7"
 
 repositories {
     mavenCentral()
@@ -18,7 +18,6 @@ dependencies {
     implementation("org.biokotlin:biokotlin:1.0.0")
     implementation("com.google.guava:guava:33.1.0-jre")
     implementation("com.github.samtools:htsjdk:4.0.1")
-
 
     testImplementation(kotlin("test"))
 }

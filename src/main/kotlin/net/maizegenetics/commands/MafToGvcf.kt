@@ -143,15 +143,29 @@ class MafToGvcf : CliktCommand(name = "maf-to-gvcf") {
         logger.info("Sample name: $finalSampleName")
 
         // Determine output file name
-        val outputFileName = if (outputFile != null && isSingleMaf) {
-            outputFile!!.fileName
+        // Note: biokotlin-tools automatically compresses and adds .gz extension
+        val outputFileName: Path
+        val expectedOutputPath: Path
+        
+        if (outputFile != null && isSingleMaf) {
+            val userFileName = outputFile!!.fileName.toString()
+            // If user specified .gz extension, strip it since biokotlin-tools adds it
+            if (userFileName.endsWith(".gz")) {
+                outputFileName = Path.of(userFileName.removeSuffix(".gz"))
+                expectedOutputPath = outputDir.resolve(userFileName)
+            } else {
+                outputFileName = outputFile!!.fileName
+                expectedOutputPath = outputDir.resolve("${userFileName}.gz")
+            }
         } else {
-            // Auto-generate output filename based on MAF filename (compressed)
-            Path.of("${mafBaseName}.g.vcf.gz")
+            // Auto-generate output filename based on MAF filename
+            // biokotlin-tools will add .gz when compressing
+            outputFileName = Path.of("${mafBaseName}.g.vcf")
+            expectedOutputPath = outputDir.resolve("${mafBaseName}.g.vcf.gz")
         }
 
         val fullOutputPath = outputDir.resolve(outputFileName)
-        logger.info("Output file: $fullOutputPath")
+        logger.info("Output file: $expectedOutputPath")
 
         // Run biokotlin-tools maf-to-gvcf-converter through pixi to use Java 21
         logger.info("Running biokotlin-tools maf-to-gvcf-converter")
@@ -173,7 +187,7 @@ class MafToGvcf : CliktCommand(name = "maf-to-gvcf") {
 
         logger.info("Conversion completed for: ${mafFile.name}")
 
-        // Return the GVCF file path
-        return fullOutputPath
+        // Return the GVCF file path (with .gz extension added by biokotlin-tools)
+        return expectedOutputPath
     }
 }

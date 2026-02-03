@@ -81,7 +81,7 @@ object ValidationUtils {
      */
     fun validateBiokotlinSetup(workDir: Path, logger: Logger): Path {
         validateWorkingDirectory(workDir, logger)
-        val bioktBinary = resolveBinaryPath(workDir, Constants.BIOKOTLIN_TOOLS_DIR, "biokotlin")
+        val bioktBinary = resolveBinaryPath(workDir, Constants.BIOKOTLIN_TOOLS_DIR, "biokotlin-tools")
         validateBinaryExists(bioktBinary, "biokotlin-tools", logger)
         return bioktBinary
     }

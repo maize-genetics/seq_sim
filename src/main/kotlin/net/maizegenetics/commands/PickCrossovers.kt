@@ -18,8 +18,8 @@ import kotlin.system.exitProcess
 
 class PickCrossovers : CliktCommand(name = "pick-crossovers") {
     companion object {
-        private const val LOG_FILE_NAME = "06_pick_crossovers.log"
-        private const val CROSSOVERS_RESULTS_DIR = "06_crossovers_results"
+        private const val LOG_FILE_NAME = "05_pick_crossovers.log"
+        private const val CROSSOVERS_RESULTS_DIR = "05_crossovers_results"
         private const val REFKEY_PATHS_FILE = "refkey_file_paths.txt"
         private const val PYTHON_SCRIPT = "src/python/cross/pick_crossovers.py"
     }
@@ -46,7 +46,7 @@ class PickCrossovers : CliktCommand(name = "pick-crossovers") {
 
     private val outputDirOption by option(
         "--output-dir", "-o",
-        help = "Custom output directory (default: work_dir/output/06_crossovers_results)"
+        help = "Custom output directory (default: work_dir/output/05_crossovers_results)"
     ).path(mustExist = false, canBeFile = false, canBeDir = true)
 
     override fun run() {
@@ -77,12 +77,17 @@ class PickCrossovers : CliktCommand(name = "pick-crossovers") {
         FileUtils.createOutputDirectory(outputDir, logger)
 
         // Run pick_crossovers.py
+        // Set PYTHONPATH so Python can find the 'python' package for imports
+        // Use absolute paths since the working directory is set to outputDir
+        // Use sh -c to set PYTHONPATH inside pixi's environment
+        val pythonPath = mlimputeDir.resolve("src").toAbsolutePath().toString()
+        val scriptPath = pythonScript.toAbsolutePath().toString()
+        val refFastaPath = refFasta.toAbsolutePath().toString()
+        val assemblyListPath = assemblyList.toAbsolutePath().toString()
+        val shellCommand = "PYTHONPATH='$pythonPath' python '$scriptPath' --ref-fasta '$refFastaPath' --assembly-list '$assemblyListPath'"
         logger.info("Running pick_crossovers.py")
         val exitCode = ProcessRunner.runCommand(
-            "pixi", "run",
-            "python", pythonScript.toString(),
-            "--ref-fasta", refFasta.toString(),
-            "--assembly-list", assemblyList.toString(),
+            "pixi", "run", "sh", "-c", shellCommand,
             workingDir = outputDir.toFile(),
             logger = logger
         )

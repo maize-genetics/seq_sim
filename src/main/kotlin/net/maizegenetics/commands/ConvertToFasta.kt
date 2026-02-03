@@ -61,6 +61,11 @@ class ConvertToFasta : CliktCommand(name = "convert-to-fasta") {
     ).choice("asN", "asRef", "asNone", ignoreCase = true)
         .default("asN")
 
+    private val ignoreContig by option(
+        "--ignore-contig",
+        help = "Comma-separated list of string patterns to ignore (contigs containing these patterns will be skipped)"
+    ).default("")
+
     private val outputDirOption by option(
         "--output-dir", "-o",
         help = "Custom output directory (default: work_dir/output/04_fasta_results)"
@@ -153,6 +158,9 @@ class ConvertToFasta : CliktCommand(name = "convert-to-fasta") {
         logger.info("Reference FASTA: $refFasta")
         logger.info("Missing records as: $missingRecordsAs")
         logger.info("Missing genotype as: $missingGenotypeAs")
+        if (ignoreContig.isNotEmpty()) {
+            logger.info("Ignore contig patterns: $ignoreContig")
+        }
 
         // Collect GVCF files
         val gvcfFiles = collectGvcfFiles()
@@ -211,8 +219,8 @@ class ConvertToFasta : CliktCommand(name = "convert-to-fasta") {
             "FASTA file"
         )
 
-        // Clean up temp directory
-        if (tempDir.exists() && preparedFiles.any { it.parent == tempDir }) {
+        // Clean up temp directory - always clean up if it exists
+        if (tempDir.exists()) {
             logger.info("Cleaning up temporary uncompressed files")
             try {
                 tempDir.deleteRecursively()
@@ -246,6 +254,9 @@ class ConvertToFasta : CliktCommand(name = "convert-to-fasta") {
             add("--fasta-file=${refFasta.toAbsolutePath()}")
             add("--missing-records-as=$missingRecordsAs")
             add("--missing-genotype-as=$missingGenotypeAs")
+            if (ignoreContig.isNotEmpty()) {
+                add("--ignore-contig=$ignoreContig")
+            }
         }
 
         // Run MLImpute ConvertToFasta command
