@@ -6,9 +6,9 @@ import com.google.common.collect.TreeRangeMap
 import htsjdk.variant.variantcontext.Allele
 import htsjdk.variant.variantcontext.VariantContextBuilder
 import htsjdk.variant.vcf.VCFFileReader
-import net.maizegenetics.net.maizegenetics.commands.MutateAssemblies
-import net.maizegenetics.net.maizegenetics.commands.Position
-import net.maizegenetics.net.maizegenetics.commands.SimpleVariant
+import net.maizegenetics.utils.Position
+import net.maizegenetics.utils.SimpleVariant
+import net.maizegenetics.utils.VariantContextUtils
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -306,16 +306,16 @@ class MutateAssembliesTest {
         val mutateAssemblies = MutateAssemblies()
 
         val refBlockVariant = SimpleVariant(Position("chr1", 100), Position("chr1", 150), "A", "<NON_REF>")
-        assert(!mutateAssemblies.isIndel(refBlockVariant))
+        assert(!VariantContextUtils.isIndel(refBlockVariant))
 
         val snpVariant = SimpleVariant(Position("chr1", 150), Position("chr1", 150), "C", "G")
-        assert(!mutateAssemblies.isIndel(snpVariant))
+        assert(!VariantContextUtils.isIndel(snpVariant))
 
         val insertionVariant = SimpleVariant(Position("chr1", 200), Position("chr1", 200), "A", "AGG")
-        assert(mutateAssemblies.isIndel(insertionVariant))
+        assert(VariantContextUtils.isIndel(insertionVariant))
 
         val deletionVariant = SimpleVariant(Position("chr1", 201), Position("chr1", 205), "GGGGG", "G")
-        assert(mutateAssemblies.isIndel(deletionVariant))
+        assert(VariantContextUtils.isIndel(deletionVariant))
     }
 
     private fun createSimpleBaseVariantMap(): RangeMap<Position, SimpleVariant> {
