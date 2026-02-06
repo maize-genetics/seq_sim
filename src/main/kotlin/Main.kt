@@ -20,6 +20,8 @@ import net.maizegenetics.commands.PickCrossovers
 import net.maizegenetics.commands.RopeBwtChrIndex
 import net.maizegenetics.commands.RopeBwtMem
 import net.maizegenetics.commands.SetupEnvironment
+import net.maizegenetics.commands.MutateAssemblies
+import net.maizegenetics.commands.RecombineGvcfs
 
 class SeqSim : CliktCommand() {
     override fun run() = Unit
@@ -43,6 +45,8 @@ fun main(args: Array<String>) = SeqSim()
         RopeBwtMem(),
         BuildSplineKnots(),
         ConvertRopebwt2Ps4g(),
-        ExtractChromIds()
+        ExtractChromIds(),
+        MutateAssemblies(),
+        RecombineGvcfs()
     )
     .main(args)

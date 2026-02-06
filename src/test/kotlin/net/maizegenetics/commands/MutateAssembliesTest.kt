@@ -6,7 +6,6 @@ import com.google.common.collect.TreeRangeMap
 import htsjdk.variant.variantcontext.Allele
 import htsjdk.variant.variantcontext.VariantContextBuilder
 import htsjdk.variant.vcf.VCFFileReader
-import net.maizegenetics.net.maizegenetics.commands.MutateAssemblies
 import net.maizegenetics.utils.Position
 import net.maizegenetics.utils.SimpleVariant
 import net.maizegenetics.utils.VariantContextUtils

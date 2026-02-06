@@ -1,4 +1,4 @@
-package net.maizegenetics.net.maizegenetics.commands
+package net.maizegenetics.commands
 
 import biokotlin.seq.NucSeq
 import biokotlin.seq.NucSeqRecord
@@ -25,6 +25,7 @@ import net.maizegenetics.utils.SimpleVariant
 import net.maizegenetics.utils.VariantContextUtils
 import java.io.File
 import java.nio.file.Path
+import kotlin.collections.iterator
 
 class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
 
@@ -48,6 +49,8 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
         .path(canBeFile = false, canBeDir = true)
         .required()
 
+
+    val pattern = Regex("""^(.+?)\.g(?:\.?vcf)(?:\.gz)?$""")
 
     override fun run() {
         // Implementation goes here
@@ -128,7 +131,9 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
     }
 
     fun findAllOverlappingIndels(recombinationMap: Map<String, RangeMap<Position, String>>, gvcfDir: Path): List<Triple<String, String, SimpleVariant>> {
-        return gvcfDir.toFile().listFiles()?.flatMap { gvcfFile ->
+        return gvcfDir.toFile().listFiles()?.filter{
+            pattern.matches(it.name)
+        }?.flatMap { gvcfFile ->
             val sampleName = gvcfFile.name.replace(".g.vcf","").replace(".gvcf","").replace(".gz","")
 
             val ranges =
@@ -328,7 +333,6 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
         outputWriters: Map<String, VariantContextWriter>,
         refSeq :Map<String, NucSeqRecord>
     ) {
-        val pattern = Regex("""^(.+?)\.g(?:\.?vcf|vcs)(?:\.gz)?$""")
 
         inputGvcfDir.toFile().listFiles()?.forEach { gvcfFile ->
             val match = pattern.matchEntire(gvcfFile.name)
@@ -395,7 +399,7 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
         endPos: Position,
         ranges: RangeMap<Position, String>,
         outputWriters: Map<String, VariantContextWriter>,
-        refSeq: Map<String, NucSeq>,
+        refSeq: Map<String, NucSeqRecord>,
         vc: VariantContext
     ){
         val subRanges = ranges.subRangeMap(Range.closed(startPos, endPos))

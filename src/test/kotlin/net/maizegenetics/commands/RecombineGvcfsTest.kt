@@ -10,7 +10,6 @@ import htsjdk.variant.variantcontext.GenotypeBuilder
 import htsjdk.variant.variantcontext.VariantContextBuilder
 import htsjdk.variant.variantcontext.writer.VariantContextWriter
 import htsjdk.variant.vcf.VCFFileReader
-import net.maizegenetics.net.maizegenetics.commands.RecombineGvcfs
 import net.maizegenetics.utils.Position
 import net.maizegenetics.utils.SimpleVariant
 import java.io.File
@@ -822,7 +821,7 @@ class RecombineGvcfsTest {
         val refBlock = recombineGvcfs.buildRefBlock("chr1", 5, 25, "A", "sampleA")
 
         val refString = "A".repeat(30) //Length should be 30
-        val refSeq = mapOf(Pair("chr1",NucSeq(refString)))
+        val refSeq = mapOf(Pair("chr1",NucSeqRecord(NucSeq(refString), "chr1")))
 
         recombineGvcfs.processRefBlockOverlap(Position("chr1",5),Position("chr1",25),rangeMap,outputWriters, refSeq , refBlock )
 
