@@ -57,6 +57,10 @@ CLAUDE.md
 seq_sim_work/
 scripts/align25pairs.sh
 
+### Docker dev container caches (bind-mounted from docker-compose.yml) ###
+.gradle-container/
+.home-container/
+
 ### Pixi environment ###
 pixi.lock
 pixi.toml

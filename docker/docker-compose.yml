@@ -1,0 +1,29 @@
+services:
+  dev:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.dev
+    image: seq-sim-dev:latest
+    working_dir: /workspace
+    # Use the host user's uid/gid so files written from the container
+    # (build/, seq_sim_work/, .gradle-container/) are owned by the host user.
+    # On macOS Docker Desktop the bind mount translates these ids for you;
+    # on Linux this matches the invoker's uid (see scripts/dev.sh).
+    user: "${SEQ_SIM_UID:-1000}:${SEQ_SIM_GID:-1000}"
+    environment:
+      - SEQ_SIM_IN_CONTAINER=1
+      - SEQ_SIM_SKIP_PHG_SETUP=1
+      - SEQ_SIM_PHG_DIR=/opt/phg_v2
+      - SEQ_SIM_SKIP_PIXI_PREFIX=1
+      - GRADLE_USER_HOME=/workspace/.gradle-container
+      - HOME=/workspace/.home-container
+    volumes:
+      # Single bind mount covers everything: the repo itself plus the
+      # .gradle-container/ and .home-container/ subdirs used as caches.
+      # Using a bind mount (rather than named volumes) means:
+      #   - ownership follows the host user on macOS/Linux
+      #   - first-run gradle wrapper downloads don't hit "permission denied"
+      #   - tearing down (./scripts/dev.sh clean) leaves the caches visible
+      - ..:/workspace
+    tty: true
+    stdin_open: true
