@@ -1,10 +1,20 @@
 package net.maizegenetics.utils
 
+import com.github.ajalt.clikt.core.CliktError
 import net.maizegenetics.Constants
 import org.apache.logging.log4j.Logger
 import java.nio.file.Path
 import kotlin.io.path.*
-import kotlin.system.exitProcess
+
+/**
+ * Thrown when a pipeline command cannot continue due to an unrecoverable
+ * error (missing binary, failed subprocess, ...). Clikt's top-level error
+ * handling prints the message and sets the JVM exit code, while tests that
+ * drive commands via `CliktCommand.parse(...)` can catch this and make
+ * assertions instead of having `System.exit` kill the test runner.
+ */
+class SeqSimCommandException(message: String, val exitCode: Int = 1) :
+    CliktError(message, statusCode = exitCode)
 
 /**
  * Utility functions for validation operations across commands
@@ -12,33 +22,26 @@ import kotlin.system.exitProcess
 object ValidationUtils {
 
     /**
-     * Validates that the working directory exists
-     * Exits with error if validation fails
-     *
-     * @param workDir The working directory to validate
-     * @param logger Logger for error messages
+     * Validates that the working directory exists.
+     * @throws SeqSimCommandException if validation fails.
      */
     fun validateWorkingDirectory(workDir: Path, logger: Logger) {
         if (!workDir.exists()) {
             logger.error("Working directory does not exist: $workDir")
             logger.error("Please run 'setup-environment' command first")
-            exitProcess(1)
+            throw SeqSimCommandException("Working directory does not exist: $workDir")
         }
     }
 
     /**
-     * Validates that a binary/tool exists at the expected path
-     * Exits with error if validation fails
-     *
-     * @param binaryPath The full path to the binary
-     * @param toolName Human-readable tool name for error messages
-     * @param logger Logger for error messages
+     * Validates that a binary/tool exists at the expected path.
+     * @throws SeqSimCommandException if validation fails.
      */
     fun validateBinaryExists(binaryPath: Path, toolName: String, logger: Logger) {
         if (!binaryPath.exists()) {
             logger.error("$toolName binary not found: $binaryPath")
             logger.error("Please run 'setup-environment' command first")
-            exitProcess(1)
+            throw SeqSimCommandException("$toolName binary not found: $binaryPath")
         }
     }
 

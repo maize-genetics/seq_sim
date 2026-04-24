@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "net.maizegenetics"
-version = "0.2.8"
+version = "0.2.9"
 
 repositories {
     mavenCentral()
@@ -20,14 +20,64 @@ dependencies {
     implementation("com.github.samtools:htsjdk:4.0.1")
 
     testImplementation(kotlin("test"))
+    testImplementation("org.junit.jupiter:junit-jupiter-api:5.11.0")
+    testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.11.0")
 }
 
 application {
     mainClass.set("net.maizegenetics.MainKt")
 }
 
+// ---------------------------------------------------------------------------
+// Three-tier test layout:
+//   test            - fast unit tests with no external binaries (excludes
+//                     "integration" and "e2e" tags).
+//   integrationTest - per-step tests that shell out to AnchorWave/PHG/etc.;
+//                     runs @Tag("integration") only.
+//   e2eTest         - orchestrate smoke test against tiny fixtures; runs
+//                     @Tag("e2e") only.
+//
+// Both heavy tiers auto-skip when run outside the seq-sim-dev Docker
+// container (see IntegrationGuard), so they're safe to run anywhere.
+// ---------------------------------------------------------------------------
 tasks.test {
-    useJUnitPlatform()
+    useJUnitPlatform {
+        excludeTags("integration", "e2e")
+    }
+}
+
+val integrationTest = tasks.register<Test>("integrationTest") {
+    description = "Runs per-step integration tests against real external binaries (requires seq-sim-dev container)."
+    group = "verification"
+
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+
+    useJUnitPlatform {
+        includeTags("integration")
+    }
+
+    shouldRunAfter(tasks.test)
+    outputs.upToDateWhen { false }
+}
+
+val e2eTest = tasks.register<Test>("e2eTest") {
+    description = "Runs the orchestrate end-to-end smoke test against the mini fixtures (requires seq-sim-dev container)."
+    group = "verification"
+
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+
+    useJUnitPlatform {
+        includeTags("e2e")
+    }
+
+    shouldRunAfter(integrationTest)
+    outputs.upToDateWhen { false }
+}
+
+tasks.named("check") {
+    dependsOn(integrationTest, e2eTest)
 }
 
 kotlin {

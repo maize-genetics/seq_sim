@@ -1,0 +1,21 @@
+name: phgv2-conda
+channels:
+  - conda-forge
+  - bioconda
+# These constraints intentionally mirror PHGv2's own phg_environment.yml but
+# are loosened enough to resolve on both linux-64 and linux-aarch64:
+#
+# - anchorwave 1.2.5 has no linux-aarch64 build on bioconda (only 1.2.6+).
+#   Using >=1.2.5 lets arm64 builds pick 1.2.6 automatically.
+# - agc 3.1 and ropebwt3 3.8 both have aarch64 builds, but we loosen them
+#   here too so the solver isn't forced to exact patch versions when a
+#   compatible newer one would satisfy PHG.
+# - minimap2 2.28 has linux-64 and osx builds; use >= so aarch64 works.
+dependencies:
+  - python=3.12
+  - anchorwave>=1.2.5
+  - bcftools
+  - samtools
+  - agc>=3.1
+  - ropebwt3>=3.8
+  - minimap2>=2.28

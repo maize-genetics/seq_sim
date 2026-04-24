@@ -1,0 +1,136 @@
+# syntax=docker/dockerfile:1.6
+#
+# seq-sim-dev: reproducible Linux development environment for the seq_sim pipeline.
+#
+# Contains:
+#   - JDK 21 (for Gradle + biokotlin-tools)
+#   - pixi, with the seq-sim pixi env pre-installed (AnchorWave, minimap2, ropebwt3, agc, ...)
+#   - micromamba, with the phgv2-conda env pre-baked (so `phg setup-environment` is a no-op)
+#   - PHGv2 binary unpacked under /opt/phg_v2
+#
+# The image is arm64/amd64 multi-arch; on macOS arm64 hosts it runs natively.
+#
+# Build:  docker build -f docker/Dockerfile.dev -t seq-sim-dev .
+# Use:    scripts/dev.sh {build|shell|test|integration|e2e}
+
+FROM mambaorg/micromamba:2-debian12
+
+USER root
+
+ARG DEBIAN_FRONTEND=noninteractive
+ARG PIXI_VERSION=0.42.0
+
+# ---------------------------------------------------------------------------
+# Base OS packages + JDK 21
+# ---------------------------------------------------------------------------
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates curl wget git unzip tar gzip bzip2 xz-utils jq \
+        build-essential coreutils procps less sudo \
+        openjdk-17-jdk-headless \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Temurin JDK 21 (Debian only ships 17 in default repos)
+RUN set -eux; \
+    ARCH="$(dpkg --print-architecture)"; \
+    case "$ARCH" in \
+        arm64) TEMURIN_ARCH=aarch64 ;; \
+        amd64) TEMURIN_ARCH=x64 ;; \
+        *) echo "Unsupported arch: $ARCH" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o /tmp/jdk.tar.gz \
+        "https://api.adoptium.net/v3/binary/latest/21/ga/linux/${TEMURIN_ARCH}/jdk/hotspot/normal/eclipse?project=jdk"; \
+    mkdir -p /opt/jdk-21; \
+    tar -xzf /tmp/jdk.tar.gz -C /opt/jdk-21 --strip-components=1; \
+    rm /tmp/jdk.tar.gz; \
+    /opt/jdk-21/bin/java -version
+
+ENV JAVA_HOME=/opt/jdk-21
+ENV PATH="${JAVA_HOME}/bin:${PATH}"
+
+# ---------------------------------------------------------------------------
+# Install pixi
+# ---------------------------------------------------------------------------
+RUN set -eux; \
+    ARCH="$(uname -m)"; \
+    case "$ARCH" in \
+        aarch64) PIXI_ARCH=aarch64-unknown-linux-musl ;; \
+        x86_64)  PIXI_ARCH=x86_64-unknown-linux-musl ;; \
+        *) echo "Unsupported arch: $ARCH" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o /tmp/pixi.tar.gz \
+        "https://github.com/prefix-dev/pixi/releases/download/v${PIXI_VERSION}/pixi-${PIXI_ARCH}.tar.gz"; \
+    tar -xzf /tmp/pixi.tar.gz -C /usr/local/bin; \
+    chmod +x /usr/local/bin/pixi; \
+    rm /tmp/pixi.tar.gz; \
+    pixi --version
+
+# ---------------------------------------------------------------------------
+# Pre-bake the phgv2-conda env (AnchorWave + friends) via micromamba.
+# This is the slow step that usually runs during `phg setup-environment`.
+# Committing a known-good env file in docker/phg_environment.yml keeps this
+# deterministic independent of the PHG release cadence.
+# ---------------------------------------------------------------------------
+COPY docker/phg_environment.yml /tmp/phg_environment.yml
+
+ENV MAMBA_ROOT_PREFIX=/opt/micromamba
+RUN mkdir -p "${MAMBA_ROOT_PREFIX}" && \
+    micromamba env create -y -n phgv2-conda -f /tmp/phg_environment.yml && \
+    micromamba clean -a -y && \
+    rm /tmp/phg_environment.yml
+
+# Put the conda env tools on PATH so `anchorwave`, `minimap2`, `samtools`, ...
+# are directly callable without `pixi run` or `conda run` inside the container.
+ENV PATH="${MAMBA_ROOT_PREFIX}/envs/phgv2-conda/bin:${PATH}"
+
+# ---------------------------------------------------------------------------
+# Pre-install the seq-sim pixi env. We do this against a scratch directory so
+# the image layer is stable regardless of the user's host-side seq_sim_work.
+# At runtime the pipeline's own pixi env (seq_sim_work/.pixi) will be created
+# on first use, but the solver cache is already populated.
+# ---------------------------------------------------------------------------
+COPY src/main/resources/pixi.toml /opt/seq-sim-prebuilt/pixi.toml
+RUN cd /opt/seq-sim-prebuilt && \
+    pixi install --manifest-path pixi.toml || \
+    echo "pixi install warmup failed; runtime will retry"
+
+# ---------------------------------------------------------------------------
+# Pre-download PHGv2 latest release so `setup-environment` can skip the
+# download entirely when SEQ_SIM_PHG_DIR=/opt/phg_v2 is set.
+# ---------------------------------------------------------------------------
+RUN set -eux; \
+    cd /tmp; \
+    curl -fsSL -o phg_release.json \
+        "https://api.github.com/repos/maize-genetics/phg_v2/releases/latest"; \
+    TARBALL_URL="$(jq -r '.assets[] | select(.name | test("\\.tar$")) | .browser_download_url' phg_release.json | head -n1)"; \
+    if [ -z "$TARBALL_URL" ] || [ "$TARBALL_URL" = "null" ]; then \
+        TARBALL_URL="$(jq -r '.tarball_url' phg_release.json)"; \
+    fi; \
+    echo "Downloading PHGv2 tarball: $TARBALL_URL"; \
+    curl -fsSL -o phg_v2.tar "$TARBALL_URL"; \
+    mkdir -p /opt/phg_extract; \
+    tar -xf phg_v2.tar -C /opt/phg_extract; \
+    PHG_DIR="$(find /opt/phg_extract -maxdepth 2 -type d -name 'bin' -printf '%h\n' | head -n1)"; \
+    if [ -z "$PHG_DIR" ]; then \
+        PHG_DIR="$(find /opt/phg_extract -maxdepth 1 -mindepth 1 -type d | head -n1)"; \
+    fi; \
+    mv "$PHG_DIR" /opt/phg_v2; \
+    rm -rf /opt/phg_extract phg_v2.tar phg_release.json; \
+    chmod +x /opt/phg_v2/bin/phg; \
+    ls -la /opt/phg_v2/bin
+
+# ---------------------------------------------------------------------------
+# Container-level env hints read by SetupEnvironment and ProcessExecutor.
+# ---------------------------------------------------------------------------
+ENV SEQ_SIM_IN_CONTAINER=1 \
+    SEQ_SIM_SKIP_PHG_SETUP=1 \
+    SEQ_SIM_PHG_DIR=/opt/phg_v2 \
+    SEQ_SIM_SKIP_PIXI_PREFIX=1 \
+    GRADLE_USER_HOME=/workspace/.gradle-container
+
+WORKDIR /workspace
+
+# Allow non-root operation by default (uid is overridden from docker-compose).
+RUN useradd -m -u 1000 -s /bin/bash dev && \
+    chown -R dev:dev /opt/seq-sim-prebuilt
+
+CMD ["/bin/bash"]

@@ -1,0 +1,10 @@
+.git
+.gradle
+build
+.idea
+.vscode
+.pixi
+seq_sim_work
+logs
+*.log
+.DS_Store

@@ -10,12 +10,12 @@ import net.maizegenetics.Constants
 import net.maizegenetics.utils.FileUtils
 import net.maizegenetics.utils.LoggingUtils
 import net.maizegenetics.utils.ProcessRunner
+import net.maizegenetics.utils.SeqSimCommandException
 import net.maizegenetics.utils.ValidationUtils
 import org.apache.logging.log4j.LogManager
 import org.apache.logging.log4j.Logger
 import java.nio.file.Path
 import kotlin.io.path.*
-import kotlin.system.exitProcess
 
 class BuildSplineKnots : CliktCommand(name = "build-spline-knots") {
     companion object {
@@ -82,7 +82,7 @@ class BuildSplineKnots : CliktCommand(name = "build-spline-knots") {
         // Validate VCF type
         if (vcfType !in setOf("hvcf", "gvcf")) {
             logger.error("Invalid VCF type: $vcfType. Must be 'hvcf' or 'gvcf'")
-            exitProcess(1)
+            throw SeqSimCommandException("Invalid VCF type: $vcfType. Must be 'hvcf' or 'gvcf'")
         }
 
         // Configure file logging to working directory
@@ -137,7 +137,7 @@ class BuildSplineKnots : CliktCommand(name = "build-spline-knots") {
             logger.info("Spline knots written to: $outputDir")
         } else {
             logger.error("PHG build-spline-knots failed with exit code $exitCode")
-            exitProcess(1)
+            throw SeqSimCommandException("PHG build-spline-knots failed with exit code $exitCode", exitCode)
         }
     }
 }

@@ -10,12 +10,12 @@ import net.maizegenetics.Constants
 import net.maizegenetics.utils.FileUtils
 import net.maizegenetics.utils.LoggingUtils
 import net.maizegenetics.utils.ProcessRunner
+import net.maizegenetics.utils.SeqSimCommandException
 import net.maizegenetics.utils.ValidationUtils
 import org.apache.logging.log4j.LogManager
 import org.apache.logging.log4j.Logger
 import java.nio.file.Path
 import kotlin.io.path.*
-import kotlin.system.exitProcess
 
 class AlignAssemblies : CliktCommand(name = "align-assemblies") {
     companion object {
@@ -122,7 +122,7 @@ class AlignAssemblies : CliktCommand(name = "align-assemblies") {
         )
         if (gff2seqExitCode != 0) {
             logger.error("anchorwave gff2seq failed with exit code $gff2seqExitCode")
-            exitProcess(gff2seqExitCode)
+            throw SeqSimCommandException("anchorwave gff2seq failed with exit code $gff2seqExitCode", gff2seqExitCode)
         }
         logger.info("CDS file created: $cdsFile")
 
@@ -145,7 +145,7 @@ class AlignAssemblies : CliktCommand(name = "align-assemblies") {
         )
         if (minimap2RefExitCode != 0) {
             logger.error("minimap2 (reference) failed with exit code $minimap2RefExitCode")
-            exitProcess(minimap2RefExitCode)
+            throw SeqSimCommandException("minimap2 (reference) failed with exit code $minimap2RefExitCode", minimap2RefExitCode)
         }
         logger.info("Reference SAM file created: $refSam")
 

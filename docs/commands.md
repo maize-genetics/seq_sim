@@ -1,0 +1,671 @@
+# Commands
+
+All commands share the same invocation pattern: `seq_sim <command> [OPTIONS]`.
+Each pipeline step is numbered to match the full 15-step pipeline (see
+[Pipeline Overview](../README.md#pipeline-overview)).
+
+## orchestrate (Recommended)
+
+**Runs the entire pipeline from a YAML configuration file with automatic environment setup.**
+
+**Usage:**
+```bash
+seq_sim orchestrate [OPTIONS]
+```
+
+**Options:**
+- `--config`, `-c`: Path to YAML configuration file (required)
+- `--work-dir`, `-w`: Override the `work_dir` from the YAML (optional)
+
+**What it does:**
+1. **Auto-detects environment** - Validates if setup is needed
+2. **Automatic setup** - Runs setup-environment only if tools are missing
+3. **Sequential execution** - Runs configured steps in order
+4. **Output chaining** - Automatically passes outputs between steps
+5. **Selective execution** - Skip or rerun specific steps via `run_steps`
+
+The full list of configurable steps, their parameters, and how outputs chain
+between steps is documented in [`pipeline_config.example.yaml`](../pipeline_config.example.yaml).
+A minimal configuration that runs every step looks like:
+
+```yaml
+work_dir: "seq_sim_work"
+
+run_steps:
+  # Variant pipeline
+  - align_assemblies
+  - maf_to_gvcf
+  - downsample_gvcf
+  - convert_to_fasta
+  # Recombination pipeline
+  - pick_crossovers
+  - create_chain_files
+  - convert_coordinates
+  - generate_recombined_sequences
+  - format_recombined_fastas
+  # PS4G creation
+  - align_mutated_assemblies
+  - mutated_maf_to_gvcf
+  - rope_bwt_chr_index
+  - ropebwt_mem
+  - build_spline_knots
+  - convert_ropebwt2ps4g
+
+align_assemblies:
+  ref_gff: "reference.gff"
+  ref_fasta: "reference.fa"
+  query_fasta: "queries.txt"
+  threads: 8
+
+# ... each step's options mirror its standalone CLI options;
+# see pipeline_config.example.yaml for the full schema.
+```
+
+**Example:**
+```bash
+# Full pipeline (environment setup runs automatically if needed)
+seq_sim orchestrate --config pipeline.yaml
+
+# Rerun a subset by editing run_steps in the YAML (e.g. only step 09):
+# run_steps: [format_recombined_fastas]
+seq_sim orchestrate --config pipeline.yaml
+```
+
+---
+
+## setup-environment (Step 00)
+
+Initializes the environment and downloads dependencies. **Note: This runs automatically with orchestrate!**
+
+**Usage:**
+```bash
+seq_sim setup-environment [OPTIONS]
+```
+
+**Options:**
+- `--work-dir`, `-w`: Working directory for files and scripts (default: `seq_sim_work`)
+
+**What it does:**
+- Copies `pixi.toml` to the working directory
+- Installs the pixi environment with all dependencies:
+  - Python 3.10, NumPy, Pandas, pysam
+  - Java 21 (OpenJDK)
+  - minimap2 2.28
+  - AnchorWave (Linux only)
+  - agc 3.1, ropebwt3 3.8
+  - seqkit, CrossMap, GNU parallel
+- Downloads and extracts the MLImpute, biokotlin-tools, and PHGv2 repositories to `<work-dir>/src/`
+
+**Output:**
+- `<work-dir>/pixi.toml`, `<work-dir>/.pixi/`
+- `<work-dir>/src/MLImpute/`, `<work-dir>/src/biokotlin-tools/`, `<work-dir>/src/phg_v2/`
+- `<work-dir>/logs/00_setup_environment.log`
+
+**Example:**
+```bash
+seq_sim setup-environment -w my_workdir
+```
+
+---
+
+## align-assemblies (Step 01)
+
+Aligns multiple query assemblies to a reference genome using AnchorWave and minimap2.
+
+**Usage:**
+```bash
+seq_sim align-assemblies [OPTIONS]
+```
+
+**Options:**
+- `--work-dir`, `-w`: Working directory (default: `seq_sim_work`)
+- `--ref-gff`, `-g`: Reference GFF file (required)
+- `--ref-fasta`, `-r`: Reference FASTA file (required)
+- `--query-fasta`, `-q`: Query input (required) - can be a single FASTA (`.fa`, `.fasta`, `.fna`), a directory of FASTAs, or a text file listing one path per line
+- `--threads`, `-t`: Number of threads to use (default: 1)
+
+**What it does:**
+1. Extracts CDS sequences from reference GFF using `anchorwave gff2seq`
+2. Aligns reference to CDS with `minimap2` (once for all queries)
+3. For each query, runs `minimap2` and `anchorwave proali` to produce alignments
+4. Generates `maf_file_paths.txt` listing all produced MAF files
+
+**Output:**
+- `<work-dir>/output/01_anchorwave_results/{refBase}_cds.fa`
+- `<work-dir>/output/01_anchorwave_results/{refBase}.sam`
+- `<work-dir>/output/01_anchorwave_results/{queryName}/` containing `{queryName}.sam`, `*.anchors`, `*.maf`, `*.f.maf`
+- `<work-dir>/output/01_anchorwave_results/maf_file_paths.txt`
+- `<work-dir>/logs/01_align_assemblies.log`
+
+**Examples:**
+```bash
+# Directory of queries
+seq_sim align-assemblies -g ref.gff -r ref.fa -q queries/ -t 8
+
+# Text list of query paths
+seq_sim align-assemblies -g ref.gff -r ref.fa -q queries.txt -t 4
+```
+
+---
+
+## maf-to-gvcf (Step 02)
+
+Converts MAF alignment files to compressed GVCF format using biokotlin-tools.
+
+This command is also reused internally by `orchestrate` as the **mutated_maf_to_gvcf**
+step (step 11) to convert MAF files produced by `align-mutated-assemblies`.
+
+**Usage:**
+```bash
+seq_sim maf-to-gvcf [OPTIONS]
+```
+
+**Options:**
+- `--work-dir`, `-w`: Working directory (default: `seq_sim_work`)
+- `--reference-file`, `-r`: Reference FASTA file (required)
+- `--maf-file`, `-m`: MAF input (required) - single file, directory, or text list
+- `--output-file`, `-o`: Output GVCF file name (auto-generated for multiple inputs)
+- `--output-dir`: Override the output directory (useful when reusing this command as step 11)
+- `--sample-name`, `-s`: Sample name for GVCF (defaults to MAF base name)
+
+**Output:**
+- `<work-dir>/output/02_gvcf_results/*.g.vcf.gz` (or `11_mutated_gvcf_results/` when run as step 11)
+- `<work-dir>/output/02_gvcf_results/gvcf_file_paths.txt`
+- `<work-dir>/logs/02_maf_to_gvcf.log`
+
+**Examples:**
+```bash
+# Using path list from align-assemblies (recommended)
+seq_sim maf-to-gvcf -r ref.fa -m seq_sim_work/output/01_anchorwave_results/maf_file_paths.txt
+
+# Running as step 11 (mutated MAFs from align-mutated-assemblies)
+seq_sim maf-to-gvcf -r ref.fa \
+    -m seq_sim_work/output/10_mutated_alignment_results/maf_file_paths.txt \
+    --output-dir seq_sim_work/output/11_mutated_gvcf_results/
+```
+
+---
+
+## downsample-gvcf (Step 03)
+
+Downsamples GVCF files at specified rates using MLImpute's `DownsampleGvcf`.
+
+**Usage:**
+```bash
+seq_sim downsample-gvcf [OPTIONS]
+```
+
+**Options:**
+- `--work-dir`, `-w`: Working directory (default: `seq_sim_work`)
+- `--gvcf-dir`, `-g`: Input directory containing GVCF files (required)
+- `--ignore-contig`: Comma-separated contig patterns to ignore
+- `--rates`: Comma-separated downsampling rates per chromosome (default: `0.01,0.05,0.1,0.15,0.2,0.3,0.35,0.4,0.45,0.49`)
+- `--seed`: Random seed for reproducibility
+- `--keep-ref`: Keep reference blocks (default: true)
+- `--min-ref-block-size`: Minimum ref block size (default: 20)
+- `--keep-uncompressed`: Keep temporary uncompressed files (default: false)
+
+**Output:**
+- `<work-dir>/output/03_downsample_results/*_subsampled.gvcf`
+- `<work-dir>/output/03_downsample_results/*_subsampled_block_sizes.tsv`
+- `<work-dir>/logs/03_downsample_gvcf.log`
+
+**Example:**
+```bash
+seq_sim downsample-gvcf -g seq_sim_work/output/02_gvcf_results/ --rates 0.1,0.2,0.3 --seed 42
+```
+
+---
+
+## convert-to-fasta (Step 04)
+
+Generates FASTA files from downsampled GVCF files using MLImpute's `ConvertToFasta`.
+
+**Usage:**
+```bash
+seq_sim convert-to-fasta [OPTIONS]
+```
+
+**Options:**
+- `--work-dir`, `-w`: Working directory (default: `seq_sim_work`)
+- `--gvcf-file`, `-g`: GVCF input (required) - single file, directory, or text list
+- `--ref-fasta`, `-r`: Reference FASTA file (required)
+- `--missing-records-as`: How to handle missing records: `asN`, `asRef`, `asNone` (default: `asRef`)
+- `--missing-genotype-as`: How to handle missing genotypes: `asN`, `asRef`, `asNone` (default: `asN`)
+
+**Output:**
+- `<work-dir>/output/04_fasta_results/*.fasta`
+- `<work-dir>/output/04_fasta_results/fasta_file_paths.txt`
+- `<work-dir>/logs/04_convert_to_fasta.log`
+
+**Example:**
+```bash
+seq_sim convert-to-fasta -r ref.fa -g seq_sim_work/output/03_downsample_results/
+```
+
+---
+
+## pick-crossovers (Step 05)
+
+Simulates crossover events in reference coordinates and writes refkey BED files
+that track which parent each genomic region comes from.
+
+**Usage:**
+```bash
+seq_sim pick-crossovers [OPTIONS]
+```
+
+**Options:**
+- `--work-dir`, `-w`: Working directory (default: `seq_sim_work`)
+- `--ref-fasta`, `-r`: Reference FASTA file (required)
+- `--assembly-list`, `-a`: Tab-separated file with `path<TAB>name` (required) — **must contain an even number of assemblies** (they are paired for crossover simulation)
+
+**Output:**
+- `<work-dir>/output/05_crossovers_results/{founder}_refkey.bed`
+- `<work-dir>/output/05_crossovers_results/refkey_file_paths.txt`
+- `<work-dir>/logs/05_pick_crossovers.log`
+
+**Example:**
+```bash
+seq_sim pick-crossovers -r reference.fa -a assembly_list.txt
+```
+
+**Assembly list format (`assembly_list.txt`):**
+```
+/path/to/assembly1.fa	parent1
+/path/to/assembly2.fa	parent2
+/path/to/assembly3.fa	parent3
+/path/to/assembly4.fa	parent4
+```
+
+---
+
+## create-chain-files (Step 06)
+
+Converts MAF alignment files to UCSC CHAIN format for coordinate conversion.
+
+**Usage:**
+```bash
+seq_sim create-chain-files [OPTIONS]
+```
+
+**Options:**
+- `--work-dir`, `-w`: Working directory (default: `seq_sim_work`)
+- `--maf-input`, `-m`: MAF input (required) - single `.maf`/`.maf.gz`, directory, or text list
+- `--jobs`, `-j`: Number of parallel jobs (default: 8)
+
+**Output:**
+- `<work-dir>/output/06_chain_results/*.chain`
+- `<work-dir>/output/06_chain_results/chain_file_paths.txt`
+- `<work-dir>/logs/06_create_chain_files.log`
+
+**Examples:**
+```bash
+# Using MAF paths from align-assemblies (recommended)
+seq_sim create-chain-files -m seq_sim_work/output/01_anchorwave_results/maf_file_paths.txt -j 12
+
+# Directory of MAF files
+seq_sim create-chain-files -m mafs/ -j 8
+```
+
+---
+
+## convert-coordinates (Step 07)
+
+Converts reference-coordinate refkey BED files to assembly coordinates using
+chain files (via CrossMap).
+
+**Usage:**
+```bash
+seq_sim convert-coordinates [OPTIONS]
+```
+
+**Options:**
+- `--work-dir`, `-w`: Working directory (default: `seq_sim_work`)
+- `--assembly-list`, `-a`: Tab-separated file with assembly paths and names (required)
+- `--chain-dir`, `-c`: Directory containing chain files (required)
+- `--refkey-dir`, `-r`: Directory containing refkey BED files (optional, auto-detected from step 05)
+
+**Output:**
+- `<work-dir>/output/07_coordinates_results/{assembly}_key.bed` (assembly coordinates)
+- `<work-dir>/output/07_coordinates_results/{founder}_key.bed` (FASTA coordinates)
+- `<work-dir>/output/07_coordinates_results/key_file_paths.txt`
+- `<work-dir>/output/07_coordinates_results/founder_key_file_paths.txt`
+- `<work-dir>/logs/07_convert_coordinates.log`
+
+**Example:**
+```bash
+seq_sim convert-coordinates -a assembly_list.txt -c seq_sim_work/output/06_chain_results/
+```
+
+---
+
+## generate-recombined-sequences (Step 08)
+
+Generates recombined FASTA sequences by concatenating segments from parent
+assemblies based on the founder key files from step 07.
+
+**Usage:**
+```bash
+seq_sim generate-recombined-sequences [OPTIONS]
+```
+
+**Options:**
+- `--work-dir`, `-w`: Working directory (default: `seq_sim_work`)
+- `--assembly-list`, `-a`: Tab-separated file with assembly paths and names (required)
+- `--chromosome-list`, `-c`: Text file with chromosome names, one per line (optional; auto-derived from the first assembly if omitted)
+- `--assembly-dir`, `-d`: Directory containing parent assembly FASTA files (required)
+- `--founder-key-dir`, `-k`: Directory containing founder key BED files (optional, auto-detected from step 07)
+
+**Output:**
+- `<work-dir>/output/08_recombined_sequences/recombinate_fastas/{founder}.fa`
+- `<work-dir>/output/08_recombined_sequences/recombined_fasta_paths.txt`
+- `<work-dir>/logs/08_generate_recombined_sequences.log`
+
+**Example:**
+```bash
+seq_sim generate-recombined-sequences \
+    -a assembly_list.txt -c chromosomes.txt -d data/assemblies/
+```
+
+**Chromosome list format (`chromosomes.txt`):**
+```
+chr1
+chr2
+chr3
+```
+
+---
+
+## format-recombined-fastas (Step 09)
+
+Reformats recombined FASTA files to a consistent line width using seqkit.
+
+**Usage:**
+```bash
+seq_sim format-recombined-fastas [OPTIONS]
+```
+
+**Options:**
+- `--work-dir`, `-w`: Working directory (default: `seq_sim_work`)
+- `--fasta-input`, `-f`: FASTA file, directory, or text list (optional, auto-detected from step 08)
+- `--line-width`, `-l`: Characters per line (default: 60)
+- `--threads`, `-t`: Number of threads for seqkit (default: 8)
+- `--output-dir`, `-o`: Custom output directory (default: `work_dir/output/09_formatted_fastas`)
+
+**Output:**
+- `<work-dir>/output/09_formatted_fastas/{founder}.fa`
+- `<work-dir>/output/09_formatted_fastas/formatted_fasta_paths.txt`
+- `<work-dir>/logs/09_format_recombined_fastas.log`
+
+**Example:**
+```bash
+seq_sim format-recombined-fastas \
+    -f seq_sim_work/output/08_recombined_sequences/recombinate_fastas/ -l 60 -t 8
+```
+
+---
+
+## align-mutated-assemblies (Step 10)
+
+Realigns the formatted recombined (or otherwise mutated) FASTA files back to
+the reference genome. This is the first step of the PS4G creation workflow.
+
+**Usage:**
+```bash
+seq_sim align-mutated-assemblies [OPTIONS]
+```
+
+**Options:**
+- `--work-dir`, `-w`: Working directory (default: `seq_sim_work`)
+- `--ref-gff`, `-g`: Reference GFF file (required)
+- `--ref-fasta`, `-r`: Reference FASTA file (required)
+- `--fasta-input`, `-f`: FASTA input (required) - single file, directory, or text list
+- `--threads`, `-t`: Number of threads to use (default: 1)
+- `--output-dir`, `-o`: Custom output directory (default: `work_dir/output/10_mutated_alignment_results`)
+
+**Output:**
+- `<work-dir>/output/10_mutated_alignment_results/{refBase}_cds.fa`
+- `<work-dir>/output/10_mutated_alignment_results/{refBase}.sam`
+- `<work-dir>/output/10_mutated_alignment_results/{fastaName}/` containing alignments
+- `<work-dir>/output/10_mutated_alignment_results/maf_file_paths.txt`
+- `<work-dir>/logs/10_align_mutated_assemblies.log`
+
+**Example:**
+```bash
+seq_sim align-mutated-assemblies \
+    -g ref.gff -r ref.fa -f seq_sim_work/output/09_formatted_fastas/ -t 8
+```
+
+---
+
+## mutated-maf-to-gvcf (Step 11, orchestrate only)
+
+Converts the mutated MAF files from `align-mutated-assemblies` into GVCFs. This
+step has no dedicated clikt subcommand — `orchestrate` runs the
+[`maf-to-gvcf`](#maf-to-gvcf-step-02) command under the hood with different
+inputs and directs output to `<work-dir>/output/11_mutated_gvcf_results/`.
+
+To reproduce it manually, run `maf-to-gvcf` with the MAF paths from step 10:
+
+```bash
+seq_sim maf-to-gvcf -r ref.fa \
+    -m seq_sim_work/output/10_mutated_alignment_results/maf_file_paths.txt \
+    --output-dir seq_sim_work/output/11_mutated_gvcf_results/
+```
+
+**Output:**
+- `<work-dir>/output/11_mutated_gvcf_results/*.g.vcf.gz`
+- `<work-dir>/output/11_mutated_gvcf_results/gvcf_file_paths.txt`
+
+---
+
+## rope-bwt-chr-index (Step 12)
+
+Builds a PHGv2 ropebwt3 index from FASTA files for downstream genotype imputation.
+
+**Usage:**
+```bash
+seq_sim rope-bwt-chr-index [OPTIONS]
+```
+
+**Options:**
+- `--work-dir`, `-w`: Working directory (default: `seq_sim_work`)
+- `--fasta-input`, `-f`: FASTA file, directory, or text list (mutually exclusive with `--keyfile`)
+- `--keyfile`, `-k`: Pre-made keyfile, tab-delimited `fasta_path<TAB>sample_name` (mutually exclusive with `--fasta-input`)
+- `--output-dir`, `-o`: Output directory for index files (default: `work_dir/output/12_rope_bwt_index_results`)
+- `--index-file-prefix`, `-p`: Prefix for generated index files (default: `phgIndex`)
+- `--threads`, `-t`: Threads for index creation (default: 20)
+- `--delete-fmr-index`: Delete `.fmr` files after converting to `.fmd` (flag)
+
+> **Note:** PHGv2 uses underscores internally as contig separators
+> (`samplename_contig`). If your sample names contain underscores they are
+> converted to hyphens and a warning is logged.
+
+**Output:**
+- `<output-dir>/{index_file_prefix}.fmd`
+- `<output-dir>/phg_keyfile.txt` (auto-generated when using `--fasta-input`)
+- `<work-dir>/logs/12_rope_bwt_chr_index.log`
+
+**Examples:**
+```bash
+# Auto-generate keyfile from a FASTA directory
+seq_sim rope-bwt-chr-index -f seq_sim_work/output/09_formatted_fastas/ -t 20
+
+# Use a pre-made keyfile
+seq_sim rope-bwt-chr-index -k my_keyfile.txt -p myIndex -t 40
+```
+
+---
+
+## ropebwt-mem (Step 13)
+
+Aligns FASTQ reads to the ropebwt3 index from step 12 and writes per-sample BED
+alignment files.
+
+**Usage:**
+```bash
+seq_sim ropebwt-mem [OPTIONS]
+```
+
+**Options:**
+- `--work-dir`, `-w`: Working directory (default: `seq_sim_work`)
+- `--fastq-input`, `-f`: FASTQ file, directory, or text list (required; supports `.fq`, `.fastq`, `.fq.gz`, `.fastq.gz`)
+- `--index-file`, `-i`: Path to `.fmd` index (auto-detected from step 12)
+- `--l-value`, `-l`: `-l` parameter for `ropebwt3 mem` (auto-calculated as `2 × FASTA count` from the step 12 keyfile)
+- `--p-value`, `-p`: `-p` parameter for `ropebwt3 mem` (default: 168)
+- `--threads`, `-t`: Threads for `ropebwt3 mem` (default: 1)
+- `--output-dir`, `-o`: Custom output directory (default: `work_dir/output/12_ropebwt_mem_results`)
+
+**Output:**
+- `<output-dir>/{sample}_ropebwt.bed` (one per FASTQ input)
+- `<output-dir>/bed_file_paths.txt`
+- `<work-dir>/logs/12_ropebwt_mem.log`
+
+**Examples:**
+```bash
+# Auto-detect index and -l value from step 12
+seq_sim ropebwt-mem -f fastq_samples/ -t 40
+
+# Explicit parameters
+seq_sim ropebwt-mem -f samples.txt -i my_index.fmd -l 100 -p 200 -t 40
+```
+
+---
+
+## build-spline-knots (Step 14)
+
+Builds spline knots from hVCF or gVCF files for PHGv2 ML-based imputation. This
+step is independent of the earlier steps and only requires a directory of VCFs.
+
+**Usage:**
+```bash
+seq_sim build-spline-knots [OPTIONS]
+```
+
+**Options:**
+- `--work-dir`, `-w`: Working directory (default: `seq_sim_work`)
+- `--vcf-dir`, `-v`: Directory containing hVCF or gVCF files (required)
+- `--vcf-type`, `-t`: `hvcf` or `gvcf` (default: `hvcf`)
+- `--output-dir`, `-o`: Output directory (default: `work_dir/output/13_spline_knots_results`)
+- `--min-indel-length`, `-m`: Minimum indel length (gVCF only, default: 10)
+- `--num-bps-per-knot`, `-n`: Max base pairs per knot (default: 50000)
+- `--contig-list`, `-c`: Comma-separated chromosomes to include (default: all)
+- `--random-seed`, `-r`: Random seed (default: 12345)
+
+**Output:**
+- `<output-dir>/` (spline knot files)
+- `<work-dir>/logs/13_build_spline_knots.log`
+
+**Examples:**
+```bash
+# Basic gVCF run
+seq_sim build-spline-knots -v vcf_files/ -t gvcf
+
+# Restrict to specific chromosomes with a larger knot spacing
+seq_sim build-spline-knots -v vcf_files/ -t hvcf -n 100000 -c chr1,chr2,chr3
+```
+
+---
+
+## convert-ropebwt2ps4g (Step 15)
+
+Converts the RopeBWT3 BED alignments from step 13 into PS4G files, using the
+spline knots from step 14 for assembly-to-reference coordinate mapping.
+
+**Usage:**
+```bash
+seq_sim convert-ropebwt2ps4g [OPTIONS]
+```
+
+**Options:**
+- `--work-dir`, `-w`: Working directory (default: `seq_sim_work`)
+- `--bed-input`, `-b`: BED file, directory, or text list (optional, auto-detected from step 13)
+- `--output-dir`, `-o`: Custom output directory (default: `work_dir/output/14_convert_ropebwt2ps4g_results`)
+- `--spline-knot-dir`, `-s`: Directory of spline knots (optional, auto-detected from step 14)
+- `--min-mem-length`, `-m`: Minimum MEM length in bp (default: 135)
+- `--max-num-hits`, `-x`: Maximum allowable haplotype hits per alignment (default: 16)
+
+**Output:**
+- `<output-dir>/{sample}.ps4g`
+- `<output-dir>/ps4g_file_paths.txt`
+- `<work-dir>/logs/14_convert_ropebwt2ps4g.log`
+
+**Examples:**
+```bash
+# Auto-detect BED files from step 13 and spline knots from step 14
+seq_sim convert-ropebwt2ps4g
+
+# Explicit inputs
+seq_sim convert-ropebwt2ps4g -b bed_files/ -s spline_knots/ -m 148 -x 50
+```
+
+---
+
+## Helpers
+
+These commands are standalone utilities; they are not part of `orchestrate`.
+
+### extract-chrom-ids
+
+Extract unique chromosome IDs from one or more GVCF files.
+
+```bash
+seq_sim extract-chrom-ids [OPTIONS]
+```
+
+- `--gvcf-file`, `-g`: GVCF input (required) - single file, directory, or text list
+- `--output-file`, `-o`: Output file path (default: `chromosome_ids.txt`)
+
+**Example:**
+```bash
+seq_sim extract-chrom-ids -g gvcf_files/ -o chroms.txt
+```
+
+### mutate-assemblies
+
+Inject the variants from a donor GVCF into a base GVCF to produce a new mutated
+GVCF. Useful for quickly building synthetic mutation test cases without
+re-running the full variant pipeline.
+
+```bash
+seq_sim mutate-assemblies [OPTIONS]
+```
+
+- `--base-gvcf`: Base GVCF to mutate (required; `.gvcf` or `.g.vcf.gz`)
+- `--mutation-donor-gvcf`: GVCF whose variants will be injected into the base (required)
+- `--output-dir`: Output directory for the mutated GVCF (required)
+
+**Example:**
+```bash
+seq_sim mutate-assemblies \
+    --base-gvcf base.g.vcf.gz \
+    --mutation-donor-gvcf donor.g.vcf.gz \
+    --output-dir mutated/
+```
+
+### recombine-gvcfs
+
+Build recombined per-sample GVCFs from a directory of ancestry BED files and
+matching per-parent GVCFs. Acts as a GVCF-level counterpart to
+`generate-recombined-sequences`.
+
+```bash
+seq_sim recombine-gvcfs [OPTIONS]
+```
+
+- `--input-bed-dir`: Directory of per-sample ancestry BED files (required)
+- `--input-gvcf-dir`: Directory of parent GVCF files (required)
+- `--ref-file`: Reference FASTA (required)
+- `--output-dir`: Output directory for the recombined GVCFs (required)
+- `--output-bed-dir`: Output directory for the resized BED files (required)
+
+**Example:**
+```bash
+seq_sim recombine-gvcfs \
+    --input-bed-dir ancestry_beds/ \
+    --input-gvcf-dir parent_gvcfs/ \
+    --ref-file ref.fa \
+    --output-dir recombined_gvcfs/ \
+    --output-bed-dir recombined_beds/
+```
