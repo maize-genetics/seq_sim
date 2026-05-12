@@ -12,8 +12,8 @@ import kotlin.io.path.createDirectories
 import kotlin.test.assertTrue
 
 /**
- * Integration test that actually invokes AnchorWave + minimap2 against the
- * smallseq test resources.
+ * Integration test that actually invokes `phg align-assemblies` (which itself
+ * drives AnchorWave + minimap2) against the smallseq test resources.
  *
  * Runs only inside the seq-sim-dev container (gated by [IntegrationGuard]).
  * Outside the container this is a no-op assumption skip.
@@ -26,10 +26,15 @@ class AlignAssembliesIntegrationTest {
 
     @Test
     fun alignsQueryAgainstSmallseqReference(@TempDir workDir: Path) {
+        IntegrationGuard.requirePhg()
         IntegrationGuard.requireAnchorwave()
 
         // seq-sim expects a pre-existing work dir (validateWorkingDirectory).
+        // We also need a phg binary at <workDir>/src/phg_v2/bin/phg.
         workDir.createDirectories()
+        val phgSrcDir = workDir.resolve("src/phg_v2/bin").also { it.createDirectories() }
+        val phgFromEnv = File("${IntegrationGuard.phgDir}/bin/phg")
+        java.nio.file.Files.createSymbolicLink(phgSrcDir.resolve("phg"), phgFromEnv.toPath())
 
         // Copy the single query into a dir so align-assemblies globs it.
         val queriesDir = workDir.resolve("queries").also { it.createDirectories() }

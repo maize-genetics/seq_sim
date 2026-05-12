@@ -25,6 +25,10 @@ class OrchestrateE2ETest {
 
     @Test
     fun orchestrateSmallseqPipelineProducesMafAndGvcf(@TempDir workDir: Path) {
+        // align-assemblies now drives PHGv2 internally, so we need both the
+        // phg binary and AnchorWave on PATH. The orchestrator's setup-environment
+        // step takes care of populating <workDir>/src/phg_v2 from SEQ_SIM_PHG_DIR.
+        IntegrationGuard.requirePhg()
         IntegrationGuard.requireAnchorwave()
 
         workDir.createDirectories()
