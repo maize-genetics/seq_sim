@@ -40,8 +40,13 @@ data class AlignAssembliesConfig(
     val ref_gff: String,
     val ref_fasta: String,
     val query_fasta: String,
-    val threads: Int? = null,
-    val output: String? = null  // Custom output directory
+    val threads: Int? = null,                  // PHGv2 --total-threads
+    val in_parallel: Int? = null,              // PHGv2 --in-parallel
+    val ref_max_align_cov: Int? = null,        // PHGv2 --ref-max-align-cov (proali -R)
+    val query_max_align_cov: Int? = null,      // PHGv2 --query-max-align-cov (proali -Q)
+    val conda_env_prefix: String? = null,      // PHGv2 --conda-env-prefix
+    val just_ref_prep: Boolean? = null,        // PHGv2 --just-ref-prep
+    val output: String? = null                 // Custom output directory
 )
 
 data class MafToGvcfConfig(
@@ -71,11 +76,16 @@ data class ConvertToFastaConfig(
 )
 
 data class AlignMutatedAssembliesConfig(
-    val ref_gff: String? = null,      // Optional: Reference GFF (uses align_assemblies.ref_gff if not specified)
-    val ref_fasta: String? = null,    // Optional: Reference FASTA (uses align_assemblies.ref_fasta if not specified)
-    val fasta_input: String? = null,  // Optional: Query FASTA input (uses format_recombined_fastas output if not specified)
-    val threads: Int? = null,
-    val output: String? = null        // Custom output directory
+    val ref_gff: String? = null,             // Optional: Reference GFF (uses align_assemblies.ref_gff if not specified)
+    val ref_fasta: String? = null,           // Optional: Reference FASTA (uses align_assemblies.ref_fasta if not specified)
+    val fasta_input: String? = null,         // Optional: Query FASTA input (uses format_recombined_fastas output if not specified)
+    val threads: Int? = null,                // PHGv2 --total-threads
+    val in_parallel: Int? = null,            // PHGv2 --in-parallel
+    val ref_max_align_cov: Int? = null,      // PHGv2 --ref-max-align-cov (proali -R)
+    val query_max_align_cov: Int? = null,    // PHGv2 --query-max-align-cov (proali -Q)
+    val conda_env_prefix: String? = null,    // PHGv2 --conda-env-prefix
+    val just_ref_prep: Boolean? = null,      // PHGv2 --just-ref-prep
+    val output: String? = null               // Custom output directory
 )
 
 data class PickCrossoversConfig(
@@ -179,6 +189,16 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
             return false
         }
 
+        // Check if PHGv2 binary exists (align-assemblies + later steps shell out to it)
+        val phgBinary = workDir.resolve(Constants.SRC_DIR)
+            .resolve(Constants.PHGV2_DIR)
+            .resolve("bin")
+            .resolve("phg")
+        if (!phgBinary.exists()) {
+            logger.info("PHGv2 binary not found: $phgBinary")
+            return false
+        }
+
         // All checks passed
         logger.info("Environment validation passed - all required tools are present")
         return true
@@ -234,6 +254,11 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                     ref_fasta = it["ref_fasta"] as? String ?: throw IllegalArgumentException("align_assemblies.ref_fasta is required"),
                     query_fasta = it["query_fasta"] as? String ?: throw IllegalArgumentException("align_assemblies.query_fasta is required"),
                     threads = it["threads"] as? Int,
+                    in_parallel = it["in_parallel"] as? Int,
+                    ref_max_align_cov = it["ref_max_align_cov"] as? Int,
+                    query_max_align_cov = it["query_max_align_cov"] as? Int,
+                    conda_env_prefix = it["conda_env_prefix"] as? String,
+                    just_ref_prep = it["just_ref_prep"] as? Boolean,
                     output = it["output"] as? String
                 )
             }
@@ -288,6 +313,11 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                     ref_fasta = alignMutatedAssembliesMap?.get("ref_fasta") as? String,
                     fasta_input = alignMutatedAssembliesMap?.get("fasta_input") as? String,
                     threads = alignMutatedAssembliesMap?.get("threads") as? Int,
+                    in_parallel = alignMutatedAssembliesMap?.get("in_parallel") as? Int,
+                    ref_max_align_cov = alignMutatedAssembliesMap?.get("ref_max_align_cov") as? Int,
+                    query_max_align_cov = alignMutatedAssembliesMap?.get("query_max_align_cov") as? Int,
+                    conda_env_prefix = alignMutatedAssembliesMap?.get("conda_env_prefix") as? String,
+                    just_ref_prep = alignMutatedAssembliesMap?.get("just_ref_prep") as? Boolean,
                     output = alignMutatedAssembliesMap?.get("output") as? String
                 )
             } else null
@@ -478,6 +508,21 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                     add("--query-fasta=$queryFasta")
                     if (config.align_assemblies.threads != null) {
                         add("--threads=${config.align_assemblies.threads}")
+                    }
+                    if (config.align_assemblies.in_parallel != null) {
+                        add("--in-parallel=${config.align_assemblies.in_parallel}")
+                    }
+                    if (config.align_assemblies.ref_max_align_cov != null) {
+                        add("--ref-max-align-cov=${config.align_assemblies.ref_max_align_cov}")
+                    }
+                    if (config.align_assemblies.query_max_align_cov != null) {
+                        add("--query-max-align-cov=${config.align_assemblies.query_max_align_cov}")
+                    }
+                    if (config.align_assemblies.conda_env_prefix != null) {
+                        add("--conda-env-prefix=${config.align_assemblies.conda_env_prefix}")
+                    }
+                    if (config.align_assemblies.just_ref_prep == true) {
+                        add("--just-ref-prep")
                     }
                     if (customOutput != null) {
                         add("--output-dir=$customOutput")
@@ -1181,6 +1226,21 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                     add("--fasta-input=${step10FastaInput}")
                     if (config.align_mutated_assemblies.threads != null) {
                         add("--threads=${config.align_mutated_assemblies.threads}")
+                    }
+                    if (config.align_mutated_assemblies.in_parallel != null) {
+                        add("--in-parallel=${config.align_mutated_assemblies.in_parallel}")
+                    }
+                    if (config.align_mutated_assemblies.ref_max_align_cov != null) {
+                        add("--ref-max-align-cov=${config.align_mutated_assemblies.ref_max_align_cov}")
+                    }
+                    if (config.align_mutated_assemblies.query_max_align_cov != null) {
+                        add("--query-max-align-cov=${config.align_mutated_assemblies.query_max_align_cov}")
+                    }
+                    if (config.align_mutated_assemblies.conda_env_prefix != null) {
+                        add("--conda-env-prefix=${config.align_mutated_assemblies.conda_env_prefix}")
+                    }
+                    if (config.align_mutated_assemblies.just_ref_prep == true) {
+                        add("--just-ref-prep")
                     }
                     if (customOutput != null) {
                         add("--output-dir=${customOutput}")

@@ -2,6 +2,7 @@ package net.maizegenetics.commands
 
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.parameters.options.default
+import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.options.required
 import com.github.ajalt.clikt.parameters.types.int
@@ -17,22 +18,23 @@ import org.apache.logging.log4j.Logger
 import java.nio.file.Path
 import kotlin.io.path.*
 
+/**
+ * Wraps the PHGv2 `align-assemblies` command, which itself drives AnchorWave +
+ * minimap2 to align query assemblies against a reference. The wrapper keeps
+ * seq_sim's existing inputs (`--ref-gff`, `--ref-fasta`, `--query-fasta`, ...)
+ * and existing output contract (`output/01_anchorwave_results/maf_file_paths.txt`)
+ * so downstream pipeline steps continue to work unchanged. New PHGv2-specific
+ * options (`--in-parallel`, `--ref-max-align-cov`, ...) are surfaced as
+ * additional optional flags.
+ *
+ * See: https://phg.maizegenetics.net/build_and_load/#align-assemblies-parameters
+ */
 class AlignAssemblies : CliktCommand(name = "align-assemblies") {
     companion object {
         private const val LOG_FILE_NAME = "01_align_assemblies.log"
-        private const val OUTPUT_DIR = "output"
         private const val ANCHORWAVE_RESULTS_DIR = "01_anchorwave_results"
         private const val MAF_PATHS_FILE = "maf_file_paths.txt"
-
-        // minimap2 parameters
-        private const val MINIMAP2_PRESET = "splice"
-        private const val MINIMAP2_KMER_SIZE = "12"
-        private const val MINIMAP2_P_VALUE = "0.4"
-        private const val MINIMAP2_N_VALUE = "20"
-
-        // anchorwave proali parameters
-        private const val ANCHORWAVE_R_VALUE = "1"
-        private const val ANCHORWAVE_Q_VALUE = "1"
+        private const val ASSEMBLY_LIST_FILE = "assemblies_list.txt"
 
         // Default values
         private const val DEFAULT_THREADS = 1
@@ -48,27 +50,59 @@ class AlignAssemblies : CliktCommand(name = "align-assemblies") {
 
     private val refGff by option(
         "--ref-gff", "-g",
-        help = "Reference GFF file"
+        help = "Reference GFF file (passed to PHGv2 as --gff)"
     ).path(mustExist = true, canBeFile = true, canBeDir = false)
         .required()
 
     private val refFasta by option(
         "--ref-fasta", "-r",
-        help = "Reference FASTA file"
+        help = "Reference FASTA file (passed to PHGv2 as --reference-file). For best results " +
+            "this should be the output of `phg prepare-assemblies`."
     ).path(mustExist = true, canBeFile = true, canBeDir = false)
         .required()
 
     private val queryInput by option(
         "--query-fasta", "-q",
-        help = "Query FASTA file, directory of FASTA files, or text file with paths to FASTA files (one per line)"
+        help = "Query FASTA file, directory of FASTA files, or text file with paths to FASTA files (one per line). " +
+            "Translated to a PHGv2 --assembly-file-list internally."
     ).path(mustExist = true)
         .required()
 
     private val threads by option(
         "--threads", "-t",
-        help = "Number of threads to use"
+        help = "Total number of threads available to PHGv2 (--total-threads)"
     ).int()
         .default(DEFAULT_THREADS)
+
+    private val inParallel by option(
+        "--in-parallel",
+        help = "Number of alignments to run in parallel (PHGv2 --in-parallel). " +
+            "If omitted, PHGv2 picks a value from system memory + thread count."
+    ).int()
+
+    private val refMaxAlignCov by option(
+        "--ref-max-align-cov",
+        help = "Maximum reference genome alignment coverage for AnchorWave proali (PHGv2 --ref-max-align-cov, " +
+            "passed through as proali's `-R`). PHGv2 defaults this to 1."
+    ).int()
+
+    private val queryMaxAlignCov by option(
+        "--query-max-align-cov",
+        help = "Maximum query genome alignment coverage for AnchorWave proali (PHGv2 --query-max-align-cov, " +
+            "passed through as proali's `-Q`). PHGv2 defaults this to 1."
+    ).int()
+
+    private val condaEnvPrefix by option(
+        "--conda-env-prefix",
+        help = "Path to a Conda environment that contains PHGv2's runtime dependencies " +
+            "(anchorwave, minimap2, samtools, ...). Defaults to the `phgv2-conda` env in its standard location."
+    ).path(mustExist = false, canBeFile = false, canBeDir = true)
+
+    private val justRefPrep by option(
+        "--just-ref-prep",
+        help = "Only run PHGv2's reference-prep phase (writes ref.cds.fasta + Ref.sam) and stop. " +
+            "Useful when feeding a SLURM array; skips writing maf_file_paths.txt because no MAFs are produced."
+    ).flag()
 
     private val outputDir by option(
         "--output-dir", "-o",
@@ -84,174 +118,118 @@ class AlignAssemblies : CliktCommand(name = "align-assemblies") {
         )
     }
 
+    /**
+     * Materializes a PHGv2 `--assembly-file-list` from whatever the user
+     * passed via `--query-fasta` (a single FASTA, a directory, or a .txt list).
+     * The reference FASTA is filtered out if it accidentally appears in the
+     * collected list (PHGv2 warns against including the reference here).
+     */
+    private fun writeAssemblyFileList(queryFiles: List<Path>, baseOutputDir: Path): Path {
+        val refAbsolute = refFasta.toAbsolutePath().normalize()
+        val filtered = queryFiles
+            .map { it.toAbsolutePath().normalize() }
+            .filter { it != refAbsolute }
+            .distinct()
+
+        if (filtered.size != queryFiles.size) {
+            logger.warn(
+                "Reference FASTA was present in the query list and was removed; PHGv2 " +
+                    "expects the reference to be passed only via --reference-file."
+            )
+        }
+
+        val listFile = baseOutputDir.resolve(ASSEMBLY_LIST_FILE)
+        listFile.writeLines(filtered.map { it.toString() })
+        logger.info("Wrote PHGv2 assembly file list (${filtered.size} entries): $listFile")
+        return listFile
+    }
+
     override fun run() {
-        // Validate working directory
-        ValidationUtils.validateWorkingDirectory(workDir, logger)
+        // Validate working directory and PHG binary
+        val phgBinary = ValidationUtils.validatePhgSetup(workDir, logger)
 
         // Configure file logging to working directory
         LoggingUtils.setupFileLogging(workDir, LOG_FILE_NAME, logger)
 
-        logger.info("Starting assembly alignment")
+        logger.info("Starting assembly alignment via PHGv2 `align-assemblies`")
         logger.info("Working directory: $workDir")
         logger.info("Reference GFF: $refGff")
         logger.info("Reference FASTA: $refFasta")
-        logger.info("Threads: $threads")
+        logger.info("Total threads: $threads")
+        inParallel?.let { logger.info("In-parallel: $it") }
+        refMaxAlignCov?.let { logger.info("Ref max align cov (proali -R): $it") }
+        queryMaxAlignCov?.let { logger.info("Query max align cov (proali -Q): $it") }
+        condaEnvPrefix?.let { logger.info("Conda env prefix: $it") }
+        if (justRefPrep) {
+            logger.info("Just-ref-prep mode enabled (will not produce per-query MAFs)")
+        }
 
-        // Collect query files
+        // Collect query files into a PHGv2-shaped assembly-file-list
         val queryFiles = collectQueryFiles()
         logger.info("Processing ${queryFiles.size} query file(s)")
 
-        // Create base output directory (use custom or default)
+        // Create base output directory (use custom or default).
+        // PHGv2 requires the output directory to exist before invocation.
         val baseOutputDir = FileUtils.resolveOutputDirectory(workDir, outputDir, ANCHORWAVE_RESULTS_DIR)
         FileUtils.createOutputDirectory(baseOutputDir, logger)
 
-        // Derive reference base name
-        val refBase = refFasta.nameWithoutExtension
-        logger.info("Reference base name: $refBase")
+        val assemblyListFile = writeAssemblyFileList(queryFiles, baseOutputDir)
 
-        // Step 1: Run anchorwave gff2seq (once for reference)
-        logger.info("Step 1: Extracting CDS sequences with anchorwave gff2seq")
-        val cdsFile = baseOutputDir.resolve("${refBase}_cds.fa")
-        val gff2seqExitCode = ProcessRunner.runCommand(
-            "pixi", "run", "anchorwave", "gff2seq",
-            "-i", refGff.toString(),
-            "-r", refFasta.toString(),
-            "-o", cdsFile.toString(),
+        // Build the PHGv2 align-assemblies command
+        val commandArgs = mutableListOf(
+            phgBinary.toString(),
+            "align-assemblies",
+            "--gff", refGff.toAbsolutePath().toString(),
+            "--reference-file", refFasta.toAbsolutePath().toString(),
+            "--assembly-file-list", assemblyListFile.toAbsolutePath().toString(),
+            "--total-threads", threads.toString(),
+            "-o", baseOutputDir.toAbsolutePath().toString()
+        )
+        inParallel?.let { commandArgs += listOf("--in-parallel", it.toString()) }
+        refMaxAlignCov?.let { commandArgs += listOf("--ref-max-align-cov", it.toString()) }
+        queryMaxAlignCov?.let { commandArgs += listOf("--query-max-align-cov", it.toString()) }
+        condaEnvPrefix?.let { commandArgs += listOf("--conda-env-prefix", it.toAbsolutePath().toString()) }
+        if (justRefPrep) {
+            commandArgs += "--just-ref-prep"
+        }
+
+        logger.info("Running PHG align-assemblies...")
+        val exitCode = ProcessRunner.runCommand(
+            *commandArgs.toTypedArray(),
             workingDir = workDir.toFile(),
             logger = logger
         )
-        if (gff2seqExitCode != 0) {
-            logger.error("anchorwave gff2seq failed with exit code $gff2seqExitCode")
-            throw SeqSimCommandException("anchorwave gff2seq failed with exit code $gff2seqExitCode", gff2seqExitCode)
-        }
-        logger.info("CDS file created: $cdsFile")
 
-        // Step 2: Run minimap2 for reference (once for all queries)
-        logger.info("Step 2: Running minimap2 alignment for reference")
-        val refSam = baseOutputDir.resolve("${refBase}.sam")
-        val minimap2RefExitCode = ProcessRunner.runCommand(
-            "pixi", "run", "minimap2",
-            "-x", MINIMAP2_PRESET,
-            "-t", threads.toString(),
-            "-k", MINIMAP2_KMER_SIZE,
-            "-a",
-            "-p", MINIMAP2_P_VALUE,
-            "-N", MINIMAP2_N_VALUE,
-            refFasta.toString(),
-            cdsFile.toString(),
-            workingDir = workDir.toFile(),
-            outputFile = refSam.toFile(),
-            logger = logger
-        )
-        if (minimap2RefExitCode != 0) {
-            logger.error("minimap2 (reference) failed with exit code $minimap2RefExitCode")
-            throw SeqSimCommandException("minimap2 (reference) failed with exit code $minimap2RefExitCode", minimap2RefExitCode)
-        }
-        logger.info("Reference SAM file created: $refSam")
-
-        // Step 3: Process each query file
-        var successCount = 0
-        var failureCount = 0
-        val mafFilePaths = mutableListOf<Path>()
-
-        queryFiles.forEachIndexed { index, queryFasta ->
-            logger.info("=".repeat(80))
-            logger.info("Processing query ${index + 1}/${queryFiles.size}: ${queryFasta.name}")
-            logger.info("=".repeat(80))
-
-            try {
-                val mafPath = alignQuery(queryFasta, refBase, refSam, cdsFile, baseOutputDir)
-                mafFilePaths.add(mafPath)
-                successCount++
-                logger.info("Successfully completed alignment for: ${queryFasta.name}")
-            } catch (e: Exception) {
-                failureCount++
-                logger.error("Failed to align query: ${queryFasta.name}", e)
-                logger.error("Continuing with next query...")
-            }
+        if (exitCode != 0) {
+            logger.error("PHG align-assemblies failed with exit code $exitCode")
+            throw SeqSimCommandException("PHG align-assemblies failed with exit code $exitCode", exitCode)
         }
 
-        // Write MAF file paths to text file
+        if (justRefPrep) {
+            logger.info("--just-ref-prep was set; skipping MAF collection.")
+            logger.info("Reference-prep outputs written to: $baseOutputDir")
+            return
+        }
+
+        // Collect MAF outputs PHGv2 wrote into the output directory and
+        // surface them via the standard maf_file_paths.txt contract so
+        // downstream pipeline steps (maf-to-gvcf, create-chain-files, ...)
+        // keep working unchanged.
+        val mafFiles = baseOutputDir.listDirectoryEntries()
+            .filter { it.isRegularFile() && it.name.endsWith(".maf") }
+            .sorted()
+
         FileUtils.writeFilePaths(
-            mafFilePaths,
+            mafFiles,
             baseOutputDir.resolve(MAF_PATHS_FILE),
             logger,
             "MAF file"
         )
 
         logger.info("=".repeat(80))
-        logger.info("All alignments completed!")
-        logger.info("Total queries processed: ${queryFiles.size}")
-        logger.info("Successful: $successCount")
-        logger.info("Failed: $failureCount")
+        logger.info("PHG align-assemblies completed successfully")
+        logger.info("Total assemblies aligned: ${queryFiles.size}")
+        logger.info("MAF files written: ${mafFiles.size}")
         logger.info("Output directory: $baseOutputDir")
-    }
-
-    private fun alignQuery(queryFasta: Path, refBase: String, refSam: Path, cdsFile: Path, baseOutputDir: Path): Path {
-        val queryName = queryFasta.nameWithoutExtension
-
-        // Create query-specific output directory
-        val queryOutputDir = baseOutputDir.resolve(queryName)
-        if (!queryOutputDir.exists()) {
-            queryOutputDir.createDirectories()
-        }
-
-        // Step 1: Run minimap2 for query
-        logger.info("Running minimap2 alignment for query")
-        val querySam = queryOutputDir.resolve("${queryName}.sam")
-        val minimap2QueryExitCode = ProcessRunner.runCommand(
-            "pixi", "run", "minimap2",
-            "-x", MINIMAP2_PRESET,
-            "-t", threads.toString(),
-            "-k", MINIMAP2_KMER_SIZE,
-            "-a",
-            "-p", MINIMAP2_P_VALUE,
-            "-N", MINIMAP2_N_VALUE,
-            queryFasta.toString(),
-            cdsFile.toString(),
-            workingDir = workDir.toFile(),
-            outputFile = querySam.toFile(),
-            logger = logger
-        )
-        if (minimap2QueryExitCode != 0) {
-            throw RuntimeException("minimap2 (query) failed with exit code $minimap2QueryExitCode")
-        }
-        logger.info("Query SAM file created: $querySam")
-
-        // Step 2: Run anchorwave proali
-        logger.info("Running anchorwave proali")
-        val anchorsFile = queryOutputDir.resolve("${refBase}_R${ANCHORWAVE_R_VALUE}_${queryName}_Q${ANCHORWAVE_Q_VALUE}.anchors")
-        val mafFile = queryOutputDir.resolve("${refBase}_R${ANCHORWAVE_R_VALUE}_${queryName}_Q${ANCHORWAVE_Q_VALUE}.maf")
-        val fMafFile = queryOutputDir.resolve("${refBase}_R${ANCHORWAVE_R_VALUE}_${queryName}_Q${ANCHORWAVE_Q_VALUE}.f.maf")
-
-        val proaliExitCode = ProcessRunner.runCommand(
-            "pixi", "run", "anchorwave", "proali",
-            "-i", refGff.toString(),
-            "-as", cdsFile.toString(),
-            "-r", refFasta.toString(),
-            "-a", querySam.toString(),
-            "-ar", refSam.toString(),
-            "-s", queryFasta.toString(),
-            "-n", anchorsFile.toString(),
-            "-R", ANCHORWAVE_R_VALUE,
-            "-Q", ANCHORWAVE_Q_VALUE,
-            "-o", mafFile.toString(),
-            "-f", fMafFile.toString(),
-            "-t", threads.toString(),
-            workingDir = workDir.toFile(),
-            logger = logger
-        )
-        if (proaliExitCode != 0) {
-            throw RuntimeException("anchorwave proali failed with exit code $proaliExitCode")
-        }
-
-        logger.info("Output files for ${queryName}:")
-        logger.info("  Query SAM: $querySam")
-        logger.info("  Anchors: $anchorsFile")
-        logger.info("  MAF: $mafFile")
-        logger.info("  Filtered MAF: $fMafFile")
-
-        // Return the MAF file path (not the filtered one)
-        return mafFile
     }
 }
