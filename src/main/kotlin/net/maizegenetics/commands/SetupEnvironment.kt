@@ -85,9 +85,18 @@ class SetupEnvironment : CliktCommand(name = "setup-environment") {
                 exitProcess(1)
             }
 
-            // Find extracted directory and rename to standard name (removes "-main" suffix)
+            // Find extracted directory and rename to standard name.
+            //
+            // GitHub names the top-level folder inside the archive after the
+            // *current* repo name (e.g. "MLImpute-main"). The upstream repo
+            // was renamed from `MLImpute` to `grits`, so today the archive
+            // extracts as `grits-main/`. We match on a structural marker
+            // (the gradle wrapper script we care about) instead of a name
+            // prefix so future renames don't break this step.
             val extractedDir = srcDir.toFile().listFiles { file ->
-                file.isDirectory && file.name.startsWith("MLImpute") && file.name != Constants.MLIMPUTE_DIR
+                file.isDirectory &&
+                    file.name != Constants.MLIMPUTE_DIR &&
+                    file.resolve("src/kotlin/gradlew").isFile
             }?.firstOrNull()
 
             if (extractedDir != null) {
@@ -96,7 +105,10 @@ class SetupEnvironment : CliktCommand(name = "setup-environment") {
                     logger.warn("Failed to rename MLImpute directory, will use extracted name: ${extractedDir.name}")
                 }
             } else {
-                logger.warn("Could not find extracted MLImpute directory")
+                logger.warn(
+                    "Could not find extracted MLImpute directory under $srcDir " +
+                        "(no subdirectory containing src/kotlin/gradlew)"
+                )
             }
         }
 

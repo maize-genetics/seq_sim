@@ -83,6 +83,25 @@ RUN mkdir -p "${MAMBA_ROOT_PREFIX}" && \
 ENV PATH="${MAMBA_ROOT_PREFIX}/envs/phgv2-conda/bin:${PATH}"
 
 # ---------------------------------------------------------------------------
+# `conda` shim that delegates to micromamba.
+#
+# PHGv2's AlignAssemblies hard-codes `conda run -n phgv2-conda <tool> ...`
+# (anchorwave, minimap2, samtools) and spawns it via Java's ProcessBuilder
+# instead of going through a shell. Since this image only ships micromamba
+# (lighter weight and what we use to manage the phgv2-conda env above),
+# `conda` is not normally available and PHG fails with
+# "Cannot run program 'conda': No such file or directory".
+#
+# A tiny exec-shim is enough: micromamba accepts the same `run -n NAME --
+# CMD ARGS` form so we just forward everything.
+# ---------------------------------------------------------------------------
+RUN printf '%s\n' \
+        '#!/bin/bash' \
+        'exec micromamba "$@"' \
+        > /usr/local/bin/conda && \
+    chmod +x /usr/local/bin/conda
+
+# ---------------------------------------------------------------------------
 # Pre-install the seq-sim pixi env. We do this against a scratch directory so
 # the image layer is stable regardless of the user's host-side seq_sim_work.
 # At runtime the pipeline's own pixi env (seq_sim_work/.pixi) will be created

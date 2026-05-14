@@ -73,26 +73,30 @@ case "$cmd" in
         ;;
     test|unit)
         ensure_image
-        run_in_container bash -lc "./gradlew test $*"
+        # Non-login (`bash -c`, not `-lc`): Debian's /etc/profile would otherwise
+        # reset PATH and drop /opt/micromamba/envs/phgv2-conda/bin (which holds
+        # anchorwave, minimap2, ...). The Dockerfile sets PATH via ENV, which
+        # is preserved here but blown away by a login shell.
+        run_in_container bash -c "./gradlew test $*"
         ;;
     integration|int)
         ensure_image
-        run_in_container bash -lc "./gradlew integrationTest $*"
+        run_in_container bash -c "./gradlew integrationTest $*"
         ;;
     e2e|smoke)
         ensure_image
-        run_in_container bash -lc "./gradlew e2eTest $*"
+        run_in_container bash -c "./gradlew e2eTest $*"
         ;;
     all)
         ensure_image
-        run_in_container bash -lc "./gradlew test integrationTest e2eTest $*"
+        run_in_container bash -c "./gradlew test integrationTest e2eTest $*"
         ;;
     run)
         ensure_image
         # Everything after `--` is passed to `gradlew run --args="..."`
         if [ "${1:-}" = "--" ]; then shift; fi
         args="$*"
-        run_in_container bash -lc "./gradlew run --args=\"$args\""
+        run_in_container bash -c "./gradlew run --args=\"$args\""
         ;;
     exec)
         ensure_image
