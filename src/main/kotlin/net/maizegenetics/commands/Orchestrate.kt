@@ -161,6 +161,47 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
         return stepName in config.run_steps
     }
 
+    /**
+     * Appends the optional PHGv2 align-assemblies knobs shared by every
+     * align step (threads, in-parallel, proali coverage caps, conda env
+     * prefix, just-ref-prep, output dir override) to [args]. Each option
+     * is included only when its config field is non-null/true, matching
+     * the existing inline behaviour for both align_assemblies and
+     * align_mutated_assemblies.
+     */
+    private fun appendPhgAlignSharedArgs(
+        args: MutableList<String>,
+        threads: Int?,
+        inParallel: Int?,
+        refMaxAlignCov: Int?,
+        queryMaxAlignCov: Int?,
+        condaEnvPrefix: String?,
+        justRefPrep: Boolean?,
+        customOutput: Path?,
+    ) {
+        if (threads != null) {
+            args.add("--threads=$threads")
+        }
+        if (inParallel != null) {
+            args.add("--in-parallel=$inParallel")
+        }
+        if (refMaxAlignCov != null) {
+            args.add("--ref-max-align-cov=$refMaxAlignCov")
+        }
+        if (queryMaxAlignCov != null) {
+            args.add("--query-max-align-cov=$queryMaxAlignCov")
+        }
+        if (condaEnvPrefix != null) {
+            args.add("--conda-env-prefix=$condaEnvPrefix")
+        }
+        if (justRefPrep == true) {
+            args.add("--just-ref-prep")
+        }
+        if (customOutput != null) {
+            args.add("--output-dir=$customOutput")
+        }
+    }
+
     private fun validateEnvironment(workDir: Path): Boolean {
         // Check if working directory exists
         if (!workDir.exists()) {
@@ -501,33 +542,22 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 logger.info("Reference FASTA: $refFasta")
                 logger.info("Query FASTA: $queryFasta")
 
-                val args = buildList {
-                    add("--work-dir=$workDir")
-                    add("--ref-gff=$refGff")
-                    add("--ref-fasta=$refFasta")
-                    add("--query-fasta=$queryFasta")
-                    if (config.align_assemblies.threads != null) {
-                        add("--threads=${config.align_assemblies.threads}")
-                    }
-                    if (config.align_assemblies.in_parallel != null) {
-                        add("--in-parallel=${config.align_assemblies.in_parallel}")
-                    }
-                    if (config.align_assemblies.ref_max_align_cov != null) {
-                        add("--ref-max-align-cov=${config.align_assemblies.ref_max_align_cov}")
-                    }
-                    if (config.align_assemblies.query_max_align_cov != null) {
-                        add("--query-max-align-cov=${config.align_assemblies.query_max_align_cov}")
-                    }
-                    if (config.align_assemblies.conda_env_prefix != null) {
-                        add("--conda-env-prefix=${config.align_assemblies.conda_env_prefix}")
-                    }
-                    if (config.align_assemblies.just_ref_prep == true) {
-                        add("--just-ref-prep")
-                    }
-                    if (customOutput != null) {
-                        add("--output-dir=$customOutput")
-                    }
-                }
+                val args = mutableListOf(
+                    "--work-dir=$workDir",
+                    "--ref-gff=$refGff",
+                    "--ref-fasta=$refFasta",
+                    "--query-fasta=$queryFasta",
+                )
+                appendPhgAlignSharedArgs(
+                    args,
+                    threads = config.align_assemblies.threads,
+                    inParallel = config.align_assemblies.in_parallel,
+                    refMaxAlignCov = config.align_assemblies.ref_max_align_cov,
+                    queryMaxAlignCov = config.align_assemblies.query_max_align_cov,
+                    condaEnvPrefix = config.align_assemblies.conda_env_prefix,
+                    justRefPrep = config.align_assemblies.just_ref_prep,
+                    customOutput = customOutput,
+                )
 
                 AlignAssemblies().parse(args)
                 restoreOrchestratorLogging(workDir)
@@ -1219,33 +1249,22 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 // Determine output directory (custom or default)
                 val customOutput = config.align_mutated_assemblies.output?.let { Path.of(it) }
 
-                val args = buildList {
-                    add("--work-dir=${workDir}")
-                    add("--ref-gff=${step10RefGff}")
-                    add("--ref-fasta=${step10RefFasta}")
-                    add("--fasta-input=${step10FastaInput}")
-                    if (config.align_mutated_assemblies.threads != null) {
-                        add("--threads=${config.align_mutated_assemblies.threads}")
-                    }
-                    if (config.align_mutated_assemblies.in_parallel != null) {
-                        add("--in-parallel=${config.align_mutated_assemblies.in_parallel}")
-                    }
-                    if (config.align_mutated_assemblies.ref_max_align_cov != null) {
-                        add("--ref-max-align-cov=${config.align_mutated_assemblies.ref_max_align_cov}")
-                    }
-                    if (config.align_mutated_assemblies.query_max_align_cov != null) {
-                        add("--query-max-align-cov=${config.align_mutated_assemblies.query_max_align_cov}")
-                    }
-                    if (config.align_mutated_assemblies.conda_env_prefix != null) {
-                        add("--conda-env-prefix=${config.align_mutated_assemblies.conda_env_prefix}")
-                    }
-                    if (config.align_mutated_assemblies.just_ref_prep == true) {
-                        add("--just-ref-prep")
-                    }
-                    if (customOutput != null) {
-                        add("--output-dir=${customOutput}")
-                    }
-                }
+                val args = mutableListOf(
+                    "--work-dir=$workDir",
+                    "--ref-gff=$step10RefGff",
+                    "--ref-fasta=$step10RefFasta",
+                    "--fasta-input=$step10FastaInput",
+                )
+                appendPhgAlignSharedArgs(
+                    args,
+                    threads = config.align_mutated_assemblies.threads,
+                    inParallel = config.align_mutated_assemblies.in_parallel,
+                    refMaxAlignCov = config.align_mutated_assemblies.ref_max_align_cov,
+                    queryMaxAlignCov = config.align_mutated_assemblies.query_max_align_cov,
+                    condaEnvPrefix = config.align_mutated_assemblies.conda_env_prefix,
+                    justRefPrep = config.align_mutated_assemblies.just_ref_prep,
+                    customOutput = customOutput,
+                )
 
                 AlignMutatedAssemblies().parse(args)
                 restoreOrchestratorLogging(workDir)

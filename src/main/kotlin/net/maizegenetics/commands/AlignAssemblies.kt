@@ -1,31 +1,28 @@
 package net.maizegenetics.commands
 
 import com.github.ajalt.clikt.core.CliktCommand
-import com.github.ajalt.clikt.parameters.options.default
-import com.github.ajalt.clikt.parameters.options.flag
+import com.github.ajalt.clikt.parameters.groups.provideDelegate
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.options.required
-import com.github.ajalt.clikt.parameters.types.int
 import com.github.ajalt.clikt.parameters.types.path
-import net.maizegenetics.Constants
-import net.maizegenetics.utils.FileUtils
-import net.maizegenetics.utils.LoggingUtils
-import net.maizegenetics.utils.ProcessRunner
-import net.maizegenetics.utils.SeqSimCommandException
-import net.maizegenetics.utils.ValidationUtils
+import net.maizegenetics.commands.align.PhgAlignParams
+import net.maizegenetics.commands.align.PhgAlignRunner
+import net.maizegenetics.commands.align.PhgAlignSharedOptions
 import org.apache.logging.log4j.LogManager
 import org.apache.logging.log4j.Logger
-import java.nio.file.Path
-import kotlin.io.path.*
 
 /**
  * Wraps the PHGv2 `align-assemblies` command, which itself drives AnchorWave +
- * minimap2 to align query assemblies against a reference. The wrapper keeps
+ * minimap2 to align query assemblies against a reference. This wrapper keeps
  * seq_sim's existing inputs (`--ref-gff`, `--ref-fasta`, `--query-fasta`, ...)
  * and existing output contract (`output/01_anchorwave_results/maf_file_paths.txt`)
- * so downstream pipeline steps continue to work unchanged. New PHGv2-specific
- * options (`--in-parallel`, `--ref-max-align-cov`, ...) are surfaced as
- * additional optional flags.
+ * so downstream pipeline steps continue to work unchanged.
+ *
+ * All the heavy lifting (validating PHG, materializing the assembly file list,
+ * invoking PHGv2, writing `maf_file_paths.txt`) lives in [PhgAlignRunner] and
+ * is shared with every other align iteration; the only thing this wrapper
+ * declares is the step-specific input flag and per-step metadata (log
+ * filename and output subdirectory).
  *
  * See: https://phg.maizegenetics.net/build_and_load/#align-assemblies-parameters
  */
@@ -33,33 +30,11 @@ class AlignAssemblies : CliktCommand(name = "align-assemblies") {
     companion object {
         private const val LOG_FILE_NAME = "01_align_assemblies.log"
         private const val ANCHORWAVE_RESULTS_DIR = "01_anchorwave_results"
-        private const val MAF_PATHS_FILE = "maf_file_paths.txt"
-        private const val ASSEMBLY_LIST_FILE = "assemblies_list.txt"
-
-        // Default values
-        private const val DEFAULT_THREADS = 1
     }
 
     private val logger: Logger = LogManager.getLogger(AlignAssemblies::class.java)
 
-    private val workDir by option(
-        "--work-dir", "-w",
-        help = "Working directory for files and scripts"
-    ).path(mustExist = false, canBeFile = false, canBeDir = true)
-        .default(Path.of(Constants.DEFAULT_WORK_DIR))
-
-    private val refGff by option(
-        "--ref-gff", "-g",
-        help = "Reference GFF file (passed to PHGv2 as --gff)"
-    ).path(mustExist = true, canBeFile = true, canBeDir = false)
-        .required()
-
-    private val refFasta by option(
-        "--ref-fasta", "-r",
-        help = "Reference FASTA file (passed to PHGv2 as --reference-file). For best results " +
-            "this should be the output of `phg prepare-assemblies`."
-    ).path(mustExist = true, canBeFile = true, canBeDir = false)
-        .required()
+    private val shared by PhgAlignSharedOptions()
 
     private val queryInput by option(
         "--query-fasta", "-q",
@@ -68,168 +43,25 @@ class AlignAssemblies : CliktCommand(name = "align-assemblies") {
     ).path(mustExist = true)
         .required()
 
-    private val threads by option(
-        "--threads", "-t",
-        help = "Total number of threads available to PHGv2 (--total-threads)"
-    ).int()
-        .default(DEFAULT_THREADS)
-
-    private val inParallel by option(
-        "--in-parallel",
-        help = "Number of alignments to run in parallel (PHGv2 --in-parallel). " +
-            "If omitted, PHGv2 picks a value from system memory + thread count."
-    ).int()
-
-    private val refMaxAlignCov by option(
-        "--ref-max-align-cov",
-        help = "Maximum reference genome alignment coverage for AnchorWave proali (PHGv2 --ref-max-align-cov, " +
-            "passed through as proali's `-R`). PHGv2 defaults this to 1."
-    ).int()
-
-    private val queryMaxAlignCov by option(
-        "--query-max-align-cov",
-        help = "Maximum query genome alignment coverage for AnchorWave proali (PHGv2 --query-max-align-cov, " +
-            "passed through as proali's `-Q`). PHGv2 defaults this to 1."
-    ).int()
-
-    private val condaEnvPrefix by option(
-        "--conda-env-prefix",
-        help = "Path to a Conda environment that contains PHGv2's runtime dependencies " +
-            "(anchorwave, minimap2, samtools, ...). Defaults to the `phgv2-conda` env in its standard location."
-    ).path(mustExist = false, canBeFile = false, canBeDir = true)
-
-    private val justRefPrep by option(
-        "--just-ref-prep",
-        help = "Only run PHGv2's reference-prep phase (writes ref.cds.fasta + Ref.sam) and stop. " +
-            "Useful when feeding a SLURM array; skips writing maf_file_paths.txt because no MAFs are produced."
-    ).flag()
-
-    private val outputDir by option(
-        "--output-dir", "-o",
-        help = "Custom output directory (default: work_dir/output/01_anchorwave_results)"
-    ).path(mustExist = false, canBeFile = false, canBeDir = true)
-
-    private fun collectQueryFiles(): List<Path> {
-        return FileUtils.collectFiles(
-            queryInput,
-            Constants.FASTA_EXTENSIONS,
-            "FASTA",
+    override fun run() {
+        PhgAlignRunner.run(
+            PhgAlignParams(
+                workDir = shared.workDir,
+                refGff = shared.refGff,
+                refFasta = shared.refFasta,
+                queryInput = queryInput,
+                threads = shared.threads,
+                inParallel = shared.inParallel,
+                refMaxAlignCov = shared.refMaxAlignCov,
+                queryMaxAlignCov = shared.queryMaxAlignCov,
+                condaEnvPrefix = shared.condaEnvPrefix,
+                justRefPrep = shared.justRefPrep,
+                customOutputDir = shared.outputDir,
+                logFileName = LOG_FILE_NAME,
+                outputSubdir = ANCHORWAVE_RESULTS_DIR,
+                inputKind = "query",
+            ),
             logger
         )
-    }
-
-    /**
-     * Materializes a PHGv2 `--assembly-file-list` from whatever the user
-     * passed via `--query-fasta` (a single FASTA, a directory, or a .txt list).
-     * The reference FASTA is filtered out if it accidentally appears in the
-     * collected list (PHGv2 warns against including the reference here).
-     */
-    private fun writeAssemblyFileList(queryFiles: List<Path>, baseOutputDir: Path): Path {
-        val refAbsolute = refFasta.toAbsolutePath().normalize()
-        val filtered = queryFiles
-            .map { it.toAbsolutePath().normalize() }
-            .filter { it != refAbsolute }
-            .distinct()
-
-        if (filtered.size != queryFiles.size) {
-            logger.warn(
-                "Reference FASTA was present in the query list and was removed; PHGv2 " +
-                    "expects the reference to be passed only via --reference-file."
-            )
-        }
-
-        val listFile = baseOutputDir.resolve(ASSEMBLY_LIST_FILE)
-        listFile.writeLines(filtered.map { it.toString() })
-        logger.info("Wrote PHGv2 assembly file list (${filtered.size} entries): $listFile")
-        return listFile
-    }
-
-    override fun run() {
-        // Validate working directory and PHG binary
-        val phgBinary = ValidationUtils.validatePhgSetup(workDir, logger)
-
-        // Configure file logging to working directory
-        LoggingUtils.setupFileLogging(workDir, LOG_FILE_NAME, logger)
-
-        logger.info("Starting assembly alignment via PHGv2 `align-assemblies`")
-        logger.info("Working directory: $workDir")
-        logger.info("Reference GFF: $refGff")
-        logger.info("Reference FASTA: $refFasta")
-        logger.info("Total threads: $threads")
-        inParallel?.let { logger.info("In-parallel: $it") }
-        refMaxAlignCov?.let { logger.info("Ref max align cov (proali -R): $it") }
-        queryMaxAlignCov?.let { logger.info("Query max align cov (proali -Q): $it") }
-        condaEnvPrefix?.let { logger.info("Conda env prefix: $it") }
-        if (justRefPrep) {
-            logger.info("Just-ref-prep mode enabled (will not produce per-query MAFs)")
-        }
-
-        // Collect query files into a PHGv2-shaped assembly-file-list
-        val queryFiles = collectQueryFiles()
-        logger.info("Processing ${queryFiles.size} query file(s)")
-
-        // Create base output directory (use custom or default).
-        // PHGv2 requires the output directory to exist before invocation.
-        val baseOutputDir = FileUtils.resolveOutputDirectory(workDir, outputDir, ANCHORWAVE_RESULTS_DIR)
-        FileUtils.createOutputDirectory(baseOutputDir, logger)
-
-        val assemblyListFile = writeAssemblyFileList(queryFiles, baseOutputDir)
-
-        // Build the PHGv2 align-assemblies command
-        val commandArgs = mutableListOf(
-            phgBinary.toString(),
-            "align-assemblies",
-            "--gff", refGff.toAbsolutePath().toString(),
-            "--reference-file", refFasta.toAbsolutePath().toString(),
-            "--assembly-file-list", assemblyListFile.toAbsolutePath().toString(),
-            "--total-threads", threads.toString(),
-            "-o", baseOutputDir.toAbsolutePath().toString()
-        )
-        inParallel?.let { commandArgs += listOf("--in-parallel", it.toString()) }
-        refMaxAlignCov?.let { commandArgs += listOf("--ref-max-align-cov", it.toString()) }
-        queryMaxAlignCov?.let { commandArgs += listOf("--query-max-align-cov", it.toString()) }
-        condaEnvPrefix?.let { commandArgs += listOf("--conda-env-prefix", it.toAbsolutePath().toString()) }
-        if (justRefPrep) {
-            commandArgs += "--just-ref-prep"
-        }
-
-        logger.info("Running PHG align-assemblies...")
-        val exitCode = ProcessRunner.runCommand(
-            *commandArgs.toTypedArray(),
-            workingDir = workDir.toFile(),
-            logger = logger
-        )
-
-        if (exitCode != 0) {
-            logger.error("PHG align-assemblies failed with exit code $exitCode")
-            throw SeqSimCommandException("PHG align-assemblies failed with exit code $exitCode", exitCode)
-        }
-
-        if (justRefPrep) {
-            logger.info("--just-ref-prep was set; skipping MAF collection.")
-            logger.info("Reference-prep outputs written to: $baseOutputDir")
-            return
-        }
-
-        // Collect MAF outputs PHGv2 wrote into the output directory and
-        // surface them via the standard maf_file_paths.txt contract so
-        // downstream pipeline steps (maf-to-gvcf, create-chain-files, ...)
-        // keep working unchanged.
-        val mafFiles = baseOutputDir.listDirectoryEntries()
-            .filter { it.isRegularFile() && it.name.endsWith(".maf") }
-            .sorted()
-
-        FileUtils.writeFilePaths(
-            mafFiles,
-            baseOutputDir.resolve(MAF_PATHS_FILE),
-            logger,
-            "MAF file"
-        )
-
-        logger.info("=".repeat(80))
-        logger.info("PHG align-assemblies completed successfully")
-        logger.info("Total assemblies aligned: ${queryFiles.size}")
-        logger.info("MAF files written: ${mafFiles.size}")
-        logger.info("Output directory: $baseOutputDir")
     }
 }
