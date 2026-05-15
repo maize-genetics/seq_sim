@@ -108,9 +108,22 @@ RUN printf '%s\n' \
 # on first use, but the solver cache is already populated.
 # ---------------------------------------------------------------------------
 COPY src/main/resources/pixi.toml /opt/seq-sim-prebuilt/pixi.toml
-RUN cd /opt/seq-sim-prebuilt && \
-    pixi install --manifest-path pixi.toml || \
-    echo "pixi install warmup failed; runtime will retry"
+# The pixi warmup MUST succeed -- if it fails silently, every runtime test
+# in a fresh workdir does a cold-cache pixi install whose solver+download
+# peak can exceed the container memory limit and get SIGKILL'd (exit 137).
+# Fail the image build loudly instead of hiding the regression.
+#
+# We point PIXI/RATTLER_CACHE_DIR at the same path the runtime container
+# uses (see docker-compose.yml). That way the downloaded .conda packages
+# end up in /var/cache/pixi during the image build, get baked into the
+# image layer, and seed the named volume on first mount -- so the
+# runtime `pixi install` is just hardlinks/copies from a warm cache.
+ENV PIXI_CACHE_DIR=/var/cache/pixi
+ENV RATTLER_CACHE_DIR=/var/cache/pixi
+RUN mkdir -p /var/cache/pixi && \
+    cd /opt/seq-sim-prebuilt && \
+    pixi install --manifest-path pixi.toml && \
+    test -d /opt/seq-sim-prebuilt/.pixi/envs/default
 
 # ---------------------------------------------------------------------------
 # Pre-download PHGv2 latest release so `setup-environment` can skip the
@@ -149,7 +162,23 @@ ENV SEQ_SIM_IN_CONTAINER=1 \
 WORKDIR /workspace
 
 # Allow non-root operation by default (uid is overridden from docker-compose).
+# `scripts/dev.sh` sets the container user to the *host* uid (e.g. 501/503
+# on macOS) so files written into the bind-mounted repo are owned by the
+# host user. That means we can't pin the pixi cache to any specific uid:
+# the dev user (uid 1000) is just the in-image owner of the warmup
+# artifacts, but at runtime the cache must be writable by whatever uid
+# docker-compose decides to use.
+#
+# We therefore make /var/cache/pixi recursively world-readable/writable
+# (a+rwX). When the named docker volume for /var/cache/pixi (see
+# docker-compose.yml) is first mounted, docker seeds it from the image's
+# contents at that path, so the world-writable mode propagates to the
+# fresh volume and any uid can acquire pixi's lock file. New files pixi
+# writes inherit the container user's umask (typically 0022), which is
+# fine as long as a single host uid uses a given volume -- and the
+# volume gets recreated whenever the host user changes.
 RUN useradd -m -u 1000 -s /bin/bash dev && \
-    chown -R dev:dev /opt/seq-sim-prebuilt
+    chown -R dev:dev /opt/seq-sim-prebuilt /var/cache/pixi && \
+    chmod -R a+rwX /var/cache/pixi
 
 CMD ["/bin/bash"]

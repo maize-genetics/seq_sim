@@ -10,6 +10,19 @@ services:
     # On macOS Docker Desktop the bind mount translates these ids for you;
     # on Linux this matches the invoker's uid (see scripts/dev.sh).
     user: "${SEQ_SIM_UID:-1000}:${SEQ_SIM_GID:-1000}"
+    # End-to-end tests run a full pipeline: the test JVM forks MLImpute's
+    # Gradle daemon, biokotlin-tools' JVM, AnchorWave/minimap2 natives,
+    # python (pysam/CrossMap), and pixi shims. Combined RSS comfortably
+    # exceeds 4 GB during the heaviest steps. On macOS Docker Desktop the
+    # container also inherits whatever VM memory the user set in
+    # Preferences -> Resources, so we explicitly raise the per-container
+    # limit here to surface a clear error (the kernel OOM killer otherwise
+    # SIGKILLs the test JVM and reports it as `exit 137`).
+    #
+    # Override with SEQ_SIM_MEM_LIMIT=8g (or larger) when running
+    # `scripts/dev.sh e2e` on a memory-constrained host.
+    mem_limit: ${SEQ_SIM_MEM_LIMIT:-16g}
+    memswap_limit: ${SEQ_SIM_MEM_LIMIT:-16g}
     environment:
       - SEQ_SIM_IN_CONTAINER=1
       - SEQ_SIM_SKIP_PHG_SETUP=1
@@ -17,6 +30,17 @@ services:
       - SEQ_SIM_SKIP_PIXI_PREFIX=1
       - GRADLE_USER_HOME=/workspace/.gradle-container
       - HOME=/workspace/.home-container
+      # Keep pixi's package cache off the macOS-side bind mount. Docker
+      # Desktop on macOS occasionally returns EINVAL (os error 22) for
+      # hardlink operations inside virtiofs/gRPC-FUSE bind mounts, which
+      # breaks `pixi install` mid-link when it hardlinks from the cache
+      # into <workDir>/.pixi/envs/.... The named volume below is backed
+      # by the docker storage driver (overlayfs on Linux VMs), where
+      # hardlinks behave correctly. It also persists across the
+      # `compose run --rm` container recreations so we don't re-download
+      # packages on every `scripts/dev.sh e2e` invocation.
+      - PIXI_CACHE_DIR=/var/cache/pixi
+      - RATTLER_CACHE_DIR=/var/cache/pixi
     volumes:
       # Single bind mount covers everything: the repo itself plus the
       # .gradle-container/ and .home-container/ subdirs used as caches.
@@ -25,5 +49,10 @@ services:
       #   - first-run gradle wrapper downloads don't hit "permission denied"
       #   - tearing down (./scripts/dev.sh clean) leaves the caches visible
       - ..:/workspace
+      # Named volume for the pixi/rattler package cache (see env vars above).
+      - pixi-cache:/var/cache/pixi
     tty: true
     stdin_open: true
+
+volumes:
+  pixi-cache:
