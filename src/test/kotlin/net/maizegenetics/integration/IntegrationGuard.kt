@@ -1,6 +1,7 @@
 package net.maizegenetics.integration
 
 import org.junit.jupiter.api.Assumptions
+import java.io.File
 
 /**
  * Shared precondition helpers for integration-tier tests.
@@ -44,5 +45,56 @@ object IntegrationGuard {
             ?.any { dir -> java.io.File(dir, "anchorwave").canExecute() }
             ?: false
         Assumptions.assumeTrue(found, "anchorwave binary not found on PATH")
+    }
+
+    /**
+     * Print the container's actual memory budget (cgroup v2 / v1) and the
+     * test JVM's heap settings so we can diagnose `exit 137` (kernel OOM
+     * kills) without guessing. Should be called once per E2E test.
+     *
+     * E2E tests run the full pipeline which forks Gradle daemons,
+     * MLImpute application JVMs, and native tools (AnchorWave/minimap2/
+     * pysam). Their combined RSS can comfortably exceed 4 GB. If the
+     * container memory limit is below that, the OOM killer fires.
+     */
+    fun logContainerMemoryBudget() {
+        val runtime = Runtime.getRuntime()
+        val mb = 1024L * 1024L
+        println(">>> [MEMORY] JVM Xmx (maxMemory): ${runtime.maxMemory() / mb} MB")
+        println(">>> [MEMORY] JVM available processors: ${runtime.availableProcessors()}")
+
+        // cgroup v2 (modern Docker / Linux >= 4.5)
+        val cgroupV2 = File("/sys/fs/cgroup/memory.max")
+        if (cgroupV2.exists()) {
+            val raw = runCatching { cgroupV2.readText().trim() }.getOrNull() ?: "<unreadable>"
+            val pretty = raw.toLongOrNull()?.let { "$raw bytes (${it / mb} MB)" } ?: raw
+            println(">>> [MEMORY] cgroup v2 memory.max: $pretty")
+        }
+
+        // cgroup v1 fallback
+        val cgroupV1 = File("/sys/fs/cgroup/memory/memory.limit_in_bytes")
+        if (cgroupV1.exists()) {
+            val raw = runCatching { cgroupV1.readText().trim() }.getOrNull() ?: "<unreadable>"
+            val pretty = raw.toLongOrNull()?.let { "$raw bytes (${it / mb} MB)" } ?: raw
+            println(">>> [MEMORY] cgroup v1 memory.limit_in_bytes: $pretty")
+        }
+
+        // /proc/meminfo for the host kernel's view
+        val meminfo = File("/proc/meminfo")
+        if (meminfo.exists()) {
+            val lines = runCatching {
+                meminfo.readLines().filter { line ->
+                    line.startsWith("MemTotal:") ||
+                        line.startsWith("MemAvailable:") ||
+                        line.startsWith("MemFree:")
+                }
+            }.getOrNull().orEmpty()
+            lines.forEach { println(">>> [MEMORY] /proc/meminfo $it") }
+        }
+
+        println(
+            ">>> [MEMORY] If subsequent steps fail with exit 137, the container memory " +
+                "budget shown above is too small. End-to-end tests typically need at least 6 GB."
+        )
     }
 }
