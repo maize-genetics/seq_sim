@@ -53,6 +53,49 @@ ensure_image() {
     fi
 }
 
+# The pixi-cache named volume is seeded from the image's /var/cache/pixi
+# the first time it is mounted, and from then on its perms persist for
+# the lifetime of the volume. We always run the container as the host
+# uid (`id -u`), so a volume seeded by an older image (which baked the
+# cache as uid 1000) is unwritable from the host uid and breaks
+# `pixi install` with "Permission denied" on the repodata lock. Detect
+# that mismatch and refuse to proceed until the user nukes the volume.
+ensure_pixi_cache_writable() {
+    local volume_name
+    volume_name="$($COMPOSE -f "$COMPOSE_FILE" config --format json 2>/dev/null \
+        | jq -r '.volumes["pixi-cache"].name // empty' 2>/dev/null)"
+    if [ -z "$volume_name" ]; then
+        # Fall back to the default `<project>_<service-volume>` naming.
+        volume_name="docker_pixi-cache"
+    fi
+    if ! docker volume inspect "$volume_name" >/dev/null 2>&1; then
+        return 0
+    fi
+    # Probe the volume by trying to create a sentinel file as the host uid.
+    if docker run --rm \
+        --user "${SEQ_SIM_UID}:${SEQ_SIM_GID}" \
+        -v "${volume_name}:/var/cache/pixi" \
+        alpine:3.20 sh -c 'touch /var/cache/pixi/.seq-sim-write-probe && rm /var/cache/pixi/.seq-sim-write-probe' \
+        >/dev/null 2>&1
+    then
+        return 0
+    fi
+    cat >&2 <<EOF
+==> ERROR: the docker volume "${volume_name}" is not writable by uid ${SEQ_SIM_UID}.
+    This usually means it was seeded by an older image that pinned the pixi
+    cache to uid 1000. The current image marks /var/cache/pixi world-writable,
+    but named volumes preserve their content (and perms) across rebuilds.
+
+    Recreate the volume and rebuild the image:
+
+        docker compose -f ${COMPOSE_FILE} down -v
+        scripts/dev.sh build
+
+    Then re-run your command.
+EOF
+    exit 1
+}
+
 usage() {
     sed -n '2,24p' "$0"
 }
@@ -81,14 +124,17 @@ case "$cmd" in
         ;;
     integration|int)
         ensure_image
+        ensure_pixi_cache_writable
         run_in_container bash -c "./gradlew integrationTest $*"
         ;;
     e2e|smoke)
         ensure_image
+        ensure_pixi_cache_writable
         run_in_container bash -c "./gradlew e2eTest $*"
         ;;
     all)
         ensure_image
+        ensure_pixi_cache_writable
         run_in_container bash -c "./gradlew test integrationTest e2eTest $*"
         ;;
     run)
