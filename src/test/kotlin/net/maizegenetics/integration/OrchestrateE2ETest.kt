@@ -327,19 +327,39 @@ class OrchestrateE2ETest {
             "Every formatted FASTA must exist on disk and be non-empty"
         )
         // seqkit should have honored --line-width 60; sample one file and check.
+        // Multi-contig FASTAs have one trailing (possibly short) line per contig,
+        // so we must split interior vs trailing lines by walking the file rather
+        // than flattening all sequence lines and dropping only the last one.
         val sample = formattedFiles.first()
-        val sequenceLineLengths = sample.readLines()
-            .filterNot { it.startsWith(">") || it.isBlank() }
-            .map { it.length }
-        if (sequenceLineLengths.isNotEmpty()) {
-            // All but the final line of each contig must be exactly 60 chars.
-            val nonFinalLines = sequenceLineLengths.dropLast(1)
+        val allLines = sample.readLines()
+        val interiorLineLengths = mutableListOf<Int>()
+        val trailingLineLengths = mutableListOf<Int>()
+        for (i in allLines.indices) {
+            val line = allLines[i]
+            if (line.startsWith(">") || line.isBlank()) continue
+            val next = allLines.getOrNull(i + 1)
+            val isTrailingForContig = next == null ||
+                next.startsWith(">") ||
+                next.isBlank()
+            if (isTrailingForContig) {
+                trailingLineLengths.add(line.length)
+            } else {
+                interiorLineLengths.add(line.length)
+            }
+        }
+        if (interiorLineLengths.isNotEmpty()) {
             assertTrue(
-                nonFinalLines.all { it == 60 } || nonFinalLines.isEmpty(),
-                "All non-trailing sequence lines should be 60 chars wide in $sample; " +
-                    "saw widths=${sequenceLineLengths.distinct().sorted()}"
+                interiorLineLengths.all { it == 60 },
+                "All interior sequence lines should be 60 chars wide in $sample; " +
+                    "saw interior widths=${interiorLineLengths.distinct().sorted()}, " +
+                    "trailing widths=${trailingLineLengths.distinct().sorted()}"
             )
         }
+        assertTrue(
+            trailingLineLengths.all { it in 1..60 },
+            "Trailing sequence lines must be 1..60 chars wide in $sample; " +
+                "saw trailing widths=${trailingLineLengths.distinct().sorted()}"
+        )
 
         // ---------------------------------------------------------------
         // Log file contract: each pipeline step writes its own log file.
