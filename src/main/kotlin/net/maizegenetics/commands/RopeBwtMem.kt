@@ -18,8 +18,9 @@ import kotlin.system.exitProcess
 
 class RopeBwtMem : CliktCommand(name = "ropebwt-mem") {
     companion object {
-        private const val LOG_FILE_NAME = "12_ropebwt_mem.log"
-        private const val ROPEBWT_MEM_RESULTS_DIR = "12_ropebwt_mem_results"
+        private const val LOG_FILE_NAME = "13_ropebwt_mem.log"
+        private const val ROPEBWT_MEM_RESULTS_DIR = "13_ropebwt_mem_results"
+        private const val UPSTREAM_INDEX_DIR = "12_rope_bwt_index_results"
         private const val BED_FILE_PATHS_FILE = "bed_file_paths.txt"
         private const val DEFAULT_P_VALUE = 168
         private const val KEYFILE_NAME = "phg_keyfile.txt"
@@ -40,12 +41,12 @@ class RopeBwtMem : CliktCommand(name = "ropebwt-mem") {
 
     private val indexFile by option(
         "--index-file", "-i",
-        help = "Path to the .fmd index file from rope-bwt-chr-index (auto-detected from step 11 if not specified)"
+        help = "Path to the .fmd index file from rope-bwt-chr-index (auto-detected from step 12 if not specified)"
     ).path(mustExist = false, canBeFile = true, canBeDir = false)
 
     private val lValue by option(
         "--l-value", "-l",
-        help = "The -l parameter value (auto-calculated as 2 * number of FASTA samples from step 11 if not specified)"
+        help = "The -l parameter value (auto-calculated as 2 * number of FASTA samples from step 12 if not specified)"
     ).int()
 
     private val pValue by option(
@@ -62,7 +63,7 @@ class RopeBwtMem : CliktCommand(name = "ropebwt-mem") {
 
     private val outputDirOption by option(
         "--output-dir", "-o",
-        help = "Custom output directory (default: work_dir/output/12_ropebwt_mem_results)"
+        help = "Custom output directory (default: work_dir/output/13_ropebwt_mem_results)"
     ).path(mustExist = false, canBeFile = false, canBeDir = true)
 
     private fun collectFastqFiles(): List<Path> {
@@ -75,21 +76,20 @@ class RopeBwtMem : CliktCommand(name = "ropebwt-mem") {
     }
 
     private fun calculateLValue(): Int {
-        // Try to find keyfile from step 11
-        val step11OutputDir = workDir.resolve("output").resolve("11_rope_bwt_index_results")
-        val keyfilePath = step11OutputDir.resolve(KEYFILE_NAME)
+        // Try to find keyfile from rope-bwt-chr-index (step 12)
+        val upstreamDir = workDir.resolve("output").resolve(UPSTREAM_INDEX_DIR)
+        val keyfilePath = upstreamDir.resolve(KEYFILE_NAME)
 
         if (!keyfilePath.exists()) {
             logger.error("Cannot auto-calculate -l value: keyfile not found at $keyfilePath")
-            logger.error("Please specify --l-value manually or ensure step 11 (rope-bwt-chr-index) has been run")
+            logger.error("Please specify --l-value manually or ensure step 12 (rope-bwt-chr-index) has been run")
             exitProcess(1)
         }
 
-        logger.info("Reading keyfile from step 11: $keyfilePath")
-        val lines = keyfilePath.readLines()
-
-        // Count lines excluding header
-        val fastaCount = lines.size - 1
+        logger.info("Reading keyfile from step 12: $keyfilePath")
+        // Keyfile written by RopeBwtChrIndex / Orchestrate has no header: every
+        // non-blank line is `<fasta_path>\t<sample_name>`. Count those directly.
+        val fastaCount = keyfilePath.readLines().count { it.isNotBlank() }
         if (fastaCount <= 0) {
             logger.error("Keyfile has no FASTA entries: $keyfilePath")
             exitProcess(1)
@@ -101,25 +101,25 @@ class RopeBwtMem : CliktCommand(name = "ropebwt-mem") {
     }
 
     private fun findIndexFile(): Path {
-        val step11OutputDir = workDir.resolve("output").resolve("11_rope_bwt_index_results")
+        val upstreamDir = workDir.resolve("output").resolve(UPSTREAM_INDEX_DIR)
 
-        if (!step11OutputDir.exists()) {
-            logger.error("Cannot auto-detect index file: step 11 output directory not found at $step11OutputDir")
-            logger.error("Please specify --index-file manually or ensure step 11 (rope-bwt-chr-index) has been run")
+        if (!upstreamDir.exists()) {
+            logger.error("Cannot auto-detect index file: step 12 output directory not found at $upstreamDir")
+            logger.error("Please specify --index-file manually or ensure step 12 (rope-bwt-chr-index) has been run")
             exitProcess(1)
         }
 
         // Look for .fmd files in the directory
-        val fmdFiles = step11OutputDir.listDirectoryEntries("*.fmd")
+        val fmdFiles = upstreamDir.listDirectoryEntries("*.fmd")
 
         if (fmdFiles.isEmpty()) {
-            logger.error("Cannot auto-detect index file: no .fmd files found in $step11OutputDir")
+            logger.error("Cannot auto-detect index file: no .fmd files found in $upstreamDir")
             logger.error("Please specify --index-file manually")
             exitProcess(1)
         }
 
         if (fmdFiles.size > 1) {
-            logger.warn("Multiple .fmd files found in $step11OutputDir")
+            logger.warn("Multiple .fmd files found in $upstreamDir")
             logger.warn("Using the first one: ${fmdFiles[0].fileName}")
         }
 

@@ -33,7 +33,10 @@ data class PipelineConfig(
     val generate_recombined_sequences: GenerateRecombinedSequencesConfig? = null,
     val format_recombined_fastas: FormatRecombinedFastasConfig? = null,
     val mutated_maf_to_gvcf: MutatedMafToGvcfConfig? = null,
-    val rope_bwt_chr_index: RopeBwtChrIndexConfig? = null
+    val rope_bwt_chr_index: RopeBwtChrIndexConfig? = null,
+    val ropebwt_mem: RopebwtMemConfig? = null,
+    val build_spline_knots: BuildSplineKnotsConfig? = null,
+    val convert_ropebwt2ps4g: ConvertRopebwt2Ps4gConfig? = null
 )
 
 data class AlignAssembliesConfig(
@@ -134,6 +137,33 @@ data class RopeBwtChrIndexConfig(
     val threads: Int? = null,              // Optional: Number of threads (default: 20)
     val delete_fmr_index: Boolean? = null, // Optional: Delete .fmr files after conversion (default: true)
     val output: String? = null             // Optional: Custom output directory
+)
+
+data class RopebwtMemConfig(
+    val fastq_input: String,            // Required: FASTQ file, directory, or text list (no upstream auto-gen)
+    val index_file: String? = null,     // Optional: .fmd index (defaults to step 12 output)
+    val l_value: Int? = null,           // Optional: -l (defaults to 2 x FASTA count from step 12 keyfile)
+    val p_value: Int? = null,           // Optional: -p (default: 168)
+    val threads: Int? = null,           // Optional: number of threads (default: 1)
+    val output: String? = null          // Optional: Custom output directory
+)
+
+data class BuildSplineKnotsConfig(
+    val vcf_dir: String? = null,        // Optional: VCF directory (defaults to step 11 mutated GVCFs)
+    val vcf_type: String? = null,       // Optional: "hvcf" or "gvcf" (default: "hvcf")
+    val min_indel_length: Int? = null,  // Optional: gVCF only
+    val num_bps_per_knot: Int? = null,  // Optional: knot density
+    val contig_list: String? = null,    // Optional: comma-separated chromosomes
+    val random_seed: Int? = null,       // Optional: deterministic downsampling seed
+    val output: String? = null          // Optional: Custom output directory
+)
+
+data class ConvertRopebwt2Ps4gConfig(
+    val bed_input: String? = null,        // Optional: BED file/dir/list (defaults to step 13)
+    val spline_knot_dir: String? = null,  // Optional: spline knot dir (defaults to step 14)
+    val min_mem_length: Int? = null,      // Optional: minimum MEM length threshold
+    val max_num_hits: Int? = null,        // Optional: maximum haplotype hits per alignment
+    val output: String? = null            // Optional: Custom output directory
 )
 
 class Orchestrate : CliktCommand(name = "orchestrate") {
@@ -446,6 +476,49 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 )
             } else null
 
+            // Parse ropebwt_mem - fastq_input is required when the section is present
+            @Suppress("UNCHECKED_CAST")
+            val ropebwtMemMap = configMap["ropebwt_mem"] as? Map<String, Any>
+            val ropebwtMem = if (configMap.containsKey("ropebwt_mem")) {
+                RopebwtMemConfig(
+                    fastq_input = ropebwtMemMap?.get("fastq_input") as? String
+                        ?: throw IllegalArgumentException("ropebwt_mem.fastq_input is required"),
+                    index_file = ropebwtMemMap["index_file"] as? String,
+                    l_value = ropebwtMemMap["l_value"] as? Int,
+                    p_value = ropebwtMemMap["p_value"] as? Int,
+                    threads = ropebwtMemMap["threads"] as? Int,
+                    output = ropebwtMemMap["output"] as? String
+                )
+            } else null
+
+            // Parse build_spline_knots - check if key exists (even with empty/null value means "run with defaults")
+            @Suppress("UNCHECKED_CAST")
+            val buildSplineKnotsMap = configMap["build_spline_knots"] as? Map<String, Any>
+            val buildSplineKnots = if (configMap.containsKey("build_spline_knots")) {
+                BuildSplineKnotsConfig(
+                    vcf_dir = buildSplineKnotsMap?.get("vcf_dir") as? String,
+                    vcf_type = buildSplineKnotsMap?.get("vcf_type") as? String,
+                    min_indel_length = buildSplineKnotsMap?.get("min_indel_length") as? Int,
+                    num_bps_per_knot = buildSplineKnotsMap?.get("num_bps_per_knot") as? Int,
+                    contig_list = buildSplineKnotsMap?.get("contig_list") as? String,
+                    random_seed = buildSplineKnotsMap?.get("random_seed") as? Int,
+                    output = buildSplineKnotsMap?.get("output") as? String
+                )
+            } else null
+
+            // Parse convert_ropebwt2ps4g - check if key exists (even with empty/null value means "run with defaults")
+            @Suppress("UNCHECKED_CAST")
+            val convertRopebwt2Ps4gMap = configMap["convert_ropebwt2ps4g"] as? Map<String, Any>
+            val convertRopebwt2Ps4g = if (configMap.containsKey("convert_ropebwt2ps4g")) {
+                ConvertRopebwt2Ps4gConfig(
+                    bed_input = convertRopebwt2Ps4gMap?.get("bed_input") as? String,
+                    spline_knot_dir = convertRopebwt2Ps4gMap?.get("spline_knot_dir") as? String,
+                    min_mem_length = convertRopebwt2Ps4gMap?.get("min_mem_length") as? Int,
+                    max_num_hits = convertRopebwt2Ps4gMap?.get("max_num_hits") as? Int,
+                    output = convertRopebwt2Ps4gMap?.get("output") as? String
+                )
+            } else null
+
             return PipelineConfig(
                 work_dir = workDir,
                 run_steps = runSteps,
@@ -460,7 +533,10 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 generate_recombined_sequences = generateRecombinedSequences,
                 format_recombined_fastas = formatRecombinedFastas,
                 mutated_maf_to_gvcf = mutatedMafToGvcf,
-                rope_bwt_chr_index = ropeBwtChrIndex
+                rope_bwt_chr_index = ropeBwtChrIndex,
+                ropebwt_mem = ropebwtMem,
+                build_spline_knots = buildSplineKnots,
+                convert_ropebwt2ps4g = convertRopebwt2Ps4g
             )
         } catch (e: Exception) {
             logger.error("Failed to parse configuration file: ${e.message}", e)
@@ -505,6 +581,38 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
         }
         logger.info("")
 
+        // Pre-flight sanity check: pinning a single sample_name in step 11 while
+        // step 12 is auto-generating its keyfile from FASTA basenames guarantees
+        // a name mismatch between step-14 spline knots (keyed by VCF sample name)
+        // and step-13 BED contigs (keyed by step-12 keyfile sample names). PHG's
+        // convert-ropebwt2ps4g-file silently drops every record in that case, so
+        // step 15 produces a 0-row PS4G. Warn loudly when both conditions hold.
+        val step11SampleNamePinned =
+            config.mutated_maf_to_gvcf?.sample_name != null &&
+                shouldRunStep("mutated_maf_to_gvcf", config)
+        val step12AutoKeyfile =
+            config.rope_bwt_chr_index != null &&
+                config.rope_bwt_chr_index.keyfile == null &&
+                shouldRunStep("rope_bwt_chr_index", config)
+        if (step11SampleNamePinned && step12AutoKeyfile) {
+            logger.warn("=".repeat(80))
+            logger.warn(
+                "WARNING: mutated_maf_to_gvcf.sample_name is pinned to " +
+                    "'${config.mutated_maf_to_gvcf!!.sample_name}', but rope_bwt_chr_index " +
+                    "is auto-generating its keyfile from FASTA basenames. This will collapse " +
+                    "every mutated gVCF into a single VCF sample, so step-14 spline knots will " +
+                    "be keyed by '${config.mutated_maf_to_gvcf.sample_name}' while step-13 BED " +
+                    "contigs will be keyed by FASTA basenames (e.g. '0', '1'). " +
+                    "PHG convert-ropebwt2ps4g-file will then silently drop every record and " +
+                    "step 15 will produce an empty PS4G."
+            )
+            logger.warn(
+                "Recommended fix: omit mutated_maf_to_gvcf.sample_name so each gVCF is sampled " +
+                    "by its MAF basename, which matches the auto-generated step-12 keyfile."
+            )
+            logger.warn("=".repeat(80))
+        }
+
         // Track outputs between steps
         var mafFilePaths: Path? = null
         var gvcfOutputDir: Path? = null
@@ -519,7 +627,10 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
         var recombinedFastasDir: Path? = null
         var formattedFastasDir: Path? = null
         var mutatedMafFilePaths: Path? = null  // MAF file paths from step 10 (align_mutated_assemblies)
+        var mutatedGvcfOutputDir: Path? = null  // Mutated GVCF output directory from step 11
         var ropeBwtIndexDir: Path? = null  // RopeBWT index output directory from step 12
+        var ropeBwtMemOutputDir: Path? = null  // BED output directory from step 13 (ropebwt_mem)
+        var splineKnotsOutputDir: Path? = null  // Spline-knots output directory from step 14 (build_spline_knots)
 
         try {
             // Step 1: Align Assemblies (if configured and should run)
@@ -1327,10 +1438,11 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
 
                 // Determine output directory (custom or default) - resolve to absolute path
                 // Always use step 11 output directory by default (not MafToGvcf's default)
-                val mutatedGvcfOutputDir = (config.mutated_maf_to_gvcf.output_dir?.let { 
+                val step11OutputDir = (config.mutated_maf_to_gvcf.output_dir?.let { 
                     Path.of(it).toAbsolutePath().normalize() 
                 } ?: workDir.resolve("output").resolve("11_mutated_gvcf_results"))
                     .toAbsolutePath().normalize()
+                mutatedGvcfOutputDir = step11OutputDir
 
                 // Determine output file if specified - resolve to absolute path
                 val outputFile = config.mutated_maf_to_gvcf.output_file?.let { 
@@ -1339,13 +1451,13 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
 
                 logger.info("Reference FASTA: $step11RefFasta")
                 logger.info("MAF input: $mafInput")
-                logger.info("Output directory: $mutatedGvcfOutputDir")
+                logger.info("Output directory: $step11OutputDir")
 
                 val args = buildList {
                     add("--work-dir=$workDir")
                     add("--reference-file=$step11RefFasta")
                     add("--maf-file=$mafInput")
-                    add("--output-dir=$mutatedGvcfOutputDir")  // Always pass output dir to ensure step 11 location
+                    add("--output-dir=$step11OutputDir")  // Always pass output dir to ensure step 11 location
                     if (outputFile != null) {
                         add("--output-file=$outputFile")
                     }
@@ -1357,8 +1469,8 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 MafToGvcf().parse(args)
                 restoreOrchestratorLogging(workDir)
 
-                if (!mutatedGvcfOutputDir.exists()) {
-                    throw RuntimeException("Expected mutated GVCF output directory not found: $mutatedGvcfOutputDir")
+                if (!step11OutputDir.exists()) {
+                    throw RuntimeException("Expected mutated GVCF output directory not found: $step11OutputDir")
                 }
 
                 logger.info("Step 11 completed successfully")
@@ -1366,6 +1478,18 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
             } else {
                 if (config.mutated_maf_to_gvcf != null) {
                     logger.info("Skipping mutated-maf-to-gvcf (not in run_steps)")
+
+                    // Check custom output location first, then default
+                    val previousMutatedGvcfDir = (config.mutated_maf_to_gvcf.output_dir?.let { 
+                        Path.of(it).toAbsolutePath().normalize() 
+                    } ?: workDir.resolve("output").resolve("11_mutated_gvcf_results"))
+                        .toAbsolutePath().normalize()
+                    if (previousMutatedGvcfDir.exists()) {
+                        mutatedGvcfOutputDir = previousMutatedGvcfDir
+                        logger.info("Using previous mutated-maf-to-gvcf outputs: $mutatedGvcfOutputDir")
+                    } else {
+                        logger.warn("Previous mutated-maf-to-gvcf outputs not found. Downstream steps may fail.")
+                    }
                 } else {
                     logger.info("Skipping mutated-maf-to-gvcf (not configured)")
                 }
@@ -1495,6 +1619,242 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                     }
                 } else {
                     logger.info("Skipping rope-bwt-chr-index (not configured)")
+                }
+                logger.info("")
+            }
+
+            // Step 13: RopeBWT MEM Alignment (if configured and should run)
+            if (config.ropebwt_mem != null && shouldRunStep("ropebwt_mem", config)) {
+                logger.info("=".repeat(80))
+                logger.info("STEP 13: RopeBWT MEM Alignment")
+                logger.info("=".repeat(80))
+
+                // fastq_input is required when this step is configured
+                val fastqInput = Path.of(config.ropebwt_mem.fastq_input).toAbsolutePath().normalize()
+                if (!fastqInput.exists()) {
+                    throw RuntimeException("Cannot run ropebwt-mem: FASTQ input not found at $fastqInput")
+                }
+
+                // Resolve optional index_file override (defaults to .fmd discovered in step 12 output by RopeBwtMem itself)
+                val indexFileOverride = config.ropebwt_mem.index_file?.let { 
+                    Path.of(it).toAbsolutePath().normalize() 
+                }
+
+                // Determine output directory (custom or default) - resolve to absolute path
+                val customOutput = config.ropebwt_mem.output?.let { 
+                    Path.of(it).toAbsolutePath().normalize() 
+                }
+                val step13OutputDir = (customOutput ?: workDir.resolve("output").resolve("13_ropebwt_mem_results"))
+                    .toAbsolutePath().normalize()
+
+                logger.info("FASTQ input: $fastqInput")
+                if (indexFileOverride != null) {
+                    logger.info("Index file (override): $indexFileOverride")
+                } else if (ropeBwtIndexDir != null) {
+                    logger.info("Index will be auto-detected from step 12 output: $ropeBwtIndexDir")
+                }
+
+                val args = buildList {
+                    add("--work-dir=$workDir")
+                    add("--fastq-input=$fastqInput")
+                    if (indexFileOverride != null) {
+                        add("--index-file=$indexFileOverride")
+                    }
+                    if (config.ropebwt_mem.l_value != null) {
+                        add("--l-value=${config.ropebwt_mem.l_value}")
+                    }
+                    if (config.ropebwt_mem.p_value != null) {
+                        add("--p-value=${config.ropebwt_mem.p_value}")
+                    }
+                    if (config.ropebwt_mem.threads != null) {
+                        add("--threads=${config.ropebwt_mem.threads}")
+                    }
+                    if (customOutput != null) {
+                        add("--output-dir=$customOutput")
+                    }
+                }
+
+                RopeBwtMem().parse(args)
+                restoreOrchestratorLogging(workDir)
+
+                ropeBwtMemOutputDir = step13OutputDir
+
+                if (!ropeBwtMemOutputDir.exists()) {
+                    throw RuntimeException("Expected ropebwt-mem output directory not found: $ropeBwtMemOutputDir")
+                }
+
+                logger.info("Step 13 completed successfully")
+                logger.info("")
+            } else {
+                if (config.ropebwt_mem != null) {
+                    logger.info("Skipping ropebwt-mem (not in run_steps)")
+
+                    val customOutput = config.ropebwt_mem.output?.let { 
+                        Path.of(it).toAbsolutePath().normalize() 
+                    }
+                    val previousMemDir = (customOutput ?: workDir.resolve("output").resolve("13_ropebwt_mem_results"))
+                        .toAbsolutePath().normalize()
+                    if (previousMemDir.exists()) {
+                        ropeBwtMemOutputDir = previousMemDir
+                        logger.info("Using previous ropebwt-mem outputs: $ropeBwtMemOutputDir")
+                    } else {
+                        logger.warn("Previous ropebwt-mem outputs not found. Downstream steps may fail.")
+                    }
+                } else {
+                    logger.info("Skipping ropebwt-mem (not configured)")
+                }
+                logger.info("")
+            }
+
+            // Step 14: Build Spline Knots (if configured and should run)
+            if (config.build_spline_knots != null && shouldRunStep("build_spline_knots", config)) {
+                logger.info("=".repeat(80))
+                logger.info("STEP 14: Build Spline Knots")
+                logger.info("=".repeat(80))
+
+                // Determine VCF input directory. Prefer config.vcf_dir; otherwise
+                // chain from step 11 (mutated GVCFs) when available.
+                val vcfDir = config.build_spline_knots.vcf_dir?.let {
+                    Path.of(it).toAbsolutePath().normalize()
+                } ?: mutatedGvcfOutputDir
+                if (vcfDir == null) {
+                    throw RuntimeException("Cannot run build-spline-knots: no VCF input available (specify 'vcf_dir' in config or run mutated-maf-to-gvcf first)")
+                }
+                if (!vcfDir.exists()) {
+                    throw RuntimeException("Cannot run build-spline-knots: VCF input directory not found at $vcfDir")
+                }
+                logger.info("VCF directory: $vcfDir")
+
+                // Default to "gvcf" when chaining from step 11 (which produces gVCFs)
+                // and the user hasn't pinned a vcf_type explicitly.
+                val vcfType = config.build_spline_knots.vcf_type
+                    ?: if (config.build_spline_knots.vcf_dir == null) "gvcf" else null
+                if (vcfType != null) {
+                    logger.info("VCF type: $vcfType")
+                }
+
+                // Determine output directory (custom or default)
+                val customOutput = config.build_spline_knots.output?.let {
+                    Path.of(it).toAbsolutePath().normalize()
+                }
+                val step14OutputDir = (customOutput ?: workDir.resolve("output").resolve("14_spline_knots_results"))
+                    .toAbsolutePath().normalize()
+
+                val args = buildList {
+                    add("--work-dir=$workDir")
+                    add("--vcf-dir=$vcfDir")
+                    if (vcfType != null) {
+                        add("--vcf-type=$vcfType")
+                    }
+                    if (config.build_spline_knots.min_indel_length != null) {
+                        add("--min-indel-length=${config.build_spline_knots.min_indel_length}")
+                    }
+                    if (config.build_spline_knots.num_bps_per_knot != null) {
+                        add("--num-bps-per-knot=${config.build_spline_knots.num_bps_per_knot}")
+                    }
+                    if (config.build_spline_knots.contig_list != null) {
+                        add("--contig-list=${config.build_spline_knots.contig_list}")
+                    }
+                    if (config.build_spline_knots.random_seed != null) {
+                        add("--random-seed=${config.build_spline_knots.random_seed}")
+                    }
+                    if (customOutput != null) {
+                        add("--output-dir=$customOutput")
+                    }
+                }
+
+                BuildSplineKnots().parse(args)
+                restoreOrchestratorLogging(workDir)
+
+                splineKnotsOutputDir = step14OutputDir
+
+                if (!splineKnotsOutputDir.exists()) {
+                    throw RuntimeException("Expected build-spline-knots output directory not found: $splineKnotsOutputDir")
+                }
+
+                logger.info("Step 14 completed successfully")
+                logger.info("")
+            } else {
+                if (config.build_spline_knots != null) {
+                    logger.info("Skipping build-spline-knots (not in run_steps)")
+
+                    val customOutput = config.build_spline_knots.output?.let {
+                        Path.of(it).toAbsolutePath().normalize()
+                    }
+                    val previousSplineDir = (customOutput ?: workDir.resolve("output").resolve("14_spline_knots_results"))
+                        .toAbsolutePath().normalize()
+                    if (previousSplineDir.exists()) {
+                        splineKnotsOutputDir = previousSplineDir
+                        logger.info("Using previous build-spline-knots outputs: $splineKnotsOutputDir")
+                    } else {
+                        logger.warn("Previous build-spline-knots outputs not found. Downstream steps may fail.")
+                    }
+                } else {
+                    logger.info("Skipping build-spline-knots (not configured)")
+                }
+                logger.info("")
+            }
+
+            // Step 15: Convert RopeBWT to PS4G (if configured and should run)
+            if (config.convert_ropebwt2ps4g != null && shouldRunStep("convert_ropebwt2ps4g", config)) {
+                logger.info("=".repeat(80))
+                logger.info("STEP 15: Convert RopeBWT to PS4G")
+                logger.info("=".repeat(80))
+
+                // BED input: explicit override, else chain from step 13
+                val bedInput = config.convert_ropebwt2ps4g.bed_input?.let {
+                    Path.of(it).toAbsolutePath().normalize()
+                } ?: ropeBwtMemOutputDir
+                if (bedInput == null) {
+                    throw RuntimeException("Cannot run convert-ropebwt2ps4g: no BED input available (specify 'bed_input' in config or run ropebwt-mem first)")
+                }
+                logger.info("BED input: $bedInput")
+
+                // Spline knots: explicit override, else chain from step 14
+                val splineKnotDir = config.convert_ropebwt2ps4g.spline_knot_dir?.let {
+                    Path.of(it).toAbsolutePath().normalize()
+                } ?: splineKnotsOutputDir
+                if (splineKnotDir == null) {
+                    throw RuntimeException("Cannot run convert-ropebwt2ps4g: no spline-knot directory available (specify 'spline_knot_dir' in config or run build-spline-knots first)")
+                }
+                logger.info("Spline knot directory: $splineKnotDir")
+
+                // Determine output directory (custom or default)
+                val customOutput = config.convert_ropebwt2ps4g.output?.let {
+                    Path.of(it).toAbsolutePath().normalize()
+                }
+                val step15OutputDir = (customOutput ?: workDir.resolve("output").resolve("15_convert_ropebwt2ps4g_results"))
+                    .toAbsolutePath().normalize()
+
+                val args = buildList {
+                    add("--work-dir=$workDir")
+                    add("--bed-input=$bedInput")
+                    add("--spline-knot-dir=$splineKnotDir")
+                    if (config.convert_ropebwt2ps4g.min_mem_length != null) {
+                        add("--min-mem-length=${config.convert_ropebwt2ps4g.min_mem_length}")
+                    }
+                    if (config.convert_ropebwt2ps4g.max_num_hits != null) {
+                        add("--max-num-hits=${config.convert_ropebwt2ps4g.max_num_hits}")
+                    }
+                    if (customOutput != null) {
+                        add("--output-dir=$customOutput")
+                    }
+                }
+
+                ConvertRopebwt2Ps4g().parse(args)
+                restoreOrchestratorLogging(workDir)
+
+                if (!step15OutputDir.exists()) {
+                    throw RuntimeException("Expected convert-ropebwt2ps4g output directory not found: $step15OutputDir")
+                }
+
+                logger.info("Step 15 completed successfully")
+                logger.info("")
+            } else {
+                if (config.convert_ropebwt2ps4g != null) {
+                    logger.info("Skipping convert-ropebwt2ps4g (not in run_steps)")
+                } else {
+                    logger.info("Skipping convert-ropebwt2ps4g (not configured)")
                 }
                 logger.info("")
             }

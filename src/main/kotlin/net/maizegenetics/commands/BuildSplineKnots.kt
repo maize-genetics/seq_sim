@@ -19,9 +19,9 @@ import kotlin.io.path.*
 
 class BuildSplineKnots : CliktCommand(name = "build-spline-knots") {
     companion object {
-        private const val LOG_FILE_NAME = "13_build_spline_knots.log"
+        private const val LOG_FILE_NAME = "14_build_spline_knots.log"
         private const val OUTPUT_DIR = "output"
-        private const val SPLINE_KNOTS_RESULTS_DIR = "13_spline_knots_results"
+        private const val SPLINE_KNOTS_RESULTS_DIR = "14_spline_knots_results"
         private const val DEFAULT_VCF_TYPE = "hvcf"
         private const val DEFAULT_MIN_INDEL_LENGTH = 10
         private const val DEFAULT_NUM_BPS_PER_KNOT = 50000
@@ -49,7 +49,7 @@ class BuildSplineKnots : CliktCommand(name = "build-spline-knots") {
 
     private val outputDirOption by option(
         "--output-dir", "-o",
-        help = "Output directory to write the spline knots to (default: work_dir/output/13_spline_knots_results)"
+        help = "Output directory to write the spline knots to (default: work_dir/output/14_spline_knots_results)"
     ).path(mustExist = false, canBeFile = false, canBeDir = true)
 
     private val minIndelLength by option(
