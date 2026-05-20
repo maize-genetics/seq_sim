@@ -44,8 +44,19 @@ class RecombineGvcfsTest {
     }
 
 
-//
+    
 
+    @Test
+    fun buildFlippedBeds() {
+        val bedDir = "/Users/zrm22/Desktop/seqSimFix/crossovers/3/"
+        val outputBedDir = "/Users/zrm22/Desktop/seqSimFix/outputBedFilesFlipped/"
+        val recombineGvcfs = RecombineGvcfs()
+        val recombinationMap = recombineGvcfs.buildRecombinationMap(Path(bedDir))
+        val flipped = recombineGvcfs.flipRecombinationMap(recombinationMap.first)
+
+        recombineGvcfs.writeResizedBedFiles(flipped, Path(outputBedDir))
+
+    }
 
     @Test
     fun testRecombineGvcfs() {
@@ -911,7 +922,7 @@ class RecombineGvcfsTest {
             .alleles(listOf(Allele.REF_A, Allele.ALT_C))
             .genotypes(
                 listOf(
-                    GenotypeBuilder("Sample1").alleles(listOf(Allele.REF_A, Allele.REF_A)).make()
+                    GenotypeBuilder("Sample1").alleles(listOf(Allele.REF_A)).make()
                 )
             )
             .make()
@@ -922,7 +933,7 @@ class RecombineGvcfsTest {
         assertEquals("SampleName was not updated", newSampleName, renamed.genotypes.sampleNames.first())
         assertEquals(
             "Alleles were not preserved",
-            originalVariantContext.genotypes.first().alleles,
+            originalVariantContext.genotypes.first().alleles, //Doing haploid outputs now
             renamed.genotypes.first().alleles
         )
         //check that the rest of the variant matches and that Sample1 does not exist

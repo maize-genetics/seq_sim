@@ -260,20 +260,11 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
         return flippedMap
     }
 
-
-
-//    fun resizeMaps(
-//        indelsForResizing: List<Triple<String, String, SimpleVariant>>,
-//        originalRecombinationMap: Map<String, RangeMap<Position, String>>,
-//        flippedRecombinationMap: Map<String, RangeMap<Position, String>>
-//    ): Map<String, RangeMap<Position, String>>
     fun resizeMaps(
         indelsForResizing: List<Triple<String, String, SimpleVariant>>,
         originalRecombinationMap: Map<String, TreeMap<Position, Pair<Position,String>>>,
         flippedRecombinationMap: Map<String, TreeMap<Position, Pair<Position,String>>>
-    ): Map<String, TreeMap<Position, Pair<Position,String>>>
-
-    {
+    ): Map<String, TreeMap<Position, Pair<Position,String>>> {
 
         //work completely with flippedRecombinationMap then we need to flip back at the end
         val resizedMap = flippedRecombinationMap.toMutableMap()
@@ -292,104 +283,133 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
             val startRangeEntry = targetRangeMap.getEntry(indel.refStart)
 
             //Double check to make sure that we need to resize aka check that the indel's end is outside of the start range
-//            if(startRangeEntry == null || startRangeEntry.key.contains(indel.refEnd)) continue
             if(startRangeEntry == null || indel.refEnd in startRangeEntry.key .. startRangeEntry.value.first) continue
 
             //for the original entry we can just resize it.
             //add existing range to delete list
             toDeleteRanges.add(Pair(targetSampleName,Range.closed(startRangeEntry.key,startRangeEntry.value.first)))
             //create new resized range
-//            val resizedRange = Range.closed(
-//                startRangeEntry.key.lowerEndpoint(),
-//                Position(
-//                    startRangeEntry.key.upperEndpoint().contig,
-//                    indel.refEnd.position))
-
             val resizedRange = Range.closed(
                 startRangeEntry.key,
                 Position(
                     startRangeEntry.value.first.contig,
                     indel.refEnd.position))
 
-//            newRanges.add(Triple(targetSampleName,resizedRange, startRangeEntry.value))
             newRanges.add(Triple(targetSampleName,resizedRange, startRangeEntry.value.second))
 
-            //This makes sure that we don't have any overlapping sites in the output gvcf
-            //Then we need to follow the target Sample's range map and resize/remove any that are overlapping
-//            var currentPos = Position(startRangeEntry.key.upperEndpoint().contig, indel.refEnd.position)
-            var currentPos = Position(startRangeEntry.value.first.contig, indel.refEnd.position)
-            while(currentPos <= indel.refEnd) {
-                val currentRangeEntry = targetRangeMap.getEntry(currentPos) ?: break
-                //add existing range to delete list
-                toDeleteRanges.add(Pair(targetSampleName, Range.closed(currentRangeEntry.key,currentRangeEntry.value.first)))
-                //Check to see if this is the last overlapping range
-//                if (currentRangeEntry.key.contains(indel.refEnd) && currentRangeEntry.key.upperEndpoint()!= indel.refEnd) {
-                if (indel.refEnd in currentRangeEntry.key .. currentRangeEntry.value.first && currentRangeEntry.value.first!= indel.refEnd) {
-                    //Resize this range
-//                    val resizedLastRange = Range.closed(
-//                        Position(currentRangeEntry.key.lowerEndpoint().contig, indel.refEnd.position+1), //Need to shift the position up by 1
-//                        currentRangeEntry.key.upperEndpoint()
-//                    )
-                    val resizedLastRange = Range.closed(
-                        Position(currentRangeEntry.key.contig, indel.refEnd.position+1), //Need to shift the position up by 1
-                        currentRangeEntry.value.first
-                    )
 
-//                    newRanges.add(Triple(targetSampleName,resizedLastRange, currentRangeEntry.value))
-                    newRanges.add(Triple(targetSampleName,resizedLastRange, currentRangeEntry.value.second))
-                    break
-                } else {
-                    //This range is fully contained within the indel, so we skip adding it back in
-                    println("Hitting Break1")
-                    break
+            //First resize the source's recombination regions
+            //Get a submap of the indel.  We can use TreeMaps correctly as the first in the submap will be the left
+            // aligned chunk which we already have taken care of above.
+            //We can then walk through deleting any that do not overlap with the indel end position
+            // The one that does overlap we resize to start at indel end + 1 then we are done.
+            val sourceSubMap = sourceRangeMap.subMap(indel.refStart,true,indel.refEnd,true)
+            //loop through and add to delete
+            for((key,value) in sourceSubMap) {
+                val targetName = value.second
+                toDeleteRanges.add(Pair(targetName, Range.closed(key,value.first)))
+            }
+            if(sourceSubMap.isNotEmpty()) { //If this is not true ok, was already deleted
+                //Build resized map for last one:
+                val lastKey = sourceSubMap.lastKey()
+                val lastValue = sourceSubMap[lastKey]!!
+
+                if(lastValue.first.position >= indel.refEnd.position) {
+                    val resizedLastSourceRange = Range.closed(Position(startRangeEntry.value.first.contig,indel.refEnd.position + 1),lastValue.first)
+                    newRanges.add(Triple(lastValue.second,resizedLastSourceRange,sourceSampleName))
                 }
+
+            }
+            else {
+//                println("HERE")
             }
 
-            //We also need to adjust the source sample's range map to account for the resized regions otherwise we will
-            // have overlapping regions in the BED file after its reflipped
-            //Can use a similar process as above but instead we need to walk through the original recombination map and get the next ranges target then find that range in the target map and add to the delete and resize the add
-            //resetting our current pos to the indel start
-//            currentPos = Position(startRangeEntry.key.upperEndpoint().contig, indel.refEnd.position)
-            currentPos = Position(startRangeEntry.value.first.contig, indel.refEnd.position)
-            while(currentPos <= indel.refEnd) {
-                val currentSourceRangeEntry = sourceRangeMap.getEntry(currentPos) ?: break
-                //Find the corresponding range in the target map
-//                val currentRangeEntry = resizedMap[currentSourceRangeEntry.value]?.getEntry(currentSourceRangeEntry.key.lowerEndpoint()) ?: break
-                val currentRangeEntry = resizedMap[currentSourceRangeEntry.value.second]?.getEntry(currentSourceRangeEntry.key) ?: break
-                //add existing range to delete list
-//                toDeleteRanges.add(Pair(currentSourceRangeEntry.value,currentRangeEntry.key))
-                toDeleteRanges.add(Pair(currentSourceRangeEntry.value.second,Range.closed(currentRangeEntry.key,currentRangeEntry.value.first)))
-                //Check to see if this is the last overlapping range
-//                if (currentRangeEntry.key.contains(indel.refEnd) && currentRangeEntry.key.upperEndpoint()!= indel.refEnd) {
-                if (indel.refEnd in currentRangeEntry.key .. currentRangeEntry.value.first && currentRangeEntry.value.first!= indel.refEnd) {
-                    //Resize this range
-//                    val resizedLastRange = Range.closed(
-//                        Position(currentRangeEntry.key.lowerEndpoint().contig, indel.refEnd.position+1), //Need to shift the position up by 1
-//                        currentRangeEntry.key.upperEndpoint()
-//                    )
-                    val resizedLastRange = Range.closed(
-                        Position(currentRangeEntry.key.contig, indel.refEnd.position+1), //Need to shift the position up by 1
-                        currentRangeEntry.value.first
-                    )
 
-//                    newRanges.add(Triple(currentSourceRangeEntry.value,resizedLastRange, currentRangeEntry.value))
-                    newRanges.add(Triple(currentSourceRangeEntry.value.second,resizedLastRange, currentRangeEntry.value.second))
-                    break
-                } else {
-                    //This range is fully contained within the indel, so we skip adding it back in
-                    println("HittingBreak2")
-                    break
+
+            //Then we need to resize the target's region.
+            // Basically we need to find all regions that this source is going to.
+            // We need to delete any that are fully contained and the last one we need to resize to indel end +1
+            // THis makes sense as we are having the original left most region absorbing the indel positions so they
+            // should be removed from being assigned to different targets
+            val targetSubMap = targetRangeMap.subMap(indel.refStart,true,indel.refEnd,true)
+            for((key,value) in targetSubMap) {
+                val sourceName = value.second  //Don't think we need this
+                toDeleteRanges.add(Pair(targetSampleName,Range.closed(key,value.first)))
+            }
+            if(targetSubMap.isNotEmpty()) {
+                val lastKey = targetSubMap.lastKey()
+                val lastValue = targetSubMap[lastKey]!!
+
+                if(lastValue.first.position >= indel.refEnd.position) {
+                    val resizedLastTargetRange = Range.closed(Position(startRangeEntry.value.first.contig,indel.refEnd.position + 1),lastValue.first)
+                    newRanges.add(Triple(targetSampleName,resizedLastTargetRange,lastValue.second))
                 }
             }
+            else {
+//                println("HERE2")
+            }
+
+
+
+
+//            //This makes sure that we don't have any overlapping sites in the output gvcf
+//            //Then we need to follow the target Sample's range map and resize/remove any that are overlapping
+//            var currentPos = Position(startRangeEntry.value.first.contig, indel.refEnd.position)
+//            while(currentPos <= indel.refEnd) {
+//                val currentRangeEntry = targetRangeMap.getEntry(currentPos) ?: break
+//                //add existing range to delete list
+//                toDeleteRanges.add(Pair(targetSampleName, Range.closed(currentRangeEntry.key,currentRangeEntry.value.first)))
+//                //Check to see if this is the last overlapping range
+//                if (indel.refEnd in currentRangeEntry.key .. currentRangeEntry.value.first && currentRangeEntry.value.first!= indel.refEnd) {
+//                    //Resize this range
+//                    val resizedLastRange = Range.closed(
+//                        Position(currentRangeEntry.key.contig, indel.refEnd.position+1), //Need to shift the position up by 1
+//                        currentRangeEntry.value.first
+//                    )
+//
+//                    newRanges.add(Triple(targetSampleName,resizedLastRange, currentRangeEntry.value.second))
+//                    break
+//                } else {
+//                    //This range is fully contained within the indel, so we skip adding it back in Move to the next one
+//                    currentPos = Position(currentRangeEntry.value.first.contig, indel.refEnd.position)
+//                    println("Hitting Break1")
+//                    break
+//                }
+//            }
+//
+//            //We also need to adjust the source sample's range map to account for the resized regions otherwise we will
+//            // have overlapping regions in the BED file after its reflipped
+//            //Can use a similar process as above but instead we need to walk through the original recombination map and get the next ranges target then find that range in the target map and add to the delete and resize the add
+//            //resetting our current pos to the indel start
+//            currentPos = Position(startRangeEntry.value.first.contig, indel.refEnd.position)
+//            while(currentPos <= indel.refEnd) {
+//                val currentSourceRangeEntry = sourceRangeMap.getEntry(currentPos) ?: break
+//                //Find the corresponding range in the target map
+//                val currentRangeEntry = resizedMap[currentSourceRangeEntry.value.second]?.getEntry(currentSourceRangeEntry.key) ?: break
+//                //add existing range to delete list
+//                toDeleteRanges.add(Pair(currentSourceRangeEntry.value.second,Range.closed(currentRangeEntry.key,currentRangeEntry.value.first)))
+//                //Check to see if this is the last overlapping range
+//                if (indel.refEnd in currentRangeEntry.key .. currentRangeEntry.value.first && currentRangeEntry.value.first != indel.refEnd) {
+//                    //Resize this range
+//                    val resizedLastRange = Range.closed(
+//                        Position(currentRangeEntry.key.contig, indel.refEnd.position+1), //Need to shift the position up by 1
+//                        currentRangeEntry.value.first
+//                    )
+//                    newRanges.add(Triple(currentSourceRangeEntry.value.second,resizedLastRange, currentRangeEntry.value.second))
+//                    break
+//                } else {
+//                    //This range is fully contained within the indel, so we skip adding it back in
+//                    println("HittingBreak2")
+//                    break
+//                }
+//            }
 
             //Now we can remove the old ranges from the targetRangeMap
             for((target,range) in toDeleteRanges) {
-//                resizedMap[target]!!.remove(range)
                 resizedMap[target]!!.remove(range.lowerEndpoint())
             }
             //Now we can add back in the new resized ranges
             for((target, range, sourceSample) in newRanges) {
-//                resizedMap[target]!!.put(range, sourceSample)
                 resizedMap[target]!!.put(range.lowerEndpoint(), Pair(range.upperEndpoint(), sourceSample))
             }
         }
@@ -608,6 +628,7 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
         val builder = VariantContextBuilder(vc)
         val genotypes = vc.genotypes.map { genotype ->
             GenotypeBuilder(genotype)
+                .alleles(listOf(genotype.alleles.first()))
                 .name(newSampleName)
                 .make()
         }
