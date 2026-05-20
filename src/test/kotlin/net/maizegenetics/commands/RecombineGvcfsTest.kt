@@ -13,6 +13,7 @@ import htsjdk.variant.vcf.VCFFileReader
 import net.maizegenetics.utils.Position
 import net.maizegenetics.utils.SimpleVariant
 import java.io.File
+import java.util.TreeMap
 import kotlin.io.path.Path
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -41,6 +42,10 @@ class RecombineGvcfsTest {
         File(outputGvcfDir).deleteRecursively()
         File(outputBedDir).deleteRecursively()
     }
+
+
+//
+
 
     @Test
     fun testRecombineGvcfs() {
@@ -106,46 +111,47 @@ class RecombineGvcfsTest {
         )
     }
 
-    private fun checkRecombinationMapContents(recombinationMap: Map<String, RangeMap<Position, String>>, sampleName: String, expectedTargetSamples: List<String>) {
+//    private fun checkRecombinationMapContents(recombinationMap: Map<String, RangeMap<Position, String>>, sampleName: String, expectedTargetSamples: List<String>) {
+    private fun checkRecombinationMapContents(recombinationMap: Map<String, TreeMap<Position, Pair<Position, String>>>, sampleName: String, expectedTargetSamples: List<String>) {
         val sampleMap = recombinationMap[sampleName]
         require(sampleMap != null) { "Range map for $sampleName is null" }
         assertEquals(
             "${sampleName} should have 3 ranges",
             3,
-            sampleMap.asMapOfRanges().size
+            sampleMap.size
         )
         //From 1 -10 should be sampleX, from 10 to 19 should be sampleY, from 20 to 29 should be sampleZ
         val range1 = sampleMap.getEntry(Position("chr1", 5))
         assertEquals(
-            "${sampleName} first range not correct",
-            Range.closed(Position("chr1", 1), Position("chr1", 10)),
+            "${sampleName} first range start not correct",
+            Position("chr1", 1),
             range1?.key
         )
         assertEquals(
-            "${sampleName} first range target not correct",
-            expectedTargetSamples[0],
+            "${sampleName} first range end and target not correct",
+            Pair(Position("chr1", 10),expectedTargetSamples[0]),
             range1?.value
         )
         val range2 = sampleMap.getEntry(Position("chr1", 15))
         assertEquals(
-            "${sampleName} second range not correct",
-            Range.closed(Position("chr1", 11), Position("chr1", 20)),
+            "${sampleName} second range start not correct",
+            Position("chr1", 11),
             range2?.key
         )
         assertEquals(
-            "${sampleName} second range target not correct",
-            expectedTargetSamples[1],
+            "${sampleName} second range end and target not correct",
+            Pair( Position("chr1", 20), expectedTargetSamples[1]),
             range2?.value
         )
         val range3 = sampleMap.getEntry(Position("chr1", 25))
         assertEquals(
-            "${sampleName} third range not correct",
-            Range.closed(Position("chr1", 21), Position("chr1", 30)),
+            "${sampleName} third range start not correct",
+            Position("chr1", 21),
             range3?.key
         )
         assertEquals(
-            "${sampleName} third range target not correct",
-            expectedTargetSamples[2],
+            "${sampleName} third range end and target not correct",
+            Pair(Position("chr1", 30), expectedTargetSamples[2]),
             range3?.value
         )
     }
@@ -168,7 +174,7 @@ class RecombineGvcfsTest {
         assertEquals(
             "SampleA should have 3 ranges",
             3,
-            sampleARangeMap?.asMapOfRanges()?.size
+            sampleARangeMap?.size
         )
         assertEquals("SampleA matches original", recombinationMap["sampleA"], sampleARangeMap)
 
@@ -177,39 +183,39 @@ class RecombineGvcfsTest {
         assertEquals(
             "SampleB should have 3 ranges",
             3,
-            sampleBRangeMap?.asMapOfRanges()?.size
+            sampleBRangeMap?.size
         )
         val sampleBFirstRange = sampleBRangeMap?.getEntry(Position("chr1",5))
         assertEquals(
-            "SampleB first range should be unchanged",
-            Range.closed(Position("chr1",1), Position("chr1",10)),
+            "SampleB first range start should be unchanged",
+            Position("chr1",1),
             sampleBFirstRange?.key
         )
         assertEquals(
-            "SampleB first range target should be unchanged",
-            "sampleY",
+            "SampleB first range end and target should be unchanged",
+            Pair(Position("chr1",10), "sampleY"),
             sampleBFirstRange?.value
         )
         val sampleBSecondRange = sampleBRangeMap?.getEntry(Position("chr1",15))
         assertEquals(
-            "SampleB second range should be resized to 12-20",
-            Range.closed(Position("chr1",12), Position("chr1",20)),
+            "SampleB second range start should be resized to 12",
+            Position("chr1",12),
             sampleBSecondRange?.key
         )
         assertEquals(
-            "SampleB second range target should be sampleZ",
-            "sampleZ",
+            "SampleB second range end should be 20 and target should be sampleZ",
+            Pair(Position("chr1",20),"sampleZ"),
             sampleBSecondRange?.value
         )
         val sampleBThirdRange = sampleBRangeMap?.getEntry(Position("chr1",25))
         assertEquals(
-            "SampleB third range should be unchanged",
-            Range.closed(Position("chr1",21), Position("chr1",30)),
+            "SampleB third range start should be unchanged",
+            Position("chr1",21),
             sampleBThirdRange?.key
         )
         assertEquals(
-            "SampleB third range target should be unchanged",
-            "sampleX",
+            "SampleB third range end and target should be unchanged",
+            Pair( Position("chr1",30),"sampleX"),
             sampleBThirdRange?.value
         )
 
@@ -217,39 +223,39 @@ class RecombineGvcfsTest {
         assertEquals(
             "SampleC should have 3 ranges",
             3,
-            sampleCRangeMap?.asMapOfRanges()?.size
+            sampleCRangeMap?.size
         )
         val sampleCFirstRange = sampleCRangeMap?.getEntry(Position("chr1",5))
         assertEquals(
-            "SampleC first range should be resized to 1-11",
-            Range.closed(Position("chr1",1), Position("chr1",11)),
+            "SampleC first range start should be resized to 1-11",
+            Position("chr1",1),
             sampleCFirstRange?.key
         )
         assertEquals(
-            "SampleC first range target should be sampleZ",
-            "sampleZ",
+            "SampleC first range end should be 11 and target should be sampleZ",
+            Pair(Position("chr1",11),"sampleZ"),
             sampleCFirstRange?.value
         )
         val sampleCSecondRange = sampleCRangeMap?.getEntry(Position("chr1",15))
         assertEquals(
-            "SampleC second range has changed",
-            Range.closed(Position("chr1",12), Position("chr1",20)),
+            "SampleC second range start should be 12",
+            Position("chr1",12),
             sampleCSecondRange?.key
         )
         assertEquals(
-            "SampleC second range target should be unchanged",
-            "sampleX",
+            "SampleC second range end should be 20 target should be sampleX",
+            Pair( Position("chr1",20),"sampleX"),
             sampleCSecondRange?.value
         )
         val sampleCThirdRange = sampleCRangeMap?.getEntry(Position("chr1",25))
         assertEquals(
-            "SampleC third range should be unchanged",
-            Range.closed(Position("chr1",21), Position("chr1",30)),
+            "SampleC third range start should be unchanged",
+            Position("chr1",21),
             sampleCThirdRange?.key
         )
         assertEquals(
-            "SampleC third range target should be unchanged",
-            "sampleY",
+            "SampleC third range end and target should be unchanged",
+            Pair( Position("chr1",30),"sampleY"),
             sampleCThirdRange?.value
         )
     }
@@ -363,43 +369,70 @@ class RecombineGvcfsTest {
         assertEquals(
             "TargetSampleA should have 2 ranges",
             2,
-            targetSampleARangeMap?.asMapOfRanges()?.size
+            targetSampleARangeMap?.size
         )
-        val targetSampleARanges = targetSampleARangeMap?.asMapOfRanges()
         //Check that the ranges are correct
-        val range1 = targetSampleARanges?.keys?.find { it.contains(Position("chr1", 150)) }
+        val range1 = targetSampleARangeMap?.getEntry(Position("chr1", 150))!!
         assertEquals(
-            "TargetSampleA should have range from Sample1",
-            Range.closed(Position("chr1", 100), Position("chr1", 200)),
-            range1
+            "TargetSampleA should have correct start from Sample1",
+            Position("chr1",100),
+            range1.key
         )
-        val range2 = targetSampleARanges?.keys?.find { it.contains(Position("chr1", 250)) }
         assertEquals(
-            "TargetSampleA should have range from Sample2",
-            Range.closed(Position("chr1", 201), Position("chr1", 300)),
-            range2
+            "TargetSampleA should have correct end from Sample1",
+            Position("chr1",200),
+            range1.value.first
         )
+
+        val range2 = targetSampleARangeMap?.getEntry(Position("chr1", 250))!!
+
+//        val range2 = targetSampleARanges?.keys?.find { it.contains(Position("chr1", 250)) }
+        assertEquals(
+            "TargetSampleA should have correct start from Sample2",
+            Position("chr1", 201),
+            range2.key
+        )
+        assertEquals(
+            "TargetSampleA should have correct end from Sample2",
+            Position("chr1", 300),
+            range2.value.first
+        )
+
         //Check TargetSampleB
         val targetSampleBRangeMap = flippedMap["TargetSampleB"]
         assertEquals(
             "TargetSampleB should have 2 ranges",
             2,
-            targetSampleBRangeMap?.asMapOfRanges()?.size
+            targetSampleBRangeMap?.size
         )
-        val targetSampleBRanges = targetSampleBRangeMap?.asMapOfRanges()
         //Check that the ranges are correct
-        val range3 = targetSampleBRanges?.keys?.find { it.contains(Position("chr1", 150)) }
+        val range3 = targetSampleBRangeMap?.getEntry(Position("chr1", 150))!!
+//        val range3 = targetSampleBRanges?.keys?.find { it.contains(Position("chr1", 150)) }
         assertEquals(
-            "TargetSampleB should have range from Sample2",
-            Range.closed(Position("chr1", 100), Position("chr1", 200)),
-            range3
+            "TargetSampleB should have correct start from Sample2",
+            Position("chr1", 100),
+            range3.key
         )
-        val range4 = targetSampleBRanges?.keys?.find { it.contains(Position("chr1", 250)) }
+
         assertEquals(
-            "TargetSampleB should have range from Sample1",
-            Range.closed(Position("chr1", 201), Position("chr1", 300)),
-            range4
+            "TargetSampleB should have correct end from Sample2",
+            Position("chr1", 200),
+            range3.value.first
         )
+
+
+        val range4 = targetSampleBRangeMap?.getEntry(Position("chr1", 250))!!
+        assertEquals(
+            "TargetSampleB should have correct start from Sample1",
+            Position("chr1", 201),
+            range4.key
+        )
+        assertEquals(
+            "TargetSampleB should have correct end from Sample2",
+            Position("chr1", 300),
+            range4.value.first
+        )
+
 
         //Flip it back and see if the original map is recovered
         val reflippedMap = recombineGvcfs.flipRecombinationMap(flippedMap)
@@ -451,40 +484,40 @@ class RecombineGvcfsTest {
         assertEquals(
             "sampleZ should have 3 ranges",
             3,
-            targetSampleZRangeMap?.asMapOfRanges()?.size
+            targetSampleZRangeMap?.size
         )
-        val firstRegion = targetSampleZRangeMap?.getEntry(Position("chr1",5))
+        val firstRegion = targetSampleZRangeMap?.getEntry(Position("chr1",5))!!
         assertEquals(
             "First region should be from 1-11",
             Range.closed(Position("chr1",1), Position("chr1",11)),
-            firstRegion?.key
+            Range.closed(firstRegion.key,firstRegion.value.first)
         )
         assertEquals(
             "First region should be from sampleC",
             "sampleC",
-            firstRegion?.value
+            firstRegion.value.second
         )
-        val secondRegion = targetSampleZRangeMap?.getEntry(Position("chr1",15))
+        val secondRegion = targetSampleZRangeMap.getEntry(Position("chr1",15))!!
         assertEquals(
             "Second region should be from 12-20",
             Range.closed(Position("chr1",12), Position("chr1",20)),
-            secondRegion?.key
+            Range.closed(secondRegion.key, secondRegion.value.first)
         )
         assertEquals(
             "Second region should be from sampleB",
             "sampleB",
-            secondRegion?.value
+            secondRegion.value.second
         )
-        val thirdRegion = targetSampleZRangeMap?.getEntry(Position("chr1",25))
+        val thirdRegion = targetSampleZRangeMap.getEntry(Position("chr1",25))!!
         assertEquals(
             "Third region should be from 21-30",
             Range.closed(Position("chr1",21), Position("chr1",30)),
-            thirdRegion?.key
+            Range.closed(thirdRegion.key, thirdRegion.value.first)
         )
         assertEquals(
             "Third region should be from sampleA",
             "sampleA",
-            thirdRegion?.value
+            thirdRegion.value.second
         )
     }
 
@@ -510,17 +543,17 @@ class RecombineGvcfsTest {
         val expectedTargetSampleBContent = "chr1\t99\t200\tTargetSampleB\nchr1\t200\t300\tTargetSampleA"
         assertEquals("TargetSampleB.bed content is incorrect", expectedTargetSampleBContent, targetSampleBContent)
     }
-
-    private fun buildSimpleRecombinationMap(): Map<String, RangeMap<Position, String>> {
-        val recombinationMap = mutableMapOf<String, RangeMap<Position, String>>()
+//
+    private fun buildSimpleRecombinationMap(): Map<String, TreeMap<Position, Pair<Position,String>>> {
+        val recombinationMap = mutableMapOf<String, TreeMap<Position, Pair<Position,String>>>()
         //Build the recombination map here
-        val sample1RangeMap = TreeRangeMap.create<Position, String>()
-        sample1RangeMap.put(Range.closed(Position("chr1", 100), Position("chr1", 200)), "TargetSampleA")
-        sample1RangeMap.put(Range.closed(Position("chr1", 201), Position("chr1", 300)), "TargetSampleB")
+        val sample1RangeMap = TreeMap<Position, Pair<Position, String>>()
+        sample1RangeMap[Position("chr1", 100)] = Pair(Position("chr1", 200), "TargetSampleA")
+        sample1RangeMap[Position("chr1", 201)] = Pair(Position("chr1", 300), "TargetSampleB")
         recombinationMap["Sample1"] = sample1RangeMap
-        val sample2RangeMap = TreeRangeMap.create<Position, String>()
-        sample2RangeMap.put(Range.closed(Position("chr1", 100), Position("chr1", 200)), "TargetSampleB")
-        sample2RangeMap.put(Range.closed(Position("chr1", 201), Position("chr1", 300)), "TargetSampleA")
+        val sample2RangeMap = TreeMap<Position, Pair<Position, String>>()
+        sample2RangeMap[Position("chr1", 100)] = Pair(Position("chr1", 200), "TargetSampleB")
+        sample2RangeMap[Position("chr1", 201)] = Pair(Position("chr1", 300), "TargetSampleA")
         recombinationMap["Sample2"] = sample2RangeMap
         return recombinationMap
     }
@@ -812,10 +845,10 @@ class RecombineGvcfsTest {
         val outputWriters = recombineGvcfs.buildOutputWriterMap(listOf("sampleX", "sampleY", "sampleZ"), Path(outputGvcfDir))
 
         //Build a rangeMap -> Target map
-        val rangeMap = TreeRangeMap.create<Position, String>()
-        rangeMap.put(Range.closed(Position("chr1", 1), Position("chr1", 10)), "sampleX")
-        rangeMap.put(Range.closed(Position("chr1",11), Position("chr1", 20)), "sampleY")
-        rangeMap.put(Range.closed(Position("chr1",21), Position("chr1", 30)), "sampleZ")
+        val rangeMap = TreeMap<Position, Pair<Position,String>>()
+        rangeMap[Position("chr1", 1)] = Pair(Position("chr1", 10), "sampleX")
+        rangeMap[Position("chr1", 11)] = Pair(Position("chr1", 20), "sampleY")
+        rangeMap[Position("chr1", 21)] = Pair(Position("chr1", 30), "sampleZ")
 
         //Build a refBlock from 5-25
         val refBlock = recombineGvcfs.buildRefBlock("chr1", 5, 25, "A", "sampleA")
