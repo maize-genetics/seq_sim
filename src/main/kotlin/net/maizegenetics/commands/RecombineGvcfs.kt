@@ -314,7 +314,7 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
                 val lastKey = sourceSubMap.lastKey()
                 val lastValue = sourceSubMap[lastKey]!!
 
-                if(lastValue.first.position >= indel.refEnd.position) {
+                if(lastValue.first.position >= indel.refEnd.position + 1) { //Need to add the +1 as it can throw a bad range if not.
                     val resizedLastSourceRange = Range.closed(Position(startRangeEntry.value.first.contig,indel.refEnd.position + 1),lastValue.first)
                     newRanges.add(Triple(lastValue.second,resizedLastSourceRange,sourceSampleName))
                 }
@@ -340,7 +340,7 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
                 val lastKey = targetSubMap.lastKey()
                 val lastValue = targetSubMap[lastKey]!!
 
-                if(lastValue.first.position >= indel.refEnd.position) {
+                if(lastValue.first.position >= indel.refEnd.position+1) { //Need to add the +1 as it can throw a bad range if not.
                     val resizedLastTargetRange = Range.closed(Position(startRangeEntry.value.first.contig,indel.refEnd.position + 1),lastValue.first)
                     newRanges.add(Triple(targetSampleName,resizedLastTargetRange,lastValue.second))
                 }
