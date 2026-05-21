@@ -649,7 +649,7 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
                 altAlleleString.substring(0 until resizeLength)
             }
             //buildDel(chrom: String, start:Int, end:Int, refAllele:String, altAllele: String, sampleName: String)
-            val newDel = buildDel(vc.contig, startPos.position, endPos.position, resizedRefSeq, resizedAltSeq, entry.value.second )
+            val newDel = buildDel(vc.contig, vc.start, endPos.position, resizedRefSeq, resizedAltSeq, entry.value.second )
             outputWriter.add(newDel)
 
         }
