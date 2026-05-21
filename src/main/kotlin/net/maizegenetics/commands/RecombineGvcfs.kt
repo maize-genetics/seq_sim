@@ -640,7 +640,8 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
         else {
             //We need to resize the deletion to be up to the end of the entry
             val altAlleleString = vc.alternateAlleles.first().baseString
-            val resizeLength = endPos.position - entry.value.first.position + 1
+//            val resizeLength = endPos.position - entry.value.first.position + 1
+            val resizeLength = entry.value.first.position  - vc.start + 1
             val resizedRefSeq = vc.reference.baseString.substring(0 until resizeLength )
             val resizedAltSeq = if(altAlleleString.length < resizeLength) {
                 altAlleleString
@@ -649,7 +650,15 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
                 altAlleleString.substring(0 until resizeLength)
             }
             //buildDel(chrom: String, start:Int, end:Int, refAllele:String, altAllele: String, sampleName: String)
-            val newDel = buildDel(vc.contig, vc.start, endPos.position, resizedRefSeq, resizedAltSeq, entry.value.second )
+            if((entry.value.first.position - vc.start) + 1 != resizedRefSeq.length) {
+                println("*******************************")
+                println("ERROR With sizes:\n" +
+                        "${vc.contig}:${vc.start}-${vc.end} ${vc.reference.baseString.length}->${vc.alternateAlleles.first().baseString.length}\n" +
+                        "${startPos} - ${entry.value.first.position}")
+                println((entry.value.first.position - vc.start) + 1)
+                println(resizedRefSeq.length)
+            }
+            val newDel = buildDel(vc.contig, vc.start, entry.value.first.position, resizedRefSeq, resizedAltSeq, entry.value.second )
             outputWriter.add(newDel)
 
         }
@@ -683,16 +692,33 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
     }
     fun buildDel(chrom: String, start:Int, end:Int, refAllele:String, altAllele: String, sampleName: String): VariantContext {
 
-        return VariantContextBuilder()
-            .chr(chrom)
-            .start(start.toLong())
-            .stop(end.toLong())
-            .alleles(listOf(refAllele, altAllele))
-            .genotypes(
-                listOf(
-                    GenotypeBuilder(sampleName).alleles(listOf(Allele.create(altAllele,false))).make()
-                )
-            ).make()
+        return if(refAllele == altAllele) {
+            VariantContextBuilder()
+                .chr(chrom)
+                .start(start.toLong())
+                .stop(end.toLong())
+                .alleles(listOf(refAllele))
+                .genotypes(
+                    listOf(
+                        GenotypeBuilder(sampleName).alleles(listOf(Allele.create(refAllele,true))).make()
+                    )
+                ).make()
+        }
+        else {
+            VariantContextBuilder()
+                .chr(chrom)
+                .start(start.toLong())
+                .stop(end.toLong())
+                .alleles(listOf(refAllele, altAllele))
+                .genotypes(
+                    listOf(
+                        GenotypeBuilder(sampleName).alleles(listOf(Allele.create(altAllele,false))).make()
+                    )
+                ).make()
+        }
+
+
+//        return
     }
 
 }
