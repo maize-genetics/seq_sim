@@ -63,7 +63,29 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
 
     override fun run() {
         // Implementation goes here
-        recombineGvcfs(inputBedDir, inputGvcfDir, refFile, outputDir, outputBedDir)
+//        recombineGvcfs(inputBedDir, inputGvcfDir, refFile, outputDir, outputBedDir)
+        recombineGvcfs2(inputBedDir, inputGvcfDir, refFile, outputDir)
+    }
+
+    fun recombineGvcfs2(inputBedDir: Path, inputGvcfDir: Path, refFile: Path, outputDir: Path) {
+        println("Loading in the reference Genome from $refFile")
+        val refSeq = NucSeqIO(refFile.toFile().path).readAll()
+
+        // Placeholder for the actual recombination logic
+        println("Recombining GVCFs from $inputGvcfDir using BED files from $inputBedDir into $outputDir")
+
+        //Build BedFile Map
+        val (recombinationMap, sampleNames) = buildRecombinationMap(inputBedDir)
+
+        println("Building the Initial output GVCF Writers.")
+        //Build Output writers for each sample name
+        val outputWriters = buildOutputWriterMap(sampleNames, outputDir)
+        println("Process GVCFs and write them out.")
+        //Process GVCFs and write out recombined files
+        processGvcfsAndWrite(recombinationMap, inputGvcfDir, outputWriters, refSeq)
+        println("Finished writing to $outputBedDir")
+        //Close the GVCF writers
+        outputWriters.values.forEach { it.close() }
     }
 
     fun recombineGvcfs(inputBedDir: Path, inputGvcfDir: Path, refFile: Path, outputDir: Path,  outputBedDir: Path) {
@@ -422,15 +444,6 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
         for((sampleName, rangeMap) in recombinationMap) {
             val outputBedFile = File(outputBedDir.toFile(), "${sampleName}_resized.bed")
             outputBedFile.bufferedWriter().use { writer ->
-//                for(entry in rangeMap.asMapOfRanges().entries) {
-//                    val range = entry.key
-//                    val targetSampleName = entry.value
-//                    val chrom = range.lowerEndpoint().contig
-//                    val start = range.lowerEndpoint().position - 1 //Convert back to 0 based for BED
-//                    val end = range.upperEndpoint().position
-//
-//                    writer.write("$chrom\t$start\t$end\t$targetSampleName\n")
-//                }
 
                 for ((startPos, pair) in rangeMap) {
                     val (endPos, targetSampleName) = pair
@@ -460,20 +473,12 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
         }
     }
 
-//    fun processGvcfsAndWrite(
-//        recombinationMap: Map<String, RangeMap<Position,String>>,
-//        inputGvcfDir: Path,
-//        outputWriters: Map<String, VariantContextWriter>,
-//        refSeq :Map<String, NucSeqRecord>
-//    )
     fun processGvcfsAndWrite(
         recombinationMap: Map<String, TreeMap<Position,Pair<Position,String>>>,
         inputGvcfDir: Path,
         outputWriters: Map<String, VariantContextWriter>,
         refSeq :Map<String, NucSeqRecord>
-    )
-    {
-
+    ) {
         inputGvcfDir.toFile().listFiles()?.forEach { gvcfFile ->
             val match = pattern.matchEntire(gvcfFile.name)
             if (match == null) {
@@ -489,21 +494,12 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
         }
     }
 
-//    fun processSingleGVCFFile(
-//        gvcfReader: VCFReader,
-//        ranges: RangeMap<Position,String>,
-//        outputWriters: Map<String, VariantContextWriter>,
-//        refSeq :Map<String, NucSeqRecord>
-//    )
     fun processSingleGVCFFile(
         gvcfReader: VCFReader,
         ranges: TreeMap<Position,Pair<Position,String>>,
         outputWriters: Map<String, VariantContextWriter>,
         refSeq :Map<String, NucSeqRecord>
-    )
-    {
-//        TODO("UPDATE THE REST OF THIS FUNCTION TO HANDLE THINGS CORRECTLY.")
-
+    ) {
         //Need to loop through each range and each gvcf record.
         //We need to see if the variant falls within the range. If so, write it to the appropriate output writer.
         //There are edge cases where the variant can span multiple ranges(Due to RefBlock) which is valid just need to resize the variant and write out.
@@ -520,7 +516,6 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
             val startPos = Position(vc.contig, vc.start)
             val endPos = Position(vc.contig, vc.end)
 
-//            var targetSampleName = ranges.get(startPos) ?: continue
             //Check to see if startPos is between our current entry
             val startPosEntry = if(startPos in currentEntry.key .. currentEntry.value.first) {
                 //use currentEntry
@@ -530,7 +525,6 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
                 currentEntry = newEntry
                 newEntry
             }
-//            val startPosEntry = ranges.getEntry(startPos) ?: continue
             val targetSampleName = startPosEntry.value.second
 
             var outputWriter = outputWriters[targetSampleName] ?: continue
@@ -547,12 +541,15 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
                 //Get the current start position
                 processRefBlockOverlap(startPos, endPos, ranges, outputWriters, refSeq, vc)
             }
-            else {
-                //Its an indel or complex polymorphism
-                //Assign it to the left most range only
-                //This is ok to do as we have already resized the recombination ranges to account for overlapping indels
+            else if(vc.reference.length() == 1 && vc.alternateAlleles.first().baseString.length > 1) {
+                //Insertion
+                //we can just write it out as simple insertions only hit one bp of ref
                 val newVc = changeSampleName(vc, targetSampleName)
                 outputWriter.add(newVc)
+            }
+            else {
+                //zrm22 updating to resize deletions specifically
+                processDelOverlap(startPos, endPos, ranges, outputWriter, vc)
             }
         }
     }
@@ -624,6 +621,41 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
         }
     }
 
+
+    fun processDelOverlap(
+        startPos: Position,
+        endPos: Position,
+        ranges: TreeMap<Position, Pair<Position, String>>,
+        outputWriter: VariantContextWriter,
+        vc: VariantContext
+    ) {
+        //Get out the region that this vc hits using startPos
+        val entry = ranges.getEntry(startPos) ?: return
+
+        if(endPos in entry.key..entry.value.first) {
+            //This means its fully contained so we can just write out
+            val newVc = changeSampleName(vc, entry.value.second)
+            outputWriter.add(newVc)
+        }
+        else {
+            //We need to resize the deletion to be up to the end of the entry
+            val altAlleleString = vc.alternateAlleles.first().baseString
+            val resizeLength = endPos.position - entry.value.first.position + 1
+            val resizedRefSeq = vc.reference.baseString.substring(0 until resizeLength )
+            val resizedAltSeq = if(altAlleleString.length < resizeLength) {
+                altAlleleString
+            }
+            else {
+                altAlleleString.substring(0 until resizeLength)
+            }
+            //buildDel(chrom: String, start:Int, end:Int, refAllele:String, altAllele: String, sampleName: String)
+            val newDel = buildDel(vc.contig, startPos.position, endPos.position, resizedRefSeq, resizedAltSeq, entry.value.second )
+            outputWriter.add(newDel)
+
+        }
+
+    }
+
     fun changeSampleName(vc: VariantContext, newSampleName: String): VariantContext {
         val builder = VariantContextBuilder(vc)
         val genotypes = vc.genotypes.map { genotype ->
@@ -646,6 +678,19 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
             .genotypes(
                 listOf(
                     GenotypeBuilder(sampleName).alleles(listOf(Allele.create(refAllele,true))).make()
+                )
+            ).make()
+    }
+    fun buildDel(chrom: String, start:Int, end:Int, refAllele:String, altAllele: String, sampleName: String): VariantContext {
+
+        return VariantContextBuilder()
+            .chr(chrom)
+            .start(start.toLong())
+            .stop(end.toLong())
+            .alleles(listOf(refAllele, altAllele))
+            .genotypes(
+                listOf(
+                    GenotypeBuilder(sampleName).alleles(listOf(Allele.create(altAllele,false))).make()
                 )
             ).make()
     }
