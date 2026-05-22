@@ -120,10 +120,18 @@ COPY src/main/resources/pixi.toml /opt/seq-sim-prebuilt/pixi.toml
 # runtime `pixi install` is just hardlinks/copies from a warm cache.
 ENV PIXI_CACHE_DIR=/var/cache/pixi
 ENV RATTLER_CACHE_DIR=/var/cache/pixi
+# The realized env at /opt/seq-sim-prebuilt/.pixi/envs/default is only used
+# to warm /var/cache/pixi -- it is never executed at runtime because the
+# container sets SEQ_SIM_SKIP_PIXI_PREFIX=1 (see ProcessRunner.kt), which
+# routes all pipeline tool calls through the micromamba phgv2-conda env on
+# PATH instead. Delete it after the install so we don't ship ~2-3 GB of
+# duplicated python/anchorwave/minimap2/ropebwt3 binaries in the image
+# layer. The /var/cache/pixi cache is what seeds the runtime workdir.
 RUN mkdir -p /var/cache/pixi && \
     cd /opt/seq-sim-prebuilt && \
     pixi install --manifest-path pixi.toml && \
-    test -d /opt/seq-sim-prebuilt/.pixi/envs/default
+    test -d /opt/seq-sim-prebuilt/.pixi/envs/default && \
+    rm -rf /opt/seq-sim-prebuilt/.pixi
 
 # ---------------------------------------------------------------------------
 # Pre-download PHGv2 latest release so `setup-environment` can skip the
