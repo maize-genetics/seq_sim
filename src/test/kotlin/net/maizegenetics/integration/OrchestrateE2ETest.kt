@@ -15,7 +15,7 @@ import kotlin.test.assertTrue
 
 /**
  * End-to-end test: run `orchestrate` against the smallseq test fixtures
- * through every pipeline step (1-9) and assert that each step's expected
+ * through every pipeline step (1-15) and assert that each step's expected
  * outputs are produced.
  *
  * Only runs inside the seq-sim-dev container (SEQ_SIM_IN_CONTAINER=1).
@@ -45,13 +45,74 @@ class OrchestrateE2ETest {
     }
 
     /**
-     * Full pipeline (steps 1-9) E2E: align_assemblies -> maf_to_gvcf ->
-     * downsample_gvcf -> convert_to_fasta -> pick_crossovers ->
-     * create_chain_files -> convert_coordinates ->
-     * generate_recombined_sequences -> format_recombined_fastas.
+     * Synthesize a tiny but well-formed FASTQ file from one of the smallseq
+     * query FASTAs. We slide a fixed-width window across the concatenated
+     * sequence so every read is a true substring of a parent assembly --
+     * giving step 13 (`ropebwt3 mem`) a meaningful match rate against the
+     * step-12 PHG index without checking external fixture files into the
+     * repo.
      *
-     * Validates that every step's expected outputs are produced and that
-     * the orchestrator chains them together correctly end-to-end.
+     * Phred+33 quality is set to `I` (Q40) across the board; ropebwt3 does
+     * not use quality scores for matching but ignores nothing either, so we
+     * keep the FASTQ syntactically valid.
+     */
+    private fun synthesizeFastqFromFasta(
+        sourceFasta: Path,
+        target: Path,
+        readLength: Int = 150,
+        numReads: Int = 200,
+        sampleName: String = "synthetic"
+    ) {
+        val sequence = buildString {
+            sourceFasta.toFile().useLines { lines ->
+                lines.forEach { line ->
+                    if (!line.startsWith(">") && line.isNotBlank()) append(line.trim())
+                }
+            }
+        }
+        require(sequence.length >= readLength) {
+            "Source FASTA $sourceFasta is shorter than the requested read length ($readLength)"
+        }
+
+        val step = ((sequence.length - readLength) / numReads).coerceAtLeast(1)
+        val quality = "I".repeat(readLength)
+
+        target.parent?.createDirectories()
+        target.toFile().bufferedWriter().use { out ->
+            var written = 0
+            var offset = 0
+            while (written < numReads && offset + readLength <= sequence.length) {
+                val read = sequence.substring(offset, offset + readLength)
+                out.write("@${sampleName}_read${written + 1}\n")
+                out.write("$read\n")
+                out.write("+\n")
+                out.write("$quality\n")
+                written += 1
+                offset += step
+            }
+        }
+    }
+
+    /**
+     * Full pipeline (steps 1-15) E2E. Validates that every step's expected
+     * outputs are produced and that the orchestrator chains them together
+     * correctly end-to-end:
+     *
+     *   1. align_assemblies              -> 01_anchorwave_results/
+     *   2. maf_to_gvcf                   -> 02_gvcf_results/
+     *   3. downsample_gvcf               -> 03_downsample_results/
+     *   4. convert_to_fasta              -> 04_fasta_results/
+     *   5. pick_crossovers               -> 05_crossovers_results/
+     *   6. create_chain_files            -> 06_chain_results/
+     *   7. convert_coordinates           -> 07_coordinates_results/
+     *   8. generate_recombined_sequences -> 08_recombined_sequences/
+     *   9. format_recombined_fastas      -> 09_formatted_fastas/
+     *  10. align_mutated_assemblies      -> 10_mutated_alignment_results/
+     *  11. mutated_maf_to_gvcf           -> 11_mutated_gvcf_results/
+     *  12. rope_bwt_chr_index            -> 12_rope_bwt_index_results/
+     *  13. ropebwt_mem                   -> 13_ropebwt_mem_results/
+     *  14. build_spline_knots            -> 14_spline_knots_results/
+     *  15. convert_ropebwt2ps4g          -> 15_convert_ropebwt2ps4g_results/
      *
      * Uses a persistent working directory under `build/test-output/` (not
      * [org.junit.jupiter.api.io.TempDir]) so intermediate pipeline outputs
@@ -60,31 +121,40 @@ class OrchestrateE2ETest {
      * test hermetic.
      */
     @Test
-    fun orchestrateRunsFullPipelineStepsOneThroughNine() {
-        // Steps 1-9 require: PHG + AnchorWave (step 1), biokotlin-tools
-        // (step 2), MLImpute (steps 3-4 and the python scripts that back
-        // pick_crossovers / convert_coordinates / generate_recombined_sequences),
-        // and seqkit (step 9). The orchestrator's auto-run of
-        // setup-environment populates biokotlin-tools and MLImpute on first
-        // run; the PHGv2 binary is picked up from SEQ_SIM_PHG_DIR.
+    fun orchestrateRunsFullPipelineStepsOneThroughFifteen() {
+        // Every PHG-backed step needs the phg binary + anchorwave on PATH;
+        // steps 13/15 additionally need `ropebwt3` (provided by the PHGv2
+        // conda env that the dev container activates). Steps 3-4 / 5-9 rely
+        // on MLImpute + biokotlin-tools + seqkit which the orchestrator's
+        // auto-run of setup-environment installs on first run.
         IntegrationGuard.requirePhg()
         IntegrationGuard.requireAnchorwave()
         IntegrationGuard.logContainerMemoryBudget()
 
-        val workDir = persistentWorkDir("orchestrate-steps-1-9")
+        val workDir = persistentWorkDir("orchestrate-steps-1-15")
         println(">>> Persisting full-pipeline E2E outputs at: $workDir")
 
         // pick_crossovers requires an EVEN number of assemblies (they're
         // paired for crossover simulation). smallseq ships 3 query FASTAs
-        // (LineA/LineB/LineC) and each input flows through to exactly one
-        // downsampled GVCF + one FASTA, so we feed only 2 queries through
-        // the pipeline to keep the assembly count even end-to-end.
+        // (LineA/LineB/LineC); we feed only LineA + LineB so the crossover
+        // pairing succeeds end-to-end.
         val queryListFile = workDir.resolve("queries.txt")
         queryListFile.writeText(
             listOf(
                 smallseqRoot.resolve("queries/LineA.fa"),
                 smallseqRoot.resolve("queries/LineB.fa"),
             ).joinToString("\n") { it.toString() } + "\n"
+        )
+
+        // Synthesize a tiny FASTQ for step 13 from LineA. Reads are true
+        // substrings of LineA so they have a high chance of matching the
+        // step-12 PHG index (which is built over the recombined founder
+        // FASTAs, themselves stitched from LineA/LineB segments).
+        val fastqDir = workDir.resolve("fastq_input").also { it.createDirectories() }
+        synthesizeFastqFromFasta(
+            sourceFasta = smallseqRoot.resolve("queries/LineA.fa"),
+            target = fastqDir.resolve("synthA.fq"),
+            sampleName = "synthA"
         )
 
         val configPath = workDir.resolve("pipeline.yaml")
@@ -102,6 +172,12 @@ class OrchestrateE2ETest {
               - convert_coordinates
               - generate_recombined_sequences
               - format_recombined_fastas
+              - align_mutated_assemblies
+              - mutated_maf_to_gvcf
+              - rope_bwt_chr_index
+              - ropebwt_mem
+              - build_spline_knots
+              - convert_ropebwt2ps4g
 
             align_assemblies:
               ref_gff: "${smallseqRoot.resolve("anchors.gff")}"
@@ -134,6 +210,36 @@ class OrchestrateE2ETest {
             format_recombined_fastas:
               line_width: 60
               threads: 2
+
+            align_mutated_assemblies:
+              threads: 2
+
+            # Intentionally omit sample_name: pinning a single sample name across
+            # multiple mutated MAFs collapses every gVCF (and thus every spline
+            # knot gamete) into one name, which then cannot match the per-FASTA
+            # sample names that step 12 (rope-bwt-chr-index) bakes into the BWT
+            # index. Leaving sample_name unset makes MafToGvcf derive each gVCF's
+            # sample name from the MAF basename (0, 1, ...), which lines up with
+            # the auto-generated step-12 keyfile and lets step 15 produce a
+            # non-empty PS4G.
+            mutated_maf_to_gvcf: {}
+
+            rope_bwt_chr_index:
+              threads: 2
+              delete_fmr_index: true
+
+            ropebwt_mem:
+              fastq_input: "${fastqDir.toString()}"
+              threads: 2
+
+            build_spline_knots:
+              vcf_type: "gvcf"
+              num_bps_per_knot: 1000
+              random_seed: 42
+
+            convert_ropebwt2ps4g:
+              min_mem_length: 50
+              max_num_hits: 32
             """.trimIndent()
         )
 
@@ -362,6 +468,139 @@ class OrchestrateE2ETest {
         )
 
         // ---------------------------------------------------------------
+        // Step 10: align_mutated_assemblies -> 10_mutated_alignment_results/
+        // ---------------------------------------------------------------
+        val step10Dir = workDir.resolve("output/10_mutated_alignment_results").toFile()
+        assertTrue(step10Dir.exists() && step10Dir.isDirectory, "Step 10 output directory must exist")
+        val mutatedMafPaths = File(step10Dir, "maf_file_paths.txt")
+        assertTrue(
+            mutatedMafPaths.exists() && mutatedMafPaths.length() > 0,
+            "Step 10's maf_file_paths.txt must be non-empty"
+        )
+        val mutatedMafFiles = mutatedMafPaths.readLines().filter { it.isNotBlank() }.map { File(it) }
+        assertTrue(mutatedMafFiles.isNotEmpty(), "Step 10 should produce at least one mutated MAF")
+        assertTrue(
+            mutatedMafFiles.all { it.exists() && it.length() > 0 },
+            "Every mutated MAF listed must exist and be non-empty"
+        )
+
+        // ---------------------------------------------------------------
+        // Step 11: mutated_maf_to_gvcf -> 11_mutated_gvcf_results/
+        // ---------------------------------------------------------------
+        val step11Dir = workDir.resolve("output/11_mutated_gvcf_results").toFile()
+        assertTrue(step11Dir.exists() && step11Dir.isDirectory, "Step 11 output directory must exist")
+        val mutatedGvcfPathsFile = File(step11Dir, "gvcf_file_paths.txt")
+        assertTrue(mutatedGvcfPathsFile.exists(), "Step 11 gvcf_file_paths.txt must exist")
+        val mutatedGvcfFiles = mutatedGvcfPathsFile.readLines().filter { it.isNotBlank() }.map { File(it) }
+        assertTrue(mutatedGvcfFiles.isNotEmpty(), "Step 11 should produce at least one mutated GVCF")
+        assertTrue(
+            mutatedGvcfFiles.all { it.exists() && it.length() > 0 },
+            "Every mutated GVCF listed must exist on disk and be non-empty"
+        )
+        assertTrue(
+            mutatedGvcfFiles.all { it.name.endsWith(".g.vcf.gz") },
+            "Every mutated GVCF should be biokotlin-compressed (.g.vcf.gz)"
+        )
+
+        // ---------------------------------------------------------------
+        // Step 12: rope_bwt_chr_index -> 12_rope_bwt_index_results/
+        // ---------------------------------------------------------------
+        val step12Dir = workDir.resolve("output/12_rope_bwt_index_results").toFile()
+        assertTrue(step12Dir.exists() && step12Dir.isDirectory, "Step 12 output directory must exist")
+        val keyfile = File(step12Dir, "phg_keyfile.txt")
+        assertTrue(
+            keyfile.exists() && keyfile.length() > 0,
+            "Step 12 must auto-generate a keyfile next to the .fmd index"
+        )
+        val keyfileLines = keyfile.readLines().filter { it.isNotBlank() }
+        assertTrue(keyfileLines.isNotEmpty(), "Keyfile must contain at least one row")
+        assertTrue(
+            keyfileLines.all { it.split("\t").size == 2 },
+            "Auto-generated keyfile rows are <fasta_path>\\t<sample_name> (no header)"
+        )
+        val fmdFiles = step12Dir.listFiles { f -> f.name.endsWith(".fmd") }?.toList().orEmpty()
+        assertTrue(
+            fmdFiles.isNotEmpty() && fmdFiles.all { it.length() > 0 },
+            "Step 12 must produce at least one non-empty .fmd index file"
+        )
+
+        // ---------------------------------------------------------------
+        // Step 13: ropebwt_mem -> 13_ropebwt_mem_results/
+        // ---------------------------------------------------------------
+        val step13Dir = workDir.resolve("output/13_ropebwt_mem_results").toFile()
+        assertTrue(step13Dir.exists() && step13Dir.isDirectory, "Step 13 output directory must exist")
+        val bedPaths = File(step13Dir, "bed_file_paths.txt")
+        assertTrue(bedPaths.exists(), "bed_file_paths.txt must exist after ropebwt-mem")
+        val bedFiles = bedPaths.readLines().filter { it.isNotBlank() }.map { File(it) }
+        assertTrue(bedFiles.isNotEmpty(), "Step 13 should produce at least one BED file")
+        assertTrue(
+            bedFiles.all { it.exists() },
+            "Every BED listed must exist on disk"
+        )
+        assertTrue(
+            bedFiles.all { it.name.endsWith("_ropebwt.bed") },
+            "Step 13 names BED outputs as <sample>_ropebwt.bed"
+        )
+
+        // ---------------------------------------------------------------
+        // Step 14: build_spline_knots -> 14_spline_knots_results/
+        // ---------------------------------------------------------------
+        val step14Dir = workDir.resolve("output/14_spline_knots_results").toFile()
+        assertTrue(step14Dir.exists() && step14Dir.isDirectory, "Step 14 output directory must exist")
+        val splineFiles = step14Dir.listFiles { f -> f.isFile && f.length() > 0 }?.toList().orEmpty()
+        assertTrue(
+            splineFiles.isNotEmpty(),
+            "Step 14 should drop at least one non-empty spline-knot file (got: ${step14Dir.listFiles()?.map { it.name } ?: emptyList()})"
+        )
+
+        // ---------------------------------------------------------------
+        // Step 15: convert_ropebwt2ps4g -> 15_convert_ropebwt2ps4g_results/
+        // ---------------------------------------------------------------
+        val step15Dir = workDir.resolve("output/15_convert_ropebwt2ps4g_results").toFile()
+        assertTrue(step15Dir.exists() && step15Dir.isDirectory, "Step 15 output directory must exist")
+        val ps4gPaths = File(step15Dir, "ps4g_file_paths.txt")
+        assertTrue(
+            ps4gPaths.exists(),
+            "Step 15 must write ps4g_file_paths.txt (synthesized FASTQ is built from " +
+                "LineA so the BED produced in step 13 always has matches against the index)"
+        )
+        val ps4gFiles = ps4gPaths.readLines().filter { it.isNotBlank() }.map { File(it) }
+        assertTrue(ps4gFiles.isNotEmpty(), "ps4g_file_paths.txt must list at least one PS4G")
+        assertTrue(
+            ps4gFiles.all { it.exists() },
+            "Every PS4G file listed in ps4g_file_paths.txt must exist on disk"
+        )
+        assertTrue(
+            ps4gFiles.all { it.name.endsWith(".ps4g") },
+            "Step 15 names PS4G outputs with the .ps4g extension"
+        )
+
+        // The presence of a PS4G file alone isn't enough: PHG happily writes an
+        // empty PS4G when every BED contig fails to resolve against the spline
+        // knots (e.g. when step-11 sample names don't match the step-12 keyfile
+        // sample names). Assert that at least one PS4G has a positive
+        // #TotalUniqueCounts header AND at least one data row beyond the
+        // gameteSet/refContig/refPosBinned/count header line.
+        val ps4gWithData = ps4gFiles.filter { ps4g ->
+            val lines = ps4g.readLines()
+            val totalUnique = lines
+                .firstOrNull { it.startsWith("#TotalUniqueCounts:") }
+                ?.substringAfter(":")
+                ?.trim()
+                ?.toLongOrNull() ?: 0L
+            val dataRows = lines.count { it.isNotBlank() && !it.startsWith("#") } - 1
+            totalUnique > 0 && dataRows > 0
+        }
+        assertTrue(
+            ps4gWithData.isNotEmpty(),
+            "At least one PS4G must contain alignment data; every PS4G is empty " +
+                "(saw files=${ps4gFiles.map { it.name }}). This usually means step-11 " +
+                "gVCF sample names don't match the step-12 keyfile sample names, so " +
+                "PHG's convert-ropebwt2ps4g-file couldn't resolve any BED contig " +
+                "against the step-14 spline knots."
+        )
+
+        // ---------------------------------------------------------------
         // Log file contract: each pipeline step writes its own log file.
         // ---------------------------------------------------------------
         val logsDir = workDir.resolve("logs").toFile()
@@ -377,7 +616,15 @@ class OrchestrateE2ETest {
             "06_create_chain_files.log",
             "07_convert_coordinates.log",
             "08_generate_recombined_sequences.log",
-            "09_format_recombined_fastas.log"
+            "09_format_recombined_fastas.log",
+            "10_align_mutated_assemblies.log",
+            // Step 11 reuses MafToGvcf, which writes its own LOG_FILE_NAME
+            // ("02_maf_to_gvcf.log"); that file is already covered above and
+            // gets appended to when the orchestrator drives step 11 too.
+            "12_rope_bwt_chr_index.log",
+            "13_ropebwt_mem.log",
+            "14_build_spline_knots.log",
+            "15_convert_ropebwt2ps4g.log"
         ).forEach { expected ->
             assertTrue(
                 expected in logNames,
