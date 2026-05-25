@@ -19,7 +19,7 @@ import kotlin.system.exitProcess
 
 class RopeBwtChrIndex : CliktCommand(name = "rope-bwt-chr-index") {
     companion object {
-        private const val LOG_FILE_NAME = "11_rope_bwt_chr_index.log"
+        private const val LOG_FILE_NAME = "12_rope_bwt_chr_index.log"
         private const val ROPE_BWT_RESULTS_DIR = "12_rope_bwt_index_results"
         private const val KEYFILE_NAME = "phg_keyfile.txt"
         private const val DEFAULT_INDEX_PREFIX = "phgIndex"

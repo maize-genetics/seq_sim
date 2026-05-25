@@ -74,7 +74,12 @@ align_assemblies:
   ref_gff: "path/to/reference.gff"       # Required: Reference GFF annotation file
   ref_fasta: "path/to/reference.fa"      # Required: Reference FASTA file
   query_fasta: "path/to/queries.txt"     # Required: Single query file, directory, or text list
-  threads: 1                             # Optional: Number of threads (default: 1)
+  threads: 1                             # Optional: PHGv2 --total-threads (default: 1)
+  # in_parallel: 2                       # Optional: PHGv2 --in-parallel (omit for auto-tuning)
+  # ref_max_align_cov: 1                 # Optional: PHGv2 --ref-max-align-cov (proali -R, default 1)
+  # query_max_align_cov: 1               # Optional: PHGv2 --query-max-align-cov (proali -Q, default 1)
+  # conda_env_prefix: "/path/to/env"     # Optional: PHGv2 --conda-env-prefix (overrides phgv2-conda)
+  # just_ref_prep: false                 # Optional: PHGv2 --just-ref-prep (ref-prep only, no MAFs)
   # output: "/custom/output/path/"       # Optional: Custom output directory
 
 # Step 2: MAF to GVCF Conversion
@@ -191,7 +196,12 @@ align_mutated_assemblies:
                                          #           Uses align_assemblies.ref_fasta if not specified
   # fasta_input: "/custom/fasta/input/"  # Optional: Query FASTA input (file, directory, or text list)
                                          #           Uses format_recombined_fastas output if not specified
-  threads: 1                             # Optional: Number of threads (default: 1)
+  threads: 1                             # Optional: PHGv2 --total-threads (default: 1)
+  # in_parallel: 2                       # Optional: PHGv2 --in-parallel (omit for auto-tuning)
+  # ref_max_align_cov: 1                 # Optional: PHGv2 --ref-max-align-cov (proali -R, default 1)
+  # query_max_align_cov: 1               # Optional: PHGv2 --query-max-align-cov (proali -Q, default 1)
+  # conda_env_prefix: "/path/to/env"     # Optional: PHGv2 --conda-env-prefix (overrides phgv2-conda)
+  # just_ref_prep: false                 # Optional: PHGv2 --just-ref-prep (ref-prep only, no MAFs)
   # output: "/custom/alignment/output/"  # Optional: Custom output directory
 
 # Step 11: Mutated MAF to GVCF Conversion

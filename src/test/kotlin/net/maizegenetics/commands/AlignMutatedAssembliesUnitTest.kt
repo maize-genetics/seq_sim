@@ -14,11 +14,14 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * Unit tests for [AlignAssemblies] that don't actually shell out to the
- * PHGv2 binary -- we install a [RecordingProcessExecutor] and verify the
+ * Unit tests for [AlignMutatedAssemblies] that don't actually shell out to
+ * the PHGv2 binary -- we install a [RecordingProcessExecutor] and verify the
  * exact command line seq-sim would send to `phg align-assemblies`.
+ *
+ * Mirrors [AlignAssembliesUnitTest] since both commands now wrap the same
+ * PHGv2 subcommand.
  */
-class AlignAssembliesUnitTest {
+class AlignMutatedAssembliesUnitTest {
 
     private val smallseqRoot: Path = File("src/test/resources/smallseq")
         .absoluteFile.toPath()
@@ -47,12 +50,12 @@ class AlignAssembliesUnitTest {
         val executor = RecordingProcessExecutor(defaultExitCode = 0)
 
         ProcessRunner.withExecutor(executor) {
-            AlignAssemblies().parse(
+            AlignMutatedAssemblies().parse(
                 listOf(
                     "--work-dir", workDir.toString(),
                     "--ref-gff", smallseqRoot.resolve("anchors.gff").toString(),
                     "--ref-fasta", smallseqRoot.resolve("Ref.fa").toString(),
-                    "--query-fasta", smallseqRoot.resolve("queries").toString(),
+                    "--fasta-input", smallseqRoot.resolve("queries").toString(),
                     "--threads", "2"
                 )
             )
@@ -76,7 +79,7 @@ class AlignAssembliesUnitTest {
 
         // PHGv2 expects the output dir to exist before running and we hand it
         // an assembly-file-list materialized inside that output dir.
-        val expectedOutputDir = workDir.resolve("output/01_anchorwave_results")
+        val expectedOutputDir = workDir.resolve("output/10_mutated_alignment_results")
         assertEquals(expectedOutputDir.toAbsolutePath().toString(), inv.argAfter("-o"))
         val assemblyList = expectedOutputDir.resolve("assemblies_list.txt").toFile()
         assertTrue(assemblyList.exists(), "assemblies_list.txt should have been written")
@@ -98,12 +101,12 @@ class AlignAssembliesUnitTest {
         val condaPrefix = workDir.resolve("conda_env").also { it.createDirectories() }
 
         ProcessRunner.withExecutor(executor) {
-            AlignAssemblies().parse(
+            AlignMutatedAssemblies().parse(
                 listOf(
                     "--work-dir", workDir.toString(),
                     "--ref-gff", smallseqRoot.resolve("anchors.gff").toString(),
                     "--ref-fasta", smallseqRoot.resolve("Ref.fa").toString(),
-                    "--query-fasta", smallseqRoot.resolve("queries/LineA.fa").toString(),
+                    "--fasta-input", smallseqRoot.resolve("queries/LineA.fa").toString(),
                     "--threads", "4",
                     "--in-parallel", "2",
                     "--ref-max-align-cov", "3",
@@ -127,12 +130,12 @@ class AlignAssembliesUnitTest {
         val executor = RecordingProcessExecutor(defaultExitCode = 0)
 
         ProcessRunner.withExecutor(executor) {
-            AlignAssemblies().parse(
+            AlignMutatedAssemblies().parse(
                 listOf(
                     "--work-dir", workDir.toString(),
                     "--ref-gff", smallseqRoot.resolve("anchors.gff").toString(),
                     "--ref-fasta", smallseqRoot.resolve("Ref.fa").toString(),
-                    "--query-fasta", smallseqRoot.resolve("queries").toString(),
+                    "--fasta-input", smallseqRoot.resolve("queries").toString(),
                     "--just-ref-prep"
                 )
             )
@@ -141,7 +144,7 @@ class AlignAssembliesUnitTest {
         val inv = executor.invocations.single()
         assertTrue(inv.command.contains("--just-ref-prep"), "--just-ref-prep should be forwarded")
 
-        val mafPathsFile = workDir.resolve("output/01_anchorwave_results/maf_file_paths.txt").toFile()
+        val mafPathsFile = workDir.resolve("output/10_mutated_alignment_results/maf_file_paths.txt").toFile()
         assertTrue(
             !mafPathsFile.exists(),
             "maf_file_paths.txt should NOT be written when --just-ref-prep is set"
@@ -167,17 +170,17 @@ class AlignAssembliesUnitTest {
         }
 
         ProcessRunner.withExecutor(executor) {
-            AlignAssemblies().parse(
+            AlignMutatedAssemblies().parse(
                 listOf(
                     "--work-dir", workDir.toString(),
                     "--ref-gff", smallseqRoot.resolve("anchors.gff").toString(),
                     "--ref-fasta", smallseqRoot.resolve("Ref.fa").toString(),
-                    "--query-fasta", smallseqRoot.resolve("queries").toString()
+                    "--fasta-input", smallseqRoot.resolve("queries").toString()
                 )
             )
         }
 
-        val mafPathsFile = workDir.resolve("output/01_anchorwave_results/maf_file_paths.txt").toFile()
+        val mafPathsFile = workDir.resolve("output/10_mutated_alignment_results/maf_file_paths.txt").toFile()
         assertTrue(mafPathsFile.exists(), "maf_file_paths.txt should be written")
         val lines = mafPathsFile.readLines().filter { it.isNotBlank() }
         assertEquals(3, lines.size, "Should list one MAF path per simulated phg output")
