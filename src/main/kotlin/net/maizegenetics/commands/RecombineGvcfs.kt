@@ -479,7 +479,11 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
         outputWriters: Map<String, VariantContextWriter>,
         refSeq :Map<String, NucSeqRecord>
     ) {
-        inputGvcfDir.toFile().listFiles()?.forEach { gvcfFile ->
+        var count = 0
+        val fileList = inputGvcfDir.toFile().listFiles()
+        val totalFiles = fileList?.size?:0
+        fileList?.forEach { gvcfFile ->
+            count++
             val match = pattern.matchEntire(gvcfFile.name)
             if (match == null) {
                 println("Skipping file ${gvcfFile.name} as it does not match expected GVCF naming pattern.")
@@ -489,6 +493,7 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
             val ranges = recombinationMap[sampleName] ?: return@forEach
 
             VCFFileReader(gvcfFile, false).use { gvcfReader ->
+                println("Processing file ${count}/$totalFiles ${gvcfFile.name}")
                 processSingleGVCFFile(gvcfReader, ranges, outputWriters, refSeq)
             }
         }
@@ -693,11 +698,13 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
     fun buildDel(chrom: String, start:Int, end:Int, refAllele:String, altAllele: String, sampleName: String): VariantContext {
 
         return if(refAllele == altAllele) {
+            //This is a weird edge case where we remove all but the first allele due to needing to resize the deletion
+            //This causes it to effectively be a 1 bp refBlock and we can treat it as one.
             VariantContextBuilder()
                 .chr(chrom)
                 .start(start.toLong())
                 .stop(end.toLong())
-                .alleles(listOf(refAllele))
+                .alleles(listOf(refAllele, "<NON_REF>"))
                 .genotypes(
                     listOf(
                         GenotypeBuilder(sampleName).alleles(listOf(Allele.create(refAllele,true))).make()
@@ -709,7 +716,7 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
                 .chr(chrom)
                 .start(start.toLong())
                 .stop(end.toLong())
-                .alleles(listOf(refAllele, altAllele))
+                .alleles(listOf(refAllele, altAllele,"<NON_REF>"))
                 .genotypes(
                     listOf(
                         GenotypeBuilder(sampleName).alleles(listOf(Allele.create(altAllele,false))).make()
