@@ -34,6 +34,13 @@
 # NOTE (2): Only edit values in fields, please!
 # ============================================================================
 
+# Optional: Pipeline version to run (defaults to "v1" if omitted)
+#   v1: Full pipeline (all steps 01-15 documented below)
+#   v2: Trimmed variant pipeline (currently only 01 align-assemblies + 02 maf-to-gvcf)
+# The same `orchestrate` command runs both; this field dictates which pipeline
+# is executed (also logged at the start of the run).
+version: "v1"
+
 # Optional: Working directory for the pipeline (defaults to "seq_sim_work")
 # The orchestrate command will create this and set up tools automatically if needed
 work_dir: "seq_sim_work"
