@@ -139,32 +139,23 @@ class MutateAssemblies : CliktCommand(name = "mutate-assemblies") {
         var successCount = 0
         var failureCount = 0
 
-        pairs.forEach { (baseSample, donorSample) ->
+        for ((baseSample, donorSample) in pairs) {
             val baseFile = baseIndex[baseSample]
             if (baseFile == null) {
                 logger.warn("Skipping pair: base sample '$baseSample' has no gVCF in $baseDirPath")
-                return@forEach
+                continue
             }
 
             val donorVariants = donorVariantsFor(donorSample, donorFiles)
             if (donorVariants.isEmpty()) {
                 logger.warn("Skipping pair: no downsampled gVCFs for mutation-donor '$donorSample' in $donorDirPath")
-                return@forEach
+                continue
             }
 
-            donorVariants.forEach { donorFile ->
-                val donorVariantName = stripGvcfExtension(donorFile.fileName.toString())
-                val outputFile = outputDir.resolve("${baseSample}__${donorVariantName}_mutated.g.vcf")
-                try {
-                    introduceMutationsToFile(baseFile.toFile(), donorFile.toFile(), outputFile.toFile())
-                    mutatedOutputs.add(outputFile)
-                    successCount++
-                    logger.info("Mutated base '$baseSample' with donor '$donorVariantName' -> ${outputFile.fileName}")
-                } catch (e: Exception) {
-                    failureCount++
-                    logger.error("Failed to mutate base '$baseSample' with donor '$donorVariantName': ${e.message}", e)
-                }
-            }
+            val result = mutateBaseWithDonorVariants(baseSample, baseFile, donorVariants)
+            mutatedOutputs.addAll(result.outputs)
+            successCount += result.successCount
+            failureCount += result.failureCount
         }
 
         FileUtils.writeFilePaths(
@@ -179,6 +170,43 @@ class MutateAssemblies : CliktCommand(name = "mutate-assemblies") {
         if (failureCount > 0) {
             exitProcess(1)
         }
+    }
+
+    private data class BatchPairResult(
+        val outputs: List<Path>,
+        val successCount: Int,
+        val failureCount: Int
+    )
+
+    /**
+     * Mutates [baseFile] with each downsampled donor variant, writing one
+     * mutated gVCF per donor and returning the outputs plus success/failure
+     * counts for aggregation by the batch loop.
+     */
+    private fun mutateBaseWithDonorVariants(
+        baseSample: String,
+        baseFile: Path,
+        donorVariants: List<Path>
+    ): BatchPairResult {
+        val outputs = mutableListOf<Path>()
+        var successCount = 0
+        var failureCount = 0
+
+        for (donorFile in donorVariants) {
+            val donorVariantName = stripGvcfExtension(donorFile.fileName.toString())
+            val outputFile = outputDir.resolve("${baseSample}__${donorVariantName}_mutated.g.vcf")
+            try {
+                introduceMutationsToFile(baseFile.toFile(), donorFile.toFile(), outputFile.toFile())
+                outputs.add(outputFile)
+                successCount++
+                logger.info("Mutated base '$baseSample' with donor '$donorVariantName' -> ${outputFile.fileName}")
+            } catch (e: Exception) {
+                failureCount++
+                logger.error("Failed to mutate base '$baseSample' with donor '$donorVariantName': ${e.message}", e)
+            }
+        }
+
+        return BatchPairResult(outputs, successCount, failureCount)
     }
 
     /**
