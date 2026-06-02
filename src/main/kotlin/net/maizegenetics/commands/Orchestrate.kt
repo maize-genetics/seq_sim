@@ -108,6 +108,8 @@ data class AlignMutatedAssembliesConfig(
 data class PickCrossoversConfig(
     val assembly_list: String? = null,  // Optional: If not specified, auto-generates from convert_to_fasta output
     val ref_fasta: String? = null,  // Optional: Reference FASTA (uses align_assemblies.ref_fasta if not specified)
+    val base_input: String? = null, // v2 only: base gVCF dir/list (defaults to split_gvcfs base/ output)
+    val query_fasta: String? = null, // v2 only: original assembly FASTAs (defaults to align_assemblies.query_fasta)
     val output: String? = null      // Custom output directory
 )
 
@@ -250,6 +252,79 @@ object OrchestrateShared {
      */
     fun restoreOrchestratorLogging(workDir: Path, logger: Logger) {
         LoggingUtils.setupFileLogging(workDir, LOG_FILE_NAME, logger)
+    }
+
+    /**
+     * Writes a `pick-crossovers` assembly list (`absPath<TAB>name`, one per
+     * line) for [fastaFiles] into [destDir]/[fileName]. The assembly name is
+     * the file name with its FASTA extension stripped (a `_mutated` suffix is
+     * intentionally preserved). Returns the written list file.
+     *
+     * Shared by [OrchestrateV1] (auto-generating from convert-to-fasta output)
+     * and [PickBaseCrossovers] (base-sample-filtered assemblies).
+     */
+    fun writeAssemblyList(
+        fastaFiles: List<Path>,
+        destDir: Path,
+        fileName: String = "auto_assembly_list.txt",
+        logger: Logger,
+    ): Path {
+        val assemblyListFile = destDir.resolve(fileName)
+        val lines = fastaFiles.map { fastaPath ->
+            val name = fastaPath.fileName.toString().replace(FASTA_EXTENSION_PATTERN, "")
+            "${fastaPath.toAbsolutePath()}\t$name"
+        }
+        assemblyListFile.writeText(lines.joinToString("\n"))
+        logger.info("Generated assembly list file: $assemblyListFile")
+        logger.info("  Contains ${fastaFiles.size} assemblies")
+        return assemblyListFile
+    }
+
+    /**
+     * Validates that [listFile] contains an even number of assemblies, since
+     * `pick-crossovers` pairs assemblies for crossover simulation. Throws a
+     * [RuntimeException] when the count is odd.
+     */
+    fun validateEvenAssemblyCount(listFile: Path, logger: Logger) {
+        val assemblyCount = listFile.readLines().filter { it.isNotBlank() }.size
+        if (assemblyCount % 2 != 0) {
+            throw RuntimeException(
+                "Cannot run pick-crossovers: assembly list contains $assemblyCount assemblies, " +
+                    "but this step requires an even number of assembly files to work (assemblies are paired for crossover simulation)"
+            )
+        }
+        logger.info("Assembly list contains $assemblyCount assemblies (validated: even count)")
+    }
+
+    /**
+     * Invokes the [PickCrossovers] command for [assemblyList] against
+     * [refFasta], writing to [outputDir], then restores orchestrator logging
+     * and verifies the output directory exists. Returns [outputDir].
+     *
+     * This is the single `PickCrossovers().parse(...)` invocation point shared
+     * by both pipeline versions and [PickBaseCrossovers].
+     */
+    fun runPickCrossovers(
+        workDir: Path,
+        refFasta: Path,
+        assemblyList: Path,
+        outputDir: Path,
+        logger: Logger,
+    ): Path {
+        val args = listOf(
+            "--work-dir=$workDir",
+            "--ref-fasta=$refFasta",
+            "--assembly-list=$assemblyList",
+            "--output-dir=$outputDir",
+        )
+
+        PickCrossovers().parse(args)
+        restoreOrchestratorLogging(workDir, logger)
+
+        if (!outputDir.exists()) {
+            throw RuntimeException("Expected pick-crossovers output directory not found: $outputDir")
+        }
+        return outputDir
     }
 }
 
@@ -457,6 +532,8 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 PickCrossoversConfig(
                     assembly_list = pickCrossoversMap?.get("assembly_list") as? String,
                     ref_fasta = pickCrossoversMap?.get("ref_fasta") as? String,
+                    base_input = pickCrossoversMap?.get("base_input") as? String,
+                    query_fasta = pickCrossoversMap?.get("query_fasta") as? String,
                     output = pickCrossoversMap?.get("output") as? String
                 )
             } else null
