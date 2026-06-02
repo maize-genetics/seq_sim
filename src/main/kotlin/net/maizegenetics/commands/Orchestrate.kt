@@ -23,6 +23,8 @@ data class PipelineConfig(
     val run_steps: List<String>? = null,
     val align_assemblies: AlignAssembliesConfig? = null,
     val maf_to_gvcf: MafToGvcfConfig? = null,
+    val split_gvcfs: SplitGvcfsConfig? = null,
+    val mutate_assemblies: MutateAssembliesConfig? = null,
     val downsample_gvcf: DownsampleGvcfConfig? = null,
     val convert_to_fasta: ConvertToFastaConfig? = null,
     val align_mutated_assemblies: AlignMutatedAssembliesConfig? = null,
@@ -57,6 +59,19 @@ data class MafToGvcfConfig(
     val output_file: String? = null,     // Optional: Output GVCF file name
     val sample_name: String? = null,     // Optional: Sample name for GVCF
     val output_dir: String? = null       // Optional: Custom GVCF output directory
+)
+
+data class SplitGvcfsConfig(
+    val keyfile: String,              // Required: tab-delimited keyfile (Base, MutationDonor)
+    val input: String? = null,        // Optional: GVCF input dir/list (defaults to maf_to_gvcf output)
+    val output: String? = null        // Optional: custom output directory
+)
+
+data class MutateAssembliesConfig(
+    val keyfile: String? = null,              // Optional: pairs file (defaults to split_gvcfs pairs.tsv)
+    val base_input: String? = null,           // Optional: base gVCF dir (defaults to split_gvcfs base/)
+    val mutation_donor_input: String? = null, // Optional: downsampled donor gVCF dir (defaults to downsample output)
+    val output: String? = null                // Optional: custom output directory
 )
 
 data class DownsampleGvcfConfig(
@@ -365,6 +380,30 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 )
             } else null
 
+            // Parse split_gvcfs - keyfile is required when the section is present
+            @Suppress("UNCHECKED_CAST")
+            val splitGvcfsMap = configMap["split_gvcfs"] as? Map<String, Any>
+            val splitGvcfs = if (configMap.containsKey("split_gvcfs")) {
+                SplitGvcfsConfig(
+                    keyfile = splitGvcfsMap?.get("keyfile") as? String
+                        ?: throw IllegalArgumentException("split_gvcfs.keyfile is required"),
+                    input = splitGvcfsMap["input"] as? String,
+                    output = splitGvcfsMap["output"] as? String
+                )
+            } else null
+
+            // Parse mutate_assemblies - check if key exists (even with empty/null value means "run with defaults")
+            @Suppress("UNCHECKED_CAST")
+            val mutateAssembliesMap = configMap["mutate_assemblies"] as? Map<String, Any>
+            val mutateAssemblies = if (configMap.containsKey("mutate_assemblies")) {
+                MutateAssembliesConfig(
+                    keyfile = mutateAssembliesMap?.get("keyfile") as? String,
+                    base_input = mutateAssembliesMap?.get("base_input") as? String,
+                    mutation_donor_input = mutateAssembliesMap?.get("mutation_donor_input") as? String,
+                    output = mutateAssembliesMap?.get("output") as? String
+                )
+            } else null
+
             // Parse downsample_gvcf - check if key exists (even with empty/null value means "run with defaults")
             @Suppress("UNCHECKED_CAST")
             val downsampleGvcfMap = configMap["downsample_gvcf"] as? Map<String, Any>
@@ -543,6 +582,8 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 run_steps = runSteps,
                 align_assemblies = alignAssemblies,
                 maf_to_gvcf = mafToGvcf,
+                split_gvcfs = splitGvcfs,
+                mutate_assemblies = mutateAssemblies,
                 downsample_gvcf = downsampleGvcf,
                 convert_to_fasta = convertToFasta,
                 align_mutated_assemblies = alignMutatedAssemblies,
