@@ -1,0 +1,122 @@
+# Example v2 Pipeline Configuration for the seq_sim `orchestrate` command
+# This file demonstrates the v2 (variant) pipeline up to "mutated base gVCFs".
+
+# ============================================================================
+# seqSim v2 PIPELINE OVERVIEW
+# ============================================================================
+# The v2 pipeline produces mutated base gVCFs by mixing variants from a
+# downsampled "mutation donor" gVCF into a "base" gVCF. A required keyfile
+# defines which samples are bases, which are mutation donors, and how they
+# are paired.
+#
+# 01. align-assemblies:   Align query assemblies to reference using AnchorWave
+# 02. maf-to-gvcf:        Convert MAF alignment files to compressed GVCF format
+# 03. split-gvcfs:        Split gVCFs into base / mutation-donor sets (keyfile-driven)
+# 04. downsample-gvcf:    Downsample the mutation-donor gVCFs at the given rates
+# 05. mutate-assemblies:  Mutate each base gVCF with its downsampled mutation
+#                         donor(s) -> mutated base gVCFs
+#
+# NOTE (1): Environment setup is automatic. The orchestrate command detects a
+#       missing working directory or tools (MLImpute, biokotlin-tools, PHGv2)
+#       and runs setup-environment for you.
+#
+# NOTE (2): Only edit values in fields, please!
+# ============================================================================
+
+# Required for the v2 pipeline (defaults to "v1" if omitted)
+version: "v2"
+
+# Optional: Working directory for the pipeline (defaults to "seq_sim_work")
+work_dir: "seq_sim_work"
+
+# Optional: Specify which pipeline steps to execute
+# If omitted, all configured steps run. Comment a line out to skip a step.
+run_steps:
+  - align_assemblies     # Step 01: Align original assemblies
+  - maf_to_gvcf          # Step 02: Convert alignments to GVCF
+  - split_gvcfs          # Step 03: Split into base / mutation-donor gVCFs
+  - downsample_gvcf      # Step 04: Downsample the mutation-donor gVCFs
+  - mutate_assemblies    # Step 05: Produce mutated base gVCFs
+
+# ============================================================================
+# STEP CONFIGURATION
+# ============================================================================
+
+# Step 1: Align Assemblies
+# Aligns query assemblies to a reference using AnchorWave and minimap2.
+align_assemblies:
+  ref_gff: "path/to/reference.gff"     # Required: Reference GFF annotation file
+  ref_fasta: "path/to/reference.fa"    # Required: Reference FASTA file
+  query_fasta: "path/to/queries.txt"   # Required: Single query file, directory, or text list
+  threads: 1                           # Optional: PHGv2 --total-threads (default: 1)
+  # in_parallel: 2                     # Optional: PHGv2 --in-parallel (omit for auto-tuning)
+  # output: "/custom/output/path/"     # Optional: Custom output directory
+
+# Step 2: MAF to GVCF Conversion
+# Converts the MAF files from align_assemblies into compressed gVCFs. The
+# output gVCFs are named "{sample}.g.vcf.gz"; those sample names are what the
+# split_gvcfs keyfile refers to.
+maf_to_gvcf:
+  # reference_file: "path/to/reference.fa"  # Optional: Uses align_assemblies.ref_fasta if omitted
+  # maf_file: "/custom/maf/files.txt"       # Optional: Uses step 1 MAF outputs if omitted
+  # output_dir: "/custom/gvcf/output/"      # Optional: Custom output directory
+
+# Step 3: Split GVCFs (base / mutation donor)
+# Reads a required tab-delimited keyfile and splits the step-02 gVCFs into a
+# "base" set and a "mutation_donor" set. Each full row (both columns present
+# and resolvable to a gVCF) defines a (base, mutation-donor) pair that flows
+# into step 5; non-full rows are excluded. Writes base/ and mutation_donor/
+# subdirectories plus a normalized pairs.tsv.
+split_gvcfs:
+  keyfile: "path/to/split_keyfile.txt"   # Required: tab-delimited, header columns 'Base' and 'MutationDonor'
+  # input: "/custom/gvcf/directory/"     # Optional: GVCF input dir/list (defaults to maf_to_gvcf output)
+  # output: "/custom/split/output/"      # Optional: Custom output directory
+
+# Step 4: Downsample GVCF (mutation donors)
+# Downsamples the mutation-donor gVCFs produced by split_gvcfs at the given
+# rates. Each donor yields one downsampled gVCF per rate.
+downsample_gvcf:
+  ignore_contig: "__NO_MATCH__"          # Optional: Comma-separated patterns to ignore (currently needed)
+  rates: "0.01,0.05,0.1,0.15,0.2"        # Optional: Comma-separated downsampling rates
+  seed: 42                               # Optional: Random seed for reproducibility
+  keep_ref: true                         # Optional: Keep reference blocks (default: true)
+  min_ref_block_size: 20                 # Optional: Minimum ref block size (default: 20)
+  # input: "/custom/mutation_donor/dir/" # Optional: Defaults to split_gvcfs mutation_donor/ output
+  # output: "/custom/downsample/output/" # Optional: Custom output directory
+
+# Step 5: Mutate Assemblies
+# For each full pair in the keyfile, mutates the base gVCF with every
+# downsampled variant of its mutation donor and writes one mutated base gVCF
+# per pairing (named "{base}__{donorVariant}_mutated.g.vcf").
+mutate_assemblies:
+  # keyfile: "/custom/pairs.tsv"               # Optional: Defaults to split_gvcfs pairs.tsv
+  # base_input: "/custom/base/dir/"            # Optional: Defaults to split_gvcfs base/ output
+  # mutation_donor_input: "/custom/downsampled/dir/"  # Optional: Defaults to downsample_gvcf output
+  # output: "/custom/mutated/output/"          # Optional: Custom output directory
+
+# ============================================================================
+# SPLIT KEYFILE FORMAT (for split_gvcfs / mutate_assemblies)
+# ============================================================================
+# - Tab-delimited with a header row containing 'Base' and 'MutationDonor'.
+# - Values are sample names matching the step-02 gVCF base names
+#   (file "{sample}.g.vcf.gz" -> sample name).
+# - A row is "full" only when BOTH columns are non-empty AND both samples
+#   resolve to a gVCF; non-full / unresolved rows are logged and excluded.
+# - A base may appear in multiple rows (paired with different donors).
+# - Example:
+#     Base<TAB>MutationDonor
+#     B73<TAB>Mo17
+#     B73<TAB>W22
+#     Ki3<TAB>Mo17
+#
+# ============================================================================
+# Usage:
+# ============================================================================
+#   ./gradlew run --args="orchestrate --config pipeline_config_v2.example.yaml"
+#
+# Outputs (under work_dir/output/):
+#   02_gvcf_results/                gVCFs from maf-to-gvcf
+#   03_split_gvcfs_results/         base/ + mutation_donor/ + pairs.tsv
+#   04_downsample_results/          downsampled mutation-donor gVCFs
+#   05_mutate_assemblies_results/   mutated base gVCFs + mutated_gvcf_file_paths.txt
+# ============================================================================
