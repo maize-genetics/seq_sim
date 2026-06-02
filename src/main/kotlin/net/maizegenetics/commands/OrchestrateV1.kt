@@ -421,66 +421,35 @@ class OrchestrateV1(
                     if (fastaOutputDir == null || !fastaOutputDir.exists()) {
                         throw RuntimeException("Cannot run pick-crossovers: no assembly_list provided and no FASTA output directory available from convert_to_fasta step")
                     }
-                    
+
                     // Get all FASTA files from step 4 output
                     val fastaFiles = fastaOutputDir.toFile().listFiles { file ->
                         file.isFile && file.name.matches(FASTA_FILE_PATTERN)
                     }?.map { it.toPath() }?.sorted() ?: emptyList()
-                    
+
                     if (fastaFiles.isEmpty()) {
                         throw RuntimeException("Cannot run pick-crossovers: no FASTA files found in $fastaOutputDir")
                     }
-                    
-                    // Create assembly list file with path<TAB>name format
-                    // Name is derived from filename minus extension (keeping _mutated suffix)
-                    val assemblyListFile = fastaOutputDir.resolve("auto_assembly_list.txt")
-                    val lines = fastaFiles.map { fastaPath ->
-                        val fileName = fastaPath.fileName.toString()
-                        // Remove extension (including .gz if present)
-                        val baseName = fileName.replace(FASTA_EXTENSION_PATTERN, "")
-                        "${fastaPath.toAbsolutePath()}\t$baseName"
-                    }
-                    assemblyListFile.writeText(lines.joinToString("\n"))
-                    logger.info("Auto-generated assembly list file: $assemblyListFile")
-                    logger.info("  Contains ${fastaFiles.size} assemblies")
-                    
-                    assemblyListFile
+
+                    OrchestrateShared.writeAssemblyList(fastaFiles, fastaOutputDir, logger = logger)
                 }
 
-                // Validate that the number of assemblies is even
-                val assemblyCount = step6AssemblyList.readLines().filter { it.isNotBlank() }.size
-                if (assemblyCount % 2 != 0) {
-                    throw RuntimeException(
-                        "Cannot run pick-crossovers: assembly list contains $assemblyCount assemblies, " +
-                        "but this step requires an even number of assembly files to work (assemblies are paired for crossover simulation)"
-                    )
-                }
-                logger.info("Assembly list contains $assemblyCount assemblies (validated: even count)")
+                OrchestrateShared.validateEvenAssemblyCount(step6AssemblyList, logger)
 
                 // Save assembly list path for use in steps 8 and 9
                 assemblyListPath = step6AssemblyList
 
                 // Determine output directory (custom or default)
                 val customOutput = config.pick_crossovers.output?.let { Path.of(it) }
+                val pickCrossoversOutputDir = customOutput ?: workDir.resolve("output").resolve("05_crossovers_results")
 
-                val args = buildList {
-                    add("--work-dir=${workDir}")
-                    add("--ref-fasta=${pickCrossoversRefFasta}")
-                    add("--assembly-list=${step6AssemblyList}")
-                    if (customOutput != null) {
-                        add("--output-dir=${customOutput}")
-                    }
-                }
-
-                PickCrossovers().parse(args)
-                restoreOrchestratorLogging(workDir)
-
-                // Get output directory (use custom or default)
-                refkeyOutputDir = customOutput ?: workDir.resolve("output").resolve("05_crossovers_results")
-
-                if (!refkeyOutputDir.exists()) {
-                    throw RuntimeException("Expected refkey output directory not found: $refkeyOutputDir")
-                }
+                refkeyOutputDir = OrchestrateShared.runPickCrossovers(
+                    workDir = workDir,
+                    refFasta = pickCrossoversRefFasta,
+                    assemblyList = step6AssemblyList,
+                    outputDir = pickCrossoversOutputDir,
+                    logger = logger,
+                )
 
                 logger.info("Step 5 completed successfully")
                 logger.info("")
