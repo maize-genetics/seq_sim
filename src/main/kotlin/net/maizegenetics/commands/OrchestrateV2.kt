@@ -54,6 +54,11 @@ class OrchestrateV2(
         // Track outputs between steps
         var mafFilePaths: Path? = null
         var refFasta: Path? = null
+        var gvcfOutputDir: Path? = null
+        var splitBaseDir: Path? = null
+        var splitDonorDir: Path? = null
+        var pairsFile: Path? = null
+        var downsampledDonorDir: Path? = null
 
         try {
             // Step 1: Align Assemblies (if configured and should run)
@@ -188,7 +193,7 @@ class OrchestrateV2(
                 restoreOrchestratorLogging(workDir)
 
                 // Get output directory (use custom or default)
-                val gvcfOutputDir = (customOutputDir ?: workDir.resolve("output").resolve("02_gvcf_results"))
+                gvcfOutputDir = (customOutputDir ?: workDir.resolve("output").resolve("02_gvcf_results"))
                     .toAbsolutePath().normalize()
 
                 if (!gvcfOutputDir.exists()) {
@@ -200,8 +205,225 @@ class OrchestrateV2(
             } else {
                 if (config.maf_to_gvcf != null) {
                     logger.info("Skipping maf-to-gvcf (not in run_steps)")
+
+                    // Try to use outputs from previous run
+                    val customOutputDir = config.maf_to_gvcf.output_dir?.let {
+                        Path.of(it).toAbsolutePath().normalize()
+                    }
+                    val previousGvcfDir = (customOutputDir ?: workDir.resolve("output").resolve("02_gvcf_results"))
+                        .toAbsolutePath().normalize()
+                    if (previousGvcfDir.exists()) {
+                        gvcfOutputDir = previousGvcfDir
+                        logger.info("Using previous maf-to-gvcf outputs: $gvcfOutputDir")
+                    } else {
+                        logger.warn("Previous maf-to-gvcf outputs not found. Downstream steps may fail.")
+                    }
                 } else {
                     logger.info("Skipping maf-to-gvcf (not configured)")
+                }
+                logger.info("")
+            }
+
+            // Step 3: Split GVCFs into base / mutation-donor (if configured and should run)
+            if (config.split_gvcfs != null && shouldRunStep("split_gvcfs", config)) {
+                logger.info("=".repeat(80))
+                logger.info("STEP 3: Split GVCFs (base / mutation donor)")
+                logger.info("=".repeat(80))
+
+                val keyfile = Path.of(config.split_gvcfs.keyfile).toAbsolutePath().normalize()
+                val gvcfInput = config.split_gvcfs.input?.let {
+                    Path.of(it).toAbsolutePath().normalize()
+                } ?: gvcfOutputDir
+                if (gvcfInput == null) {
+                    throw RuntimeException("Cannot run split-gvcfs: no GVCF input available (specify 'input' in config or run maf-to-gvcf first)")
+                }
+
+                val customOutput = config.split_gvcfs.output?.let {
+                    Path.of(it).toAbsolutePath().normalize()
+                }
+                val outputBase = (customOutput ?: workDir.resolve("output").resolve("03_split_gvcfs_results"))
+                    .toAbsolutePath().normalize()
+
+                logger.info("Keyfile: $keyfile")
+                logger.info("GVCF input: $gvcfInput")
+
+                val args = buildList {
+                    add("--work-dir=$workDir")
+                    add("--keyfile=$keyfile")
+                    add("--gvcf-dir=$gvcfInput")
+                    if (customOutput != null) {
+                        add("--output-dir=$customOutput")
+                    }
+                }
+
+                SplitGvcfs().parse(args)
+                restoreOrchestratorLogging(workDir)
+
+                splitBaseDir = outputBase.resolve("base")
+                splitDonorDir = outputBase.resolve("mutation_donor")
+                pairsFile = outputBase.resolve("pairs.tsv")
+
+                if (!pairsFile.exists()) {
+                    throw RuntimeException("Expected split-gvcfs pairs file not found: $pairsFile")
+                }
+
+                logger.info("Step 3 completed successfully")
+                logger.info("")
+            } else {
+                if (config.split_gvcfs != null) {
+                    logger.info("Skipping split-gvcfs (not in run_steps)")
+
+                    val customOutput = config.split_gvcfs.output?.let {
+                        Path.of(it).toAbsolutePath().normalize()
+                    }
+                    val outputBase = (customOutput ?: workDir.resolve("output").resolve("03_split_gvcfs_results"))
+                        .toAbsolutePath().normalize()
+                    if (outputBase.exists()) {
+                        splitBaseDir = outputBase.resolve("base")
+                        splitDonorDir = outputBase.resolve("mutation_donor")
+                        pairsFile = outputBase.resolve("pairs.tsv")
+                        logger.info("Using previous split-gvcfs outputs: $outputBase")
+                    } else {
+                        logger.warn("Previous split-gvcfs outputs not found. Downstream steps may fail.")
+                    }
+                } else {
+                    logger.info("Skipping split-gvcfs (not configured)")
+                }
+                logger.info("")
+            }
+
+            // Step 4: Downsample the mutation-donor GVCFs (if configured and should run)
+            if (config.downsample_gvcf != null && shouldRunStep("downsample_gvcf", config)) {
+                logger.info("=".repeat(80))
+                logger.info("STEP 4: Downsample mutation-donor GVCFs")
+                logger.info("=".repeat(80))
+
+                val gvcfInput = config.downsample_gvcf.input?.let {
+                    Path.of(it).toAbsolutePath().normalize()
+                } ?: splitDonorDir
+                if (gvcfInput == null) {
+                    throw RuntimeException("Cannot run downsample-gvcf: no mutation-donor GVCF input available (specify 'input' in config or run split-gvcfs first)")
+                }
+
+                val customOutput = config.downsample_gvcf.output?.let {
+                    Path.of(it).toAbsolutePath().normalize()
+                }
+                val outputBase = (customOutput ?: workDir.resolve("output").resolve("04_downsample_results"))
+                    .toAbsolutePath().normalize()
+
+                logger.info("Mutation-donor GVCF input: $gvcfInput")
+
+                val args = buildList {
+                    add("--work-dir=$workDir")
+                    add("--gvcf-dir=$gvcfInput")
+                    add("--output-dir=$outputBase")
+                    if (config.downsample_gvcf.ignore_contig != null) {
+                        add("--ignore-contig=${config.downsample_gvcf.ignore_contig}")
+                    }
+                    if (config.downsample_gvcf.rates != null) {
+                        add("--rates=${config.downsample_gvcf.rates}")
+                    }
+                    if (config.downsample_gvcf.seed != null) {
+                        add("--seed=${config.downsample_gvcf.seed}")
+                    }
+                    if (config.downsample_gvcf.keep_ref != null) {
+                        add("--keep-ref=${config.downsample_gvcf.keep_ref}")
+                    }
+                    if (config.downsample_gvcf.min_ref_block_size != null) {
+                        add("--min-ref-block-size=${config.downsample_gvcf.min_ref_block_size}")
+                    }
+                }
+
+                DownsampleGvcf().parse(args)
+                restoreOrchestratorLogging(workDir)
+
+                downsampledDonorDir = outputBase
+                if (!downsampledDonorDir.exists()) {
+                    throw RuntimeException("Expected downsampled GVCF output directory not found: $downsampledDonorDir")
+                }
+
+                logger.info("Step 4 completed successfully")
+                logger.info("")
+            } else {
+                if (config.downsample_gvcf != null) {
+                    logger.info("Skipping downsample-gvcf (not in run_steps)")
+
+                    val customOutput = config.downsample_gvcf.output?.let {
+                        Path.of(it).toAbsolutePath().normalize()
+                    }
+                    val previousDir = (customOutput ?: workDir.resolve("output").resolve("04_downsample_results"))
+                        .toAbsolutePath().normalize()
+                    if (previousDir.exists()) {
+                        downsampledDonorDir = previousDir
+                        logger.info("Using previous downsample-gvcf outputs: $downsampledDonorDir")
+                    } else {
+                        logger.warn("Previous downsample-gvcf outputs not found. Downstream steps may fail.")
+                    }
+                } else {
+                    logger.info("Skipping downsample-gvcf (not configured)")
+                }
+                logger.info("")
+            }
+
+            // Step 5: Mutate assemblies (base + downsampled mutation donor -> mutated base GVCFs)
+            if (config.mutate_assemblies != null && shouldRunStep("mutate_assemblies", config)) {
+                logger.info("=".repeat(80))
+                logger.info("STEP 5: Mutate assemblies")
+                logger.info("=".repeat(80))
+
+                val keyfile = config.mutate_assemblies.keyfile?.let {
+                    Path.of(it).toAbsolutePath().normalize()
+                } ?: pairsFile
+                if (keyfile == null) {
+                    throw RuntimeException("Cannot run mutate-assemblies: no pairs keyfile available (specify 'keyfile' in config or run split-gvcfs first)")
+                }
+
+                val baseInput = config.mutate_assemblies.base_input?.let {
+                    Path.of(it).toAbsolutePath().normalize()
+                } ?: splitBaseDir
+                if (baseInput == null) {
+                    throw RuntimeException("Cannot run mutate-assemblies: no base gVCF directory available (specify 'base_input' in config or run split-gvcfs first)")
+                }
+
+                val donorInput = config.mutate_assemblies.mutation_donor_input?.let {
+                    Path.of(it).toAbsolutePath().normalize()
+                } ?: downsampledDonorDir
+                if (donorInput == null) {
+                    throw RuntimeException("Cannot run mutate-assemblies: no downsampled mutation-donor directory available (specify 'mutation_donor_input' in config or run downsample-gvcf first)")
+                }
+
+                val customOutput = config.mutate_assemblies.output?.let {
+                    Path.of(it).toAbsolutePath().normalize()
+                }
+                val outputBase = (customOutput ?: workDir.resolve("output").resolve("05_mutate_assemblies_results"))
+                    .toAbsolutePath().normalize()
+
+                logger.info("Pairs keyfile: $keyfile")
+                logger.info("Base gVCF dir: $baseInput")
+                logger.info("Mutation-donor gVCF dir: $donorInput")
+
+                val args = buildList {
+                    add("--work-dir=$workDir")
+                    add("--keyfile=$keyfile")
+                    add("--base-dir=$baseInput")
+                    add("--mutation-donor-dir=$donorInput")
+                    add("--output-dir=$outputBase")
+                }
+
+                MutateAssemblies().parse(args)
+                restoreOrchestratorLogging(workDir)
+
+                if (!outputBase.exists()) {
+                    throw RuntimeException("Expected mutated GVCF output directory not found: $outputBase")
+                }
+
+                logger.info("Step 5 completed successfully")
+                logger.info("")
+            } else {
+                if (config.mutate_assemblies != null) {
+                    logger.info("Skipping mutate-assemblies (not in run_steps)")
+                } else {
+                    logger.info("Skipping mutate-assemblies (not configured)")
                 }
                 logger.info("")
             }
