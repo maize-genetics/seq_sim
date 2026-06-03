@@ -428,6 +428,76 @@ class OrchestrateV2(
                 logger.info("")
             }
 
+            // Step 6: Pick Crossovers on the base assemblies (if configured and should run)
+            if (config.pick_crossovers != null && shouldRunStep("pick_crossovers", config)) {
+                logger.info("=".repeat(80))
+                logger.info("STEP 6: Pick Crossovers (base assemblies)")
+                logger.info("=".repeat(80))
+
+                // Reference FASTA (custom or from step 1)
+                val pickRefFasta = config.pick_crossovers.ref_fasta?.let {
+                    Path.of(it).toAbsolutePath().normalize()
+                } ?: refFasta
+                if (pickRefFasta == null) {
+                    throw RuntimeException("Cannot run pick-crossovers: reference FASTA not available (specify 'ref_fasta' in pick_crossovers config or run align-assemblies first)")
+                }
+
+                // Original assembly FASTAs (custom or the align-assemblies query input)
+                val queryFasta = config.pick_crossovers.query_fasta?.let {
+                    Path.of(it).toAbsolutePath().normalize()
+                } ?: config.align_assemblies?.query_fasta?.let {
+                    Path.of(it).toAbsolutePath().normalize()
+                }
+                if (queryFasta == null) {
+                    throw RuntimeException("Cannot run pick-crossovers: no query FASTA available (specify 'query_fasta' in pick_crossovers config or configure align_assemblies)")
+                }
+
+                // Base gVCFs (custom or from split-gvcfs base/ output)
+                val baseInput = config.pick_crossovers.base_input?.let {
+                    Path.of(it).toAbsolutePath().normalize()
+                } ?: splitBaseDir
+                if (baseInput == null) {
+                    throw RuntimeException("Cannot run pick-crossovers: no base gVCF directory available (specify 'base_input' in config or run split-gvcfs first)")
+                }
+
+                val customOutput = config.pick_crossovers.output?.let {
+                    Path.of(it).toAbsolutePath().normalize()
+                }
+                val outputBase = (customOutput ?: workDir.resolve("output").resolve("06_crossovers_results"))
+                    .toAbsolutePath().normalize()
+
+                logger.info("Reference FASTA: $pickRefFasta")
+                logger.info("Query FASTA input: $queryFasta")
+                logger.info("Base gVCF input: $baseInput")
+
+                val args = buildList {
+                    add("--work-dir=$workDir")
+                    add("--ref-fasta=$pickRefFasta")
+                    add("--query-fasta=$queryFasta")
+                    add("--base-input=$baseInput")
+                    if (customOutput != null) {
+                        add("--output-dir=$customOutput")
+                    }
+                }
+
+                PickBaseCrossovers().parse(args)
+                restoreOrchestratorLogging(workDir)
+
+                if (!outputBase.exists()) {
+                    throw RuntimeException("Expected pick-crossovers output directory not found: $outputBase")
+                }
+
+                logger.info("Step 6 completed successfully")
+                logger.info("")
+            } else {
+                if (config.pick_crossovers != null) {
+                    logger.info("Skipping pick-crossovers (not in run_steps)")
+                } else {
+                    logger.info("Skipping pick-crossovers (not configured)")
+                }
+                logger.info("")
+            }
+
             // Pipeline completed successfully
             logger.info("=".repeat(80))
             logger.info("PIPELINE COMPLETED SUCCESSFULLY!")

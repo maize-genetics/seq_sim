@@ -15,6 +15,9 @@
 # 04. downsample-gvcf:    Downsample the mutation-donor gVCFs at the given rates
 # 05. mutate-assemblies:  Mutate each base gVCF with its downsampled mutation
 #                         donor(s) -> mutated base gVCFs
+# 06. pick-crossovers:    Pick crossover breakpoints on the BASE assemblies, using
+#                         the base samples from step 03 mapped to their assembly
+#                         FASTA counterparts from the step 01 query input
 #
 # NOTE (1): Environment setup is automatic. The orchestrate command detects a
 #       missing working directory or tools (MLImpute, biokotlin-tools, PHGv2)
@@ -37,6 +40,7 @@ run_steps:
   - split_gvcfs          # Step 03: Split into base / mutation-donor gVCFs
   - downsample_gvcf      # Step 04: Downsample the mutation-donor gVCFs
   - mutate_assemblies    # Step 05: Produce mutated base gVCFs
+  - pick_crossovers      # Step 06: Pick crossovers on the base assemblies
 
 # ============================================================================
 # STEP CONFIGURATION
@@ -94,6 +98,18 @@ mutate_assemblies:
   # mutation_donor_input: "/custom/downsampled/dir/"  # Optional: Defaults to downsample_gvcf output
   # output: "/custom/mutated/output/"          # Optional: Custom output directory
 
+# Step 6: Pick Crossovers (base assemblies)
+# Picks crossover breakpoints on the BASE assemblies. The base samples named by
+# split_gvcfs (step 03) are mapped to their assembly FASTA counterparts from the
+# align_assemblies query input (matched by base name, e.g. base 'B73' -> 'B73.fa').
+# A base sample without a matching assembly FASTA is a hard error, and the matched
+# assembly count must be even (assemblies are paired for crossover simulation).
+pick_crossovers:
+  # ref_fasta: "path/to/reference.fa"     # Optional: Uses align_assemblies.ref_fasta if omitted
+  # query_fasta: "path/to/queries.txt"    # Optional: Uses align_assemblies.query_fasta if omitted
+  # base_input: "/custom/base/dir/"       # Optional: Defaults to split_gvcfs base/ output
+  # output: "/custom/crossovers/output/"  # Optional: Custom output directory
+
 # ============================================================================
 # SPLIT KEYFILE FORMAT (for split_gvcfs / mutate_assemblies)
 # ============================================================================
@@ -119,4 +135,5 @@ mutate_assemblies:
 #   03_split_gvcfs_results/         base/ + mutation_donor/ + pairs.tsv
 #   04_downsample_results/          downsampled mutation-donor gVCFs
 #   05_mutate_assemblies_results/   mutated base gVCFs + mutated_gvcf_file_paths.txt
+#   06_crossovers_results/          base_assembly_list.txt + {assembly}_refkey.bed
 # ============================================================================
