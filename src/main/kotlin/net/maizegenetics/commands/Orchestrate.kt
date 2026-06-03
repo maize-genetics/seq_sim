@@ -25,6 +25,7 @@ data class PipelineConfig(
     val maf_to_gvcf: MafToGvcfConfig? = null,
     val split_gvcfs: SplitGvcfsConfig? = null,
     val mutate_assemblies: MutateAssembliesConfig? = null,
+    val recombine_gvcfs: RecombineGvcfsConfig? = null,
     val downsample_gvcf: DownsampleGvcfConfig? = null,
     val convert_to_fasta: ConvertToFastaConfig? = null,
     val align_mutated_assemblies: AlignMutatedAssembliesConfig? = null,
@@ -72,6 +73,14 @@ data class MutateAssembliesConfig(
     val base_input: String? = null,           // Optional: base gVCF dir (defaults to split_gvcfs base/)
     val mutation_donor_input: String? = null, // Optional: downsampled donor gVCF dir (defaults to downsample output)
     val output: String? = null                // Optional: custom output directory
+)
+
+data class RecombineGvcfsConfig(
+    val ref_file: String? = null,    // Optional: Reference FASTA (uses align_assemblies.ref_fasta if omitted)
+    val input_bed: String? = null,   // Optional: crossover BED dir (defaults to pick_crossovers output)
+    val input_gvcf: String? = null,  // Optional: mutated base gVCF dir (defaults to mutate_assemblies output)
+    val output: String? = null,      // Optional: custom output directory for recombined gVCFs
+    val output_bed: String? = null   // Optional: custom output directory for resized BED files
 )
 
 data class DownsampleGvcfConfig(
@@ -479,6 +488,19 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 )
             } else null
 
+            // Parse recombine_gvcfs - check if key exists (even with empty/null value means "run with defaults")
+            @Suppress("UNCHECKED_CAST")
+            val recombineGvcfsMap = configMap["recombine_gvcfs"] as? Map<String, Any>
+            val recombineGvcfs = if (configMap.containsKey("recombine_gvcfs")) {
+                RecombineGvcfsConfig(
+                    ref_file = recombineGvcfsMap?.get("ref_file") as? String,
+                    input_bed = recombineGvcfsMap?.get("input_bed") as? String,
+                    input_gvcf = recombineGvcfsMap?.get("input_gvcf") as? String,
+                    output = recombineGvcfsMap?.get("output") as? String,
+                    output_bed = recombineGvcfsMap?.get("output_bed") as? String
+                )
+            } else null
+
             // Parse downsample_gvcf - check if key exists (even with empty/null value means "run with defaults")
             @Suppress("UNCHECKED_CAST")
             val downsampleGvcfMap = configMap["downsample_gvcf"] as? Map<String, Any>
@@ -661,6 +683,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 maf_to_gvcf = mafToGvcf,
                 split_gvcfs = splitGvcfs,
                 mutate_assemblies = mutateAssemblies,
+                recombine_gvcfs = recombineGvcfs,
                 downsample_gvcf = downsampleGvcf,
                 convert_to_fasta = convertToFasta,
                 align_mutated_assemblies = alignMutatedAssemblies,

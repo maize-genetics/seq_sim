@@ -59,6 +59,8 @@ class OrchestrateV2(
         var splitDonorDir: Path? = null
         var pairsFile: Path? = null
         var downsampledDonorDir: Path? = null
+        var mutatedGvcfDir: Path? = null
+        var crossoverBedDir: Path? = null
 
         try {
             // Step 1: Align Assemblies (if configured and should run)
@@ -417,11 +419,24 @@ class OrchestrateV2(
                     throw RuntimeException("Expected mutated GVCF output directory not found: $outputBase")
                 }
 
+                mutatedGvcfDir = outputBase
                 logger.info("Step 5 completed successfully")
                 logger.info("")
             } else {
                 if (config.mutate_assemblies != null) {
                     logger.info("Skipping mutate-assemblies (not in run_steps)")
+
+                    val customOutput = config.mutate_assemblies.output?.let {
+                        Path.of(it).toAbsolutePath().normalize()
+                    }
+                    val previousDir = (customOutput ?: workDir.resolve("output").resolve("05_mutate_assemblies_results"))
+                        .toAbsolutePath().normalize()
+                    if (previousDir.exists()) {
+                        mutatedGvcfDir = previousDir
+                        logger.info("Using previous mutate-assemblies outputs: $mutatedGvcfDir")
+                    } else {
+                        logger.warn("Previous mutate-assemblies outputs not found. Downstream steps may fail.")
+                    }
                 } else {
                     logger.info("Skipping mutate-assemblies (not configured)")
                 }
@@ -487,13 +502,100 @@ class OrchestrateV2(
                     throw RuntimeException("Expected pick-crossovers output directory not found: $outputBase")
                 }
 
+                crossoverBedDir = outputBase
                 logger.info("Step 6 completed successfully")
                 logger.info("")
             } else {
                 if (config.pick_crossovers != null) {
                     logger.info("Skipping pick-crossovers (not in run_steps)")
+
+                    val customOutput = config.pick_crossovers.output?.let {
+                        Path.of(it).toAbsolutePath().normalize()
+                    }
+                    val previousDir = (customOutput ?: workDir.resolve("output").resolve("06_crossovers_results"))
+                        .toAbsolutePath().normalize()
+                    if (previousDir.exists()) {
+                        crossoverBedDir = previousDir
+                        logger.info("Using previous pick-crossovers outputs: $crossoverBedDir")
+                    } else {
+                        logger.warn("Previous pick-crossovers outputs not found. Downstream steps may fail.")
+                    }
                 } else {
                     logger.info("Skipping pick-crossovers (not configured)")
+                }
+                logger.info("")
+            }
+
+            // Step 7: Recombine GVCFs (mutated base gVCFs + crossover BEDs -> recombined gVCFs)
+            if (config.recombine_gvcfs != null && shouldRunStep("recombine_gvcfs", config)) {
+                logger.info("=".repeat(80))
+                logger.info("STEP 7: Recombine GVCFs")
+                logger.info("=".repeat(80))
+
+                // Reference FASTA (custom or from step 1)
+                val recombineRefFasta = config.recombine_gvcfs.ref_file?.let {
+                    Path.of(it).toAbsolutePath().normalize()
+                } ?: refFasta
+                if (recombineRefFasta == null) {
+                    throw RuntimeException("Cannot run recombine-gvcfs: reference FASTA not available (specify 'ref_file' in recombine_gvcfs config or run align-assemblies first)")
+                }
+
+                // Crossover BED input (custom or from step 6)
+                val inputBedDir = config.recombine_gvcfs.input_bed?.let {
+                    Path.of(it).toAbsolutePath().normalize()
+                } ?: crossoverBedDir
+                if (inputBedDir == null) {
+                    throw RuntimeException("Cannot run recombine-gvcfs: no crossover BED directory available (specify 'input_bed' in config or run pick-crossovers first)")
+                }
+
+                // Mutated base gVCF input (custom or from step 5)
+                val inputGvcfDir = config.recombine_gvcfs.input_gvcf?.let {
+                    Path.of(it).toAbsolutePath().normalize()
+                } ?: mutatedGvcfDir
+                if (inputGvcfDir == null) {
+                    throw RuntimeException("Cannot run recombine-gvcfs: no mutated base gVCF directory available (specify 'input_gvcf' in config or run mutate-assemblies first)")
+                }
+
+                val customOutput = config.recombine_gvcfs.output?.let {
+                    Path.of(it).toAbsolutePath().normalize()
+                }
+                val outputBase = (customOutput ?: workDir.resolve("output").resolve("07_recombine_gvcfs_results"))
+                    .toAbsolutePath().normalize()
+                val outputBedDir = config.recombine_gvcfs.output_bed?.let {
+                    Path.of(it).toAbsolutePath().normalize()
+                } ?: outputBase.resolve("resized_beds")
+
+                // RecombineGvcfs keeps no auto dir-creation, so create the
+                // output directories here before invoking it.
+                outputBase.createDirectories()
+                outputBedDir.createDirectories()
+
+                logger.info("Reference FASTA: $recombineRefFasta")
+                logger.info("Crossover BED input: $inputBedDir")
+                logger.info("Mutated base gVCF input: $inputGvcfDir")
+
+                val args = listOf(
+                    "--input-bed-dir=$inputBedDir",
+                    "--input-gvcf-dir=$inputGvcfDir",
+                    "--ref-file=$recombineRefFasta",
+                    "--output-dir=$outputBase",
+                    "--output-bed-dir=$outputBedDir",
+                )
+
+                RecombineGvcfs().parse(args)
+                restoreOrchestratorLogging(workDir)
+
+                if (!outputBase.exists()) {
+                    throw RuntimeException("Expected recombine-gvcfs output directory not found: $outputBase")
+                }
+
+                logger.info("Step 7 completed successfully")
+                logger.info("")
+            } else {
+                if (config.recombine_gvcfs != null) {
+                    logger.info("Skipping recombine-gvcfs (not in run_steps)")
+                } else {
+                    logger.info("Skipping recombine-gvcfs (not configured)")
                 }
                 logger.info("")
             }
