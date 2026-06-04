@@ -23,6 +23,7 @@ import net.maizegenetics.commands.RopeBwtMem
 import net.maizegenetics.commands.SetupEnvironment
 import net.maizegenetics.commands.MutateAssemblies
 import net.maizegenetics.commands.RecombineGvcfs
+import net.maizegenetics.commands.SortGvcfs
 import net.maizegenetics.commands.SplitGvcfs
 
 class SeqSim : CliktCommand() {
@@ -51,6 +52,7 @@ fun main(args: Array<String>) = SeqSim()
         ExtractChromIds(),
         MutateAssemblies(),
         RecombineGvcfs(),
-        SplitGvcfs()
+        SplitGvcfs(),
+        SortGvcfs()
     )
     .main(args)

@@ -61,6 +61,7 @@ class OrchestrateV2(
         var downsampledDonorDir: Path? = null
         var mutatedGvcfDir: Path? = null
         var crossoverBedDir: Path? = null
+        var recombinedGvcfDir: Path? = null
 
         try {
             // Step 1: Align Assemblies (if configured and should run)
@@ -589,13 +590,75 @@ class OrchestrateV2(
                     throw RuntimeException("Expected recombine-gvcfs output directory not found: $outputBase")
                 }
 
+                recombinedGvcfDir = outputBase
                 logger.info("Step 7 completed successfully")
                 logger.info("")
             } else {
                 if (config.recombine_gvcfs != null) {
                     logger.info("Skipping recombine-gvcfs (not in run_steps)")
+
+                    val customOutput = config.recombine_gvcfs.output?.let {
+                        Path.of(it).toAbsolutePath().normalize()
+                    }
+                    val previousDir = (customOutput ?: workDir.resolve("output").resolve("07_recombine_gvcfs_results"))
+                        .toAbsolutePath().normalize()
+                    if (previousDir.exists()) {
+                        recombinedGvcfDir = previousDir
+                        logger.info("Using previous recombine-gvcfs outputs: $recombinedGvcfDir")
+                    } else {
+                        logger.warn("Previous recombine-gvcfs outputs not found. Downstream steps may fail.")
+                    }
                 } else {
                     logger.info("Skipping recombine-gvcfs (not configured)")
+                }
+                logger.info("")
+            }
+
+            // Step 8: Sort the recombined GVCFs with bcftools (if configured and should run)
+            if (config.sort_gvcfs != null && shouldRunStep("sort_gvcfs", config)) {
+                logger.info("=".repeat(80))
+                logger.info("STEP 8: Sort GVCFs")
+                logger.info("=".repeat(80))
+
+                // Recombined gVCF input (custom or from step 7)
+                val gvcfInput = config.sort_gvcfs.input?.let {
+                    Path.of(it).toAbsolutePath().normalize()
+                } ?: recombinedGvcfDir
+                if (gvcfInput == null) {
+                    throw RuntimeException("Cannot run sort-gvcfs: no recombined gVCF input available (specify 'input' in config or run recombine-gvcfs first)")
+                }
+
+                val customOutput = config.sort_gvcfs.output?.let {
+                    Path.of(it).toAbsolutePath().normalize()
+                }
+                val outputBase = (customOutput ?: workDir.resolve("output").resolve("08_sort_gvcfs_results"))
+                    .toAbsolutePath().normalize()
+
+                logger.info("Recombined gVCF input: $gvcfInput")
+
+                val args = buildList {
+                    add("--work-dir=$workDir")
+                    add("--gvcf-input=$gvcfInput")
+                    add("--output-dir=$outputBase")
+                    if (config.sort_gvcfs.threads != null) {
+                        add("--threads=${config.sort_gvcfs.threads}")
+                    }
+                }
+
+                SortGvcfs().parse(args)
+                restoreOrchestratorLogging(workDir)
+
+                if (!outputBase.exists()) {
+                    throw RuntimeException("Expected sort-gvcfs output directory not found: $outputBase")
+                }
+
+                logger.info("Step 8 completed successfully")
+                logger.info("")
+            } else {
+                if (config.sort_gvcfs != null) {
+                    logger.info("Skipping sort-gvcfs (not in run_steps)")
+                } else {
+                    logger.info("Skipping sort-gvcfs (not configured)")
                 }
                 logger.info("")
             }

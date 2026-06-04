@@ -26,6 +26,7 @@ data class PipelineConfig(
     val split_gvcfs: SplitGvcfsConfig? = null,
     val mutate_assemblies: MutateAssembliesConfig? = null,
     val recombine_gvcfs: RecombineGvcfsConfig? = null,
+    val sort_gvcfs: SortGvcfsConfig? = null,
     val downsample_gvcf: DownsampleGvcfConfig? = null,
     val convert_to_fasta: ConvertToFastaConfig? = null,
     val align_mutated_assemblies: AlignMutatedAssembliesConfig? = null,
@@ -81,6 +82,12 @@ data class RecombineGvcfsConfig(
     val input_gvcf: String? = null,  // Optional: mutated base gVCF dir (defaults to mutate_assemblies output)
     val output: String? = null,      // Optional: custom output directory for recombined gVCFs
     val output_bed: String? = null   // Optional: custom output directory for resized BED files
+)
+
+data class SortGvcfsConfig(
+    val input: String? = null,    // Optional: recombined gVCF dir/list (defaults to recombine_gvcfs output)
+    val threads: Int? = null,     // Optional: number of threads for bcftools
+    val output: String? = null    // Optional: custom output directory for sorted gVCFs
 )
 
 data class DownsampleGvcfConfig(
@@ -501,6 +508,17 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 )
             } else null
 
+            // Parse sort_gvcfs - check if key exists (even with empty/null value means "run with defaults")
+            @Suppress("UNCHECKED_CAST")
+            val sortGvcfsMap = configMap["sort_gvcfs"] as? Map<String, Any>
+            val sortGvcfs = if (configMap.containsKey("sort_gvcfs")) {
+                SortGvcfsConfig(
+                    input = sortGvcfsMap?.get("input") as? String,
+                    threads = sortGvcfsMap?.get("threads") as? Int,
+                    output = sortGvcfsMap?.get("output") as? String
+                )
+            } else null
+
             // Parse downsample_gvcf - check if key exists (even with empty/null value means "run with defaults")
             @Suppress("UNCHECKED_CAST")
             val downsampleGvcfMap = configMap["downsample_gvcf"] as? Map<String, Any>
@@ -684,6 +702,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 split_gvcfs = splitGvcfs,
                 mutate_assemblies = mutateAssemblies,
                 recombine_gvcfs = recombineGvcfs,
+                sort_gvcfs = sortGvcfs,
                 downsample_gvcf = downsampleGvcf,
                 convert_to_fasta = convertToFasta,
                 align_mutated_assemblies = alignMutatedAssemblies,
