@@ -713,3 +713,42 @@ seq_sim recombine-gvcfs \
     --output-dir recombined_gvcfs/ \
     --output-bed-dir recombined_beds/
 ```
+
+### sort-gvcfs
+
+Sort the recombined GVCFs from `recombine-gvcfs` into coordinate order using
+`bcftools sort` (run through `pixi` so the bioconda `bcftools` is used), then
+index each output. Recombination stitches segments from multiple parent gVCFs
+together, which can leave records out of position order; this step produces
+bgzip-compressed, indexed gVCFs (`{sample}.g.vcf.gz` + `{sample}.g.vcf.gz.csi`)
+ready for downstream tools.
+
+This step requires the third-party tool [bcftools](https://github.com/samtools/bcftools),
+which is provided by the pixi environment (`setup-environment`).
+
+In the v2 `orchestrate` pipeline this runs as Step 08 (`sort_gvcfs`), fed by the
+recombined gVCFs from `recombine-gvcfs` (Step 07). When `--gvcf-input` is omitted
+it auto-detects the step 07 output directory (`07_recombine_gvcfs_results`).
+
+```bash
+seq_sim sort-gvcfs [OPTIONS]
+```
+
+- `--work-dir`, `-w`: Working directory for files and logs (default: `seq_sim_work`)
+- `--gvcf-input`, `-g`: GVCF file, directory, or text list (default: step 07 recombine output)
+- `--threads`, `-t`: Number of threads for bcftools (default: 4)
+- `--output-dir`, `-o`: Custom output directory (default: `work_dir/output/08_sort_gvcfs_results`)
+
+**Output:**
+- `output/08_sort_gvcfs_results/{sample}.g.vcf.gz`
+- `output/08_sort_gvcfs_results/{sample}.g.vcf.gz.csi`
+- `output/08_sort_gvcfs_results/sorted_gvcf_paths.txt`
+- `logs/08_sort_gvcfs.log`
+
+**Example:**
+```bash
+seq_sim sort-gvcfs \
+    --gvcf-input recombined_gvcfs/ \
+    --output-dir sorted_gvcfs/ \
+    --threads 8
+```
