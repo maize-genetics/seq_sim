@@ -18,6 +18,8 @@
 # 06. pick-crossovers:    Pick crossover breakpoints on the BASE assemblies, using
 #                         the base samples from step 03 mapped to their assembly
 #                         FASTA counterparts from the step 01 query input
+# 07. recombine-gvcfs:    Recombine the mutated base gVCFs (step 05) along the
+#                         crossover BEDs (step 06) -> recombined gVCFs
 #
 # NOTE (1): Environment setup is automatic. The orchestrate command detects a
 #       missing working directory or tools (MLImpute, biokotlin-tools, PHGv2)
@@ -41,6 +43,7 @@ run_steps:
   - downsample_gvcf      # Step 04: Downsample the mutation-donor gVCFs
   - mutate_assemblies    # Step 05: Produce mutated base gVCFs
   - pick_crossovers      # Step 06: Pick crossovers on the base assemblies
+  - recombine_gvcfs      # Step 07: Recombine mutated base gVCFs along crossovers
 
 # ============================================================================
 # STEP CONFIGURATION
@@ -110,6 +113,21 @@ pick_crossovers:
   # base_input: "/custom/base/dir/"       # Optional: Defaults to split_gvcfs base/ output
   # output: "/custom/crossovers/output/"  # Optional: Custom output directory
 
+# Step 7: Recombine GVCFs
+# Recombines the mutated base gVCFs (step 05) by stitching segments together
+# along the crossover breakpoints from the pick-crossovers BEDs (step 06),
+# writing one recombined gVCF per target sample ("{target}_recombined.gvcf")
+# plus the resized BED files. A mutated gVCF named "{base}__{donor}_mutated.g.vcf"
+# is matched to its "{base}_refkey.bed" by its base sample name.
+# NOTE: if a base has multiple mutated donors, their variants merge into the
+# same per-target recombinant output.
+recombine_gvcfs:
+  # ref_file: "path/to/reference.fa"      # Optional: Uses align_assemblies.ref_fasta if omitted
+  # input_bed: "/custom/crossover/beds/"  # Optional: Defaults to pick_crossovers output (step 06)
+  # input_gvcf: "/custom/mutated/gvcfs/"  # Optional: Defaults to mutate_assemblies output (step 05)
+  # output: "/custom/recombined/output/"  # Optional: Custom output directory for recombined gVCFs
+  # output_bed: "/custom/resized/beds/"   # Optional: Custom output directory for resized BEDs
+
 # ============================================================================
 # SPLIT KEYFILE FORMAT (for split_gvcfs / mutate_assemblies)
 # ============================================================================
@@ -136,4 +154,5 @@ pick_crossovers:
 #   04_downsample_results/          downsampled mutation-donor gVCFs
 #   05_mutate_assemblies_results/   mutated base gVCFs + mutated_gvcf_file_paths.txt
 #   06_crossovers_results/          base_assembly_list.txt + {assembly}_refkey.bed
+#   07_recombine_gvcfs_results/     {target}_recombined.gvcf + resized_beds/
 # ============================================================================

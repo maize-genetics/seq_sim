@@ -688,6 +688,12 @@ Build recombined per-sample GVCFs from a directory of ancestry BED files and
 matching per-parent GVCFs. Acts as a GVCF-level counterpart to
 `generate-recombined-sequences`.
 
+In the v2 `orchestrate` pipeline this runs as Step 07 (`recombine_gvcfs`), fed
+by the mutated base gVCFs from `mutate-assemblies` (Step 05) and the crossover
+BEDs from `pick-crossovers` (Step 06). A mutated gVCF named
+`{base}__{donor}_mutated.g.vcf` is matched to its `{base}_refkey.bed` by its
+base sample name.
+
 ```bash
 seq_sim recombine-gvcfs [OPTIONS]
 ```
