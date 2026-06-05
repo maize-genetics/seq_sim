@@ -25,6 +25,8 @@ data class PipelineConfig(
     val maf_to_gvcf: MafToGvcfConfig? = null,
     val split_gvcfs: SplitGvcfsConfig? = null,
     val mutate_assemblies: MutateAssembliesConfig? = null,
+    val recombine_gvcfs: RecombineGvcfsConfig? = null,
+    val sort_gvcfs: SortGvcfsConfig? = null,
     val downsample_gvcf: DownsampleGvcfConfig? = null,
     val convert_to_fasta: ConvertToFastaConfig? = null,
     val align_mutated_assemblies: AlignMutatedAssembliesConfig? = null,
@@ -74,6 +76,20 @@ data class MutateAssembliesConfig(
     val output: String? = null                // Optional: custom output directory
 )
 
+data class RecombineGvcfsConfig(
+    val ref_file: String? = null,    // Optional: Reference FASTA (uses align_assemblies.ref_fasta if omitted)
+    val input_bed: String? = null,   // Optional: crossover BED dir (defaults to pick_crossovers output)
+    val input_gvcf: String? = null,  // Optional: mutated base gVCF dir (defaults to mutate_assemblies output)
+    val output: String? = null,      // Optional: custom output directory for recombined gVCFs
+    val output_bed: String? = null   // Optional: custom output directory for resized BED files
+)
+
+data class SortGvcfsConfig(
+    val input: String? = null,    // Optional: recombined gVCF dir/list (defaults to recombine_gvcfs output)
+    val threads: Int? = null,     // Optional: number of threads for bcftools
+    val output: String? = null    // Optional: custom output directory for sorted gVCFs
+)
+
 data class DownsampleGvcfConfig(
     val ignore_contig: String? = null,
     val rates: String? = null,
@@ -108,6 +124,8 @@ data class AlignMutatedAssembliesConfig(
 data class PickCrossoversConfig(
     val assembly_list: String? = null,  // Optional: If not specified, auto-generates from convert_to_fasta output
     val ref_fasta: String? = null,  // Optional: Reference FASTA (uses align_assemblies.ref_fasta if not specified)
+    val base_input: String? = null, // v2 only: base gVCF dir/list (defaults to split_gvcfs base/ output)
+    val query_fasta: String? = null, // v2 only: original assembly FASTAs (defaults to align_assemblies.query_fasta)
     val output: String? = null      // Custom output directory
 )
 
@@ -250,6 +268,79 @@ object OrchestrateShared {
      */
     fun restoreOrchestratorLogging(workDir: Path, logger: Logger) {
         LoggingUtils.setupFileLogging(workDir, LOG_FILE_NAME, logger)
+    }
+
+    /**
+     * Writes a `pick-crossovers` assembly list (`absPath<TAB>name`, one per
+     * line) for [fastaFiles] into [destDir]/[fileName]. The assembly name is
+     * the file name with its FASTA extension stripped (a `_mutated` suffix is
+     * intentionally preserved). Returns the written list file.
+     *
+     * Shared by [OrchestrateV1] (auto-generating from convert-to-fasta output)
+     * and [PickBaseCrossovers] (base-sample-filtered assemblies).
+     */
+    fun writeAssemblyList(
+        fastaFiles: List<Path>,
+        destDir: Path,
+        fileName: String = "auto_assembly_list.txt",
+        logger: Logger,
+    ): Path {
+        val assemblyListFile = destDir.resolve(fileName)
+        val lines = fastaFiles.map { fastaPath ->
+            val name = fastaPath.fileName.toString().replace(FASTA_EXTENSION_PATTERN, "")
+            "${fastaPath.toAbsolutePath()}\t$name"
+        }
+        assemblyListFile.writeText(lines.joinToString("\n"))
+        logger.info("Generated assembly list file: $assemblyListFile")
+        logger.info("  Contains ${fastaFiles.size} assemblies")
+        return assemblyListFile
+    }
+
+    /**
+     * Validates that [listFile] contains an even number of assemblies, since
+     * `pick-crossovers` pairs assemblies for crossover simulation. Throws a
+     * [RuntimeException] when the count is odd.
+     */
+    fun validateEvenAssemblyCount(listFile: Path, logger: Logger) {
+        val assemblyCount = listFile.readLines().filter { it.isNotBlank() }.size
+        if (assemblyCount % 2 != 0) {
+            throw RuntimeException(
+                "Cannot run pick-crossovers: assembly list contains $assemblyCount assemblies, " +
+                    "but this step requires an even number of assembly files to work (assemblies are paired for crossover simulation)"
+            )
+        }
+        logger.info("Assembly list contains $assemblyCount assemblies (validated: even count)")
+    }
+
+    /**
+     * Invokes the [PickCrossovers] command for [assemblyList] against
+     * [refFasta], writing to [outputDir], then restores orchestrator logging
+     * and verifies the output directory exists. Returns [outputDir].
+     *
+     * This is the single `PickCrossovers().parse(...)` invocation point shared
+     * by both pipeline versions and [PickBaseCrossovers].
+     */
+    fun runPickCrossovers(
+        workDir: Path,
+        refFasta: Path,
+        assemblyList: Path,
+        outputDir: Path,
+        logger: Logger,
+    ): Path {
+        val args = listOf(
+            "--work-dir=$workDir",
+            "--ref-fasta=$refFasta",
+            "--assembly-list=$assemblyList",
+            "--output-dir=$outputDir",
+        )
+
+        PickCrossovers().parse(args)
+        restoreOrchestratorLogging(workDir, logger)
+
+        if (!outputDir.exists()) {
+            throw RuntimeException("Expected pick-crossovers output directory not found: $outputDir")
+        }
+        return outputDir
     }
 }
 
@@ -404,6 +495,30 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 )
             } else null
 
+            // Parse recombine_gvcfs - check if key exists (even with empty/null value means "run with defaults")
+            @Suppress("UNCHECKED_CAST")
+            val recombineGvcfsMap = configMap["recombine_gvcfs"] as? Map<String, Any>
+            val recombineGvcfs = if (configMap.containsKey("recombine_gvcfs")) {
+                RecombineGvcfsConfig(
+                    ref_file = recombineGvcfsMap?.get("ref_file") as? String,
+                    input_bed = recombineGvcfsMap?.get("input_bed") as? String,
+                    input_gvcf = recombineGvcfsMap?.get("input_gvcf") as? String,
+                    output = recombineGvcfsMap?.get("output") as? String,
+                    output_bed = recombineGvcfsMap?.get("output_bed") as? String
+                )
+            } else null
+
+            // Parse sort_gvcfs - check if key exists (even with empty/null value means "run with defaults")
+            @Suppress("UNCHECKED_CAST")
+            val sortGvcfsMap = configMap["sort_gvcfs"] as? Map<String, Any>
+            val sortGvcfs = if (configMap.containsKey("sort_gvcfs")) {
+                SortGvcfsConfig(
+                    input = sortGvcfsMap?.get("input") as? String,
+                    threads = sortGvcfsMap?.get("threads") as? Int,
+                    output = sortGvcfsMap?.get("output") as? String
+                )
+            } else null
+
             // Parse downsample_gvcf - check if key exists (even with empty/null value means "run with defaults")
             @Suppress("UNCHECKED_CAST")
             val downsampleGvcfMap = configMap["downsample_gvcf"] as? Map<String, Any>
@@ -457,6 +572,8 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 PickCrossoversConfig(
                     assembly_list = pickCrossoversMap?.get("assembly_list") as? String,
                     ref_fasta = pickCrossoversMap?.get("ref_fasta") as? String,
+                    base_input = pickCrossoversMap?.get("base_input") as? String,
+                    query_fasta = pickCrossoversMap?.get("query_fasta") as? String,
                     output = pickCrossoversMap?.get("output") as? String
                 )
             } else null
@@ -584,6 +701,8 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 maf_to_gvcf = mafToGvcf,
                 split_gvcfs = splitGvcfs,
                 mutate_assemblies = mutateAssemblies,
+                recombine_gvcfs = recombineGvcfs,
+                sort_gvcfs = sortGvcfs,
                 downsample_gvcf = downsampleGvcf,
                 convert_to_fasta = convertToFasta,
                 align_mutated_assemblies = alignMutatedAssemblies,

@@ -16,12 +16,14 @@ import net.maizegenetics.commands.FormatRecombinedFastas
 import net.maizegenetics.commands.GenerateRecombinedSequences
 import net.maizegenetics.commands.MafToGvcf
 import net.maizegenetics.commands.Orchestrate
+import net.maizegenetics.commands.PickBaseCrossovers
 import net.maizegenetics.commands.PickCrossovers
 import net.maizegenetics.commands.RopeBwtChrIndex
 import net.maizegenetics.commands.RopeBwtMem
 import net.maizegenetics.commands.SetupEnvironment
 import net.maizegenetics.commands.MutateAssemblies
 import net.maizegenetics.commands.RecombineGvcfs
+import net.maizegenetics.commands.SortGvcfs
 import net.maizegenetics.commands.SplitGvcfs
 
 class SeqSim : CliktCommand() {
@@ -38,6 +40,7 @@ fun main(args: Array<String>) = SeqSim()
         ConvertToFasta(),
         AlignMutatedAssemblies(),
         PickCrossovers(),
+        PickBaseCrossovers(),
         CreateChainFiles(),
         ConvertCoordinates(),
         GenerateRecombinedSequences(),
@@ -49,6 +52,7 @@ fun main(args: Array<String>) = SeqSim()
         ExtractChromIds(),
         MutateAssemblies(),
         RecombineGvcfs(),
-        SplitGvcfs()
+        SplitGvcfs(),
+        SortGvcfs()
     )
     .main(args)

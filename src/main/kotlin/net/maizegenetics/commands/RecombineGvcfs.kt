@@ -20,6 +20,7 @@ import htsjdk.variant.variantcontext.writer.VariantContextWriter
 import htsjdk.variant.variantcontext.writer.VariantContextWriterBuilder
 import htsjdk.variant.vcf.VCFFileReader
 import htsjdk.variant.vcf.VCFReader
+import net.maizegenetics.Constants
 import net.maizegenetics.utils.Position
 import net.maizegenetics.utils.SimpleVariant
 import net.maizegenetics.utils.VariantContextUtils
@@ -134,7 +135,7 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
         return gvcfDir.toFile().listFiles()?.filter{
             pattern.matches(it.name)
         }?.flatMap { gvcfFile ->
-            val sampleName = gvcfFile.name.replace(".g.vcf","").replace(".gvcf","").replace(".gz","")
+            val sampleName = deriveSourceSampleKey(gvcfFile.name)
 
             val ranges =
                 recombinationMap[sampleName] ?: return@flatMap emptyList<Triple<String, String, SimpleVariant>>()
@@ -340,7 +341,7 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
                 println("Skipping file ${gvcfFile.name} as it does not match expected GVCF naming pattern.")
                 return@forEach
             }
-            val sampleName = match.groupValues[1]
+            val sampleName = deriveSourceSampleKey(gvcfFile.name)
             val ranges = recombinationMap[sampleName] ?: return@forEach
 
             VCFFileReader(gvcfFile, false).use { gvcfReader ->
@@ -459,6 +460,32 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
         }
         builder.genotypes(genotypes)
         return builder.make()
+    }
+
+    /**
+     * Recovers the source-sample key used to look a GVCF file up in the
+     * recombination map (which is keyed by the BED source name, e.g. the base
+     * assembly name "{base}"). Strips any recognized gVCF extension (longest
+     * first so "g.vcf.gz" wins over "gz"/"vcf"), then reduces a mutated GVCF
+     * file name back to its base sample: the substring before "__" if present
+     * (mutate-assemblies writes "{base}__{donor}_mutated.g.vcf"), otherwise a
+     * trailing "_mutated" is removed. Names without those markers (e.g. test
+     * fixtures like "sampleC") are returned unchanged.
+     */
+    fun deriveSourceSampleKey(fileName: String): String {
+        var base = fileName
+        for (ext in Constants.GVCF_EXTENSIONS.sortedByDescending { it.length }) {
+            val suffix = ".$ext"
+            if (base.endsWith(suffix)) {
+                base = base.removeSuffix(suffix)
+                break
+            }
+        }
+        return when {
+            base.contains("__") -> base.substringBefore("__")
+            base.endsWith("_mutated") -> base.removeSuffix("_mutated")
+            else -> base
+        }
     }
 
     fun buildRefBlock(chrom: String, start: Int, end: Int, refAllele: String, sampleName: String): VariantContext {
