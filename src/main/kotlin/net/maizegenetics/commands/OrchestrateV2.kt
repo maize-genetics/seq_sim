@@ -9,12 +9,14 @@ import kotlin.io.path.*
 import kotlin.system.exitProcess
 
 /**
- * v2 pipeline: a trimmed variant pipeline that currently runs only the
- * first two steps -- align-assemblies (01) and maf-to-gvcf (02). It is
- * intentionally kept independent from [OrchestrateV1] so it can diverge
- * as the v2 workflow grows. Step chaining, `run_steps` filtering, default
- * output directories, and skip/reuse-previous-output handling mirror v1
- * so logs and outputs stay consistent.
+ * v2 pipeline: the variant pipeline running align-assemblies (01),
+ * maf-to-gvcf (02), split-gvcfs (03), downsample-gvcf (04),
+ * mutate-assemblies (05), pick-crossovers (06), recombine-gvcfs (07),
+ * sort-gvcfs (08), and convert-to-fasta (09). It is intentionally kept
+ * independent from [OrchestrateV1] so it can diverge as the v2 workflow
+ * grows. Step chaining, `run_steps` filtering, default output directories,
+ * and skip/reuse-previous-output handling mirror v1 so logs and outputs
+ * stay consistent.
  *
  * Driven by [Orchestrate], which performs config parsing and environment
  * setup before delegating here. Shared step helpers live in
@@ -62,6 +64,8 @@ class OrchestrateV2(
         var mutatedGvcfDir: Path? = null
         var crossoverBedDir: Path? = null
         var recombinedGvcfDir: Path? = null
+        var sortedGvcfDir: Path? = null
+        var fastaOutputDir: Path? = null
 
         try {
             // Step 1: Align Assemblies (if configured and should run)
@@ -652,13 +656,104 @@ class OrchestrateV2(
                     throw RuntimeException("Expected sort-gvcfs output directory not found: $outputBase")
                 }
 
+                sortedGvcfDir = outputBase
                 logger.info("Step 8 completed successfully")
                 logger.info("")
             } else {
                 if (config.sort_gvcfs != null) {
                     logger.info("Skipping sort-gvcfs (not in run_steps)")
+
+                    val customOutput = config.sort_gvcfs.output?.let {
+                        Path.of(it).toAbsolutePath().normalize()
+                    }
+                    val previousDir = (customOutput ?: workDir.resolve("output").resolve("08_sort_gvcfs_results"))
+                        .toAbsolutePath().normalize()
+                    if (previousDir.exists()) {
+                        sortedGvcfDir = previousDir
+                        logger.info("Using previous sort-gvcfs outputs: $sortedGvcfDir")
+                    } else {
+                        logger.warn("Previous sort-gvcfs outputs not found. Downstream steps may fail.")
+                    }
                 } else {
                     logger.info("Skipping sort-gvcfs (not configured)")
+                }
+                logger.info("")
+            }
+
+            // Step 9: Convert sorted GVCFs to FASTA (if configured and should run)
+            if (config.convert_to_fasta != null && shouldRunStep("convert_to_fasta", config)) {
+                logger.info("=".repeat(80))
+                logger.info("STEP 9: Convert to FASTA")
+                logger.info("=".repeat(80))
+
+                // Reference FASTA (custom or from step 1)
+                val convertRefFasta = config.convert_to_fasta.reference_file?.let {
+                    Path.of(it).toAbsolutePath().normalize()
+                } ?: refFasta
+                if (convertRefFasta == null) {
+                    throw RuntimeException("Cannot run convert-to-fasta: reference FASTA not available (specify 'reference_file' in convert_to_fasta config or run align-assemblies first)")
+                }
+
+                // Sorted gVCF input (custom or from step 8)
+                val gvcfInput = config.convert_to_fasta.input?.let {
+                    Path.of(it).toAbsolutePath().normalize()
+                } ?: sortedGvcfDir
+                if (gvcfInput == null) {
+                    throw RuntimeException("Cannot run convert-to-fasta: no sorted gVCF input available (specify 'input' in config or run sort-gvcfs first)")
+                }
+
+                val customOutput = config.convert_to_fasta.output?.let {
+                    Path.of(it).toAbsolutePath().normalize()
+                }
+                val outputBase = (customOutput ?: workDir.resolve("output").resolve("09_convert_to_fasta_results"))
+                    .toAbsolutePath().normalize()
+
+                logger.info("Reference FASTA: $convertRefFasta")
+                logger.info("Sorted gVCF input: $gvcfInput")
+
+                val args = buildList {
+                    add("--work-dir=$workDir")
+                    add("--gvcf-file=$gvcfInput")
+                    add("--ref-fasta=$convertRefFasta")
+                    add("--output-dir=$outputBase")
+                    if (config.convert_to_fasta.missing_records_as != null) {
+                        add("--missing-records-as=${config.convert_to_fasta.missing_records_as}")
+                    }
+                    if (config.convert_to_fasta.missing_genotype_as != null) {
+                        add("--missing-genotype-as=${config.convert_to_fasta.missing_genotype_as}")
+                    }
+                    if (!config.convert_to_fasta.ignore_contig.isNullOrEmpty()) {
+                        add("--ignore-contig=${config.convert_to_fasta.ignore_contig}")
+                    }
+                }
+
+                ConvertToFasta().parse(args)
+                restoreOrchestratorLogging(workDir)
+
+                if (!outputBase.exists()) {
+                    throw RuntimeException("Expected convert-to-fasta output directory not found: $outputBase")
+                }
+
+                fastaOutputDir = outputBase
+                logger.info("Step 9 completed successfully")
+                logger.info("")
+            } else {
+                if (config.convert_to_fasta != null) {
+                    logger.info("Skipping convert-to-fasta (not in run_steps)")
+
+                    val customOutput = config.convert_to_fasta.output?.let {
+                        Path.of(it).toAbsolutePath().normalize()
+                    }
+                    val previousDir = (customOutput ?: workDir.resolve("output").resolve("09_convert_to_fasta_results"))
+                        .toAbsolutePath().normalize()
+                    if (previousDir.exists()) {
+                        fastaOutputDir = previousDir
+                        logger.info("Using previous convert-to-fasta outputs: $fastaOutputDir")
+                    } else {
+                        logger.warn("Previous convert-to-fasta outputs not found.")
+                    }
+                } else {
+                    logger.info("Skipping convert-to-fasta (not configured)")
                 }
                 logger.info("")
             }

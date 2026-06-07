@@ -101,6 +101,7 @@ data class DownsampleGvcfConfig(
 )
 
 data class ConvertToFastaConfig(
+    val reference_file: String? = null,  // Optional: Reference FASTA (uses align_assemblies.ref_fasta if not specified)
     val missing_records_as: String? = null,
     val missing_genotype_as: String? = null,
     val ignore_contig: String? = null,  // Comma-separated list of string patterns to ignore
@@ -539,6 +540,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
             val convertToFastaMap = configMap["convert_to_fasta"] as? Map<String, Any>
             val convertToFasta = if (configMap.containsKey("convert_to_fasta")) {
                 ConvertToFastaConfig(
+                    reference_file = convertToFastaMap?.get("reference_file") as? String,
                     missing_records_as = convertToFastaMap?.get("missing_records_as") as? String,
                     missing_genotype_as = convertToFastaMap?.get("missing_genotype_as") as? String,
                     ignore_contig = convertToFastaMap?.get("ignore_contig") as? String,

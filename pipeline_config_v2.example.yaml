@@ -22,6 +22,8 @@
 #                         crossover BEDs (step 06) -> recombined gVCFs
 # 08. sort-gvcfs:         Sort the recombined gVCFs (step 07) with bcftools ->
 #                         bgzip-compressed, indexed gVCFs
+# 09. convert-to-fasta:   Convert the sorted gVCFs (step 08) back to FASTA using
+#                         the reference FASTA (via MLImpute)
 #
 # NOTE (1): Environment setup is automatic. The orchestrate command detects a
 #       missing working directory or tools (MLImpute, biokotlin-tools, PHGv2)
@@ -47,6 +49,7 @@ run_steps:
   - pick_crossovers      # Step 06: Pick crossovers on the base assemblies
   - recombine_gvcfs      # Step 07: Recombine mutated base gVCFs along crossovers
   - sort_gvcfs           # Step 08: Sort recombined gVCFs with bcftools
+  - convert_to_fasta     # Step 09: Convert sorted gVCFs back to FASTA
 
 # ============================================================================
 # STEP CONFIGURATION
@@ -140,6 +143,17 @@ sort_gvcfs:
   # threads: 4                            # Optional: Threads for bcftools (default: 4)
   # output: "/custom/sorted/output/"      # Optional: Custom output directory
 
+# Step 9: Convert to FASTA
+# Converts the sorted gVCFs from step 08 back into FASTA sequences using the
+# reference FASTA (via MLImpute), producing one FASTA per input gVCF.
+convert_to_fasta:
+  # reference_file: "path/to/reference.fa"  # Optional: Uses align_assemblies.ref_fasta if omitted
+  # input: "/custom/sorted/gvcfs/"          # Optional: Defaults to sort_gvcfs output (step 08)
+  # missing_records_as: "asRef"             # Optional: asN, asRef, or asNone (default: asRef)
+  # missing_genotype_as: "asN"              # Optional: asN, asRef, or asNone (default: asN)
+  # ignore_contig: ""                       # Optional: Comma-separated contig patterns to ignore
+  # output: "/custom/fasta/output/"         # Optional: Custom output directory
+
 # ============================================================================
 # SPLIT KEYFILE FORMAT (for split_gvcfs / mutate_assemblies)
 # ============================================================================
@@ -168,4 +182,5 @@ sort_gvcfs:
 #   06_crossovers_results/          base_assembly_list.txt + {assembly}_refkey.bed
 #   07_recombine_gvcfs_results/     {target}_recombined.gvcf + resized_beds/
 #   08_sort_gvcfs_results/          {target}_recombined.g.vcf.gz (+ .csi) + sorted_gvcf_paths.txt
+#   09_convert_to_fasta_results/    {sample}.fasta + fasta_file_paths.txt
 # ============================================================================
