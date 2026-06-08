@@ -24,6 +24,8 @@
 #                         bgzip-compressed, indexed gVCFs
 # 09. convert-to-fasta:   Convert the sorted gVCFs (step 08) back to FASTA using
 #                         the reference FASTA (via MLImpute)
+# 10. build-spline-knots: Build spline knots from the sorted gVCFs (step 08) for
+#                         downstream PHGv2 imputation (via PHGv2)
 #
 # NOTE (1): Environment setup is automatic. The orchestrate command detects a
 #       missing working directory or tools (MLImpute, biokotlin-tools, PHGv2)
@@ -50,6 +52,7 @@ run_steps:
   - recombine_gvcfs      # Step 07: Recombine mutated base gVCFs along crossovers
   - sort_gvcfs           # Step 08: Sort recombined gVCFs with bcftools
   - convert_to_fasta     # Step 09: Convert sorted gVCFs back to FASTA
+  - build_spline_knots   # Step 10: Build spline knots from sorted gVCFs
 
 # ============================================================================
 # STEP CONFIGURATION
@@ -154,6 +157,18 @@ convert_to_fasta:
   # ignore_contig: ""                       # Optional: Comma-separated contig patterns to ignore
   # output: "/custom/fasta/output/"         # Optional: Custom output directory
 
+# Step 10: Build Spline Knots
+# Builds spline knots from the sorted gVCFs (step 08) using PHGv2, producing
+# the spline representations used for downstream PHGv2 imputation.
+build_spline_knots:
+  # vcf_dir: "/custom/sorted/gvcfs/"        # Optional: Defaults to sort_gvcfs output (step 08)
+  # vcf_type: "gvcf"                        # Optional: hvcf or gvcf (defaults to gvcf for sorted gVCFs)
+  # num_bps_per_knot: 50000                 # Optional: Max base pairs per knot per contig (default: 50000)
+  # min_indel_length: 10                    # Optional: Min indel length to break blocks, gVCF only (default: 10)
+  # contig_list: "chr1,chr2"                # Optional: Comma-separated chromosomes (omit for all)
+  # random_seed: 12345                      # Optional: Seed for downsampling points per chromosome (default: 12345)
+  # output: "/custom/spline/output/"        # Optional: Custom output directory
+
 # ============================================================================
 # SPLIT KEYFILE FORMAT (for split_gvcfs / mutate_assemblies)
 # ============================================================================
@@ -183,4 +198,5 @@ convert_to_fasta:
 #   07_recombine_gvcfs_results/     {target}_recombined.gvcf + resized_beds/
 #   08_sort_gvcfs_results/          {target}_recombined.g.vcf.gz (+ .csi) + sorted_gvcf_paths.txt
 #   09_convert_to_fasta_results/    {sample}.fasta + fasta_file_paths.txt
+#   10_build_spline_knots_results/  spline knot files for PHGv2 imputation
 # ============================================================================

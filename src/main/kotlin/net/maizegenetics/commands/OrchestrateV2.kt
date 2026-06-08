@@ -66,6 +66,7 @@ class OrchestrateV2(
         var recombinedGvcfDir: Path? = null
         var sortedGvcfDir: Path? = null
         var fastaOutputDir: Path? = null
+        var splineKnotsOutputDir: Path? = null
 
         try {
             // Step 1: Align Assemblies (if configured and should run)
@@ -754,6 +755,85 @@ class OrchestrateV2(
                     }
                 } else {
                     logger.info("Skipping convert-to-fasta (not configured)")
+                }
+                logger.info("")
+            }
+
+            // Step 10: Build spline knots from the sorted GVCFs (if configured and should run)
+            if (config.build_spline_knots != null && shouldRunStep("build_spline_knots", config)) {
+                logger.info("=".repeat(80))
+                logger.info("STEP 10: Build Spline Knots")
+                logger.info("=".repeat(80))
+
+                // Sorted gVCF input (custom or from step 8)
+                val vcfDir = config.build_spline_knots.vcf_dir?.let {
+                    Path.of(it).toAbsolutePath().normalize()
+                } ?: sortedGvcfDir
+                if (vcfDir == null) {
+                    throw RuntimeException("Cannot run build-spline-knots: no sorted gVCF input available (specify 'vcf_dir' in config or run sort-gvcfs first)")
+                }
+                if (!vcfDir.exists()) {
+                    throw RuntimeException("Cannot run build-spline-knots: VCF input directory not found at $vcfDir")
+                }
+
+                // Sorted gVCFs are gVCFs, so default to "gvcf" unless overridden.
+                val vcfType = config.build_spline_knots.vcf_type ?: "gvcf"
+
+                val customOutput = config.build_spline_knots.output?.let {
+                    Path.of(it).toAbsolutePath().normalize()
+                }
+                val outputBase = (customOutput ?: workDir.resolve("output").resolve("10_build_spline_knots_results"))
+                    .toAbsolutePath().normalize()
+
+                logger.info("Sorted gVCF input: $vcfDir")
+                logger.info("VCF type: $vcfType")
+
+                val args = buildList {
+                    add("--work-dir=$workDir")
+                    add("--vcf-dir=$vcfDir")
+                    add("--vcf-type=$vcfType")
+                    if (config.build_spline_knots.min_indel_length != null) {
+                        add("--min-indel-length=${config.build_spline_knots.min_indel_length}")
+                    }
+                    if (config.build_spline_knots.num_bps_per_knot != null) {
+                        add("--num-bps-per-knot=${config.build_spline_knots.num_bps_per_knot}")
+                    }
+                    if (config.build_spline_knots.contig_list != null) {
+                        add("--contig-list=${config.build_spline_knots.contig_list}")
+                    }
+                    if (config.build_spline_knots.random_seed != null) {
+                        add("--random-seed=${config.build_spline_knots.random_seed}")
+                    }
+                    add("--output-dir=$outputBase")
+                }
+
+                BuildSplineKnots().parse(args)
+                restoreOrchestratorLogging(workDir)
+
+                if (!outputBase.exists()) {
+                    throw RuntimeException("Expected build-spline-knots output directory not found: $outputBase")
+                }
+
+                splineKnotsOutputDir = outputBase
+                logger.info("Step 10 completed successfully")
+                logger.info("")
+            } else {
+                if (config.build_spline_knots != null) {
+                    logger.info("Skipping build-spline-knots (not in run_steps)")
+
+                    val customOutput = config.build_spline_knots.output?.let {
+                        Path.of(it).toAbsolutePath().normalize()
+                    }
+                    val previousDir = (customOutput ?: workDir.resolve("output").resolve("10_build_spline_knots_results"))
+                        .toAbsolutePath().normalize()
+                    if (previousDir.exists()) {
+                        splineKnotsOutputDir = previousDir
+                        logger.info("Using previous build-spline-knots outputs: $splineKnotsOutputDir")
+                    } else {
+                        logger.warn("Previous build-spline-knots outputs not found.")
+                    }
+                } else {
+                    logger.info("Skipping build-spline-knots (not configured)")
                 }
                 logger.info("")
             }
