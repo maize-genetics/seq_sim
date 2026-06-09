@@ -26,6 +26,9 @@
 #                         the reference FASTA (via MLImpute)
 # 10. build-spline-knots: Build spline knots from the sorted gVCFs (step 08) for
 #                         downstream PHGv2 imputation (via PHGv2)
+# 11. ropebwt:            Build a ropebwt3 index from the recombined FASTAs
+#                         (step 09) and align user-provided FASTQ reads to it,
+#                         producing BED alignments (via PHGv2 + ropebwt3)
 #
 # NOTE (1): Environment setup is automatic. The orchestrate command detects a
 #       missing working directory or tools (MLImpute, biokotlin-tools, PHGv2)
@@ -53,6 +56,7 @@ run_steps:
   - sort_gvcfs           # Step 08: Sort recombined gVCFs with bcftools
   - convert_to_fasta     # Step 09: Convert sorted gVCFs back to FASTA
   - build_spline_knots   # Step 10: Build spline knots from sorted gVCFs
+  - ropebwt              # Step 11: Index recombined FASTAs and align FASTQ reads
 
 # ============================================================================
 # STEP CONFIGURATION
@@ -169,6 +173,21 @@ build_spline_knots:
   # random_seed: 12345                      # Optional: Seed for downsampling points per chromosome (default: 12345)
   # output: "/custom/spline/output/"        # Optional: Custom output directory
 
+# Step 11: RopeBWT (index + align)
+# Builds a ropebwt3 index from the recombined FASTAs (step 09) and aligns the
+# user-provided FASTQ reads to it, producing one BED alignment file per FASTQ
+# sample. The index (.fmd + phg_keyfile.txt) is written to an index/ subdir and
+# the BED files to the step output directory.
+ropebwt:
+  fastq_input: "path/to/reads/"             # Required: FASTQ file, directory, or text list of read files
+  # fasta_input: "/custom/recombined/fastas/"  # Optional: Defaults to convert_to_fasta output (step 09)
+  # index_file_prefix: "phgIndex"           # Optional: Prefix for index files (default: "phgIndex")
+  # threads: 20                             # Optional: Threads for index creation and mem alignment
+  # delete_fmr_index: true                  # Optional: Delete .fmr files after converting to .fmd
+  # l_value: 100                            # Optional: -l (defaults to 2 x number of recombined FASTAs)
+  # p_value: 168                            # Optional: -p (default: 168)
+  # output: "/custom/ropebwt/output/"       # Optional: Custom output directory
+
 # ============================================================================
 # SPLIT KEYFILE FORMAT (for split_gvcfs / mutate_assemblies)
 # ============================================================================
@@ -199,4 +218,5 @@ build_spline_knots:
 #   08_sort_gvcfs_results/          {target}_recombined.g.vcf.gz (+ .csi) + sorted_gvcf_paths.txt
 #   09_convert_to_fasta_results/    {sample}.fasta + fasta_file_paths.txt
 #   10_build_spline_knots_results/  spline knot files for PHGv2 imputation
+#   11_ropebwt_results/             index/ (.fmd + phg_keyfile.txt) + {sample}_ropebwt.bed + bed_file_paths.txt
 # ============================================================================
