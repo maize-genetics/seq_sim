@@ -18,9 +18,11 @@ import kotlin.system.exitProcess
 
 class ConvertRopebwt2Ps4g : CliktCommand(name = "convert-ropebwt2ps4g") {
     companion object {
-        private const val LOG_FILE_NAME = "14_convert_ropebwt2ps4g.log"
+        private const val LOG_FILE_NAME = "15_convert_ropebwt2ps4g.log"
         private const val OUTPUT_DIR = "output"
-        private const val CONVERT_RESULTS_DIR = "14_convert_ropebwt2ps4g_results"
+        private const val CONVERT_RESULTS_DIR = "15_convert_ropebwt2ps4g_results"
+        private const val UPSTREAM_BED_DIR = "13_ropebwt_mem_results"
+        private const val UPSTREAM_SPLINE_DIR = "14_spline_knots_results"
         private const val PS4G_FILE_PATHS_FILE = "ps4g_file_paths.txt"
         private const val DEFAULT_MIN_MEM_LENGTH = 135
         private const val DEFAULT_MAX_NUM_HITS = 16
@@ -42,12 +44,12 @@ class ConvertRopebwt2Ps4g : CliktCommand(name = "convert-ropebwt2ps4g") {
 
     private val outputDirOption by option(
         "--output-dir", "-o",
-        help = "Output directory for PS4G files (default: work_dir/output/14_convert_ropebwt2ps4g_results)"
+        help = "Output directory for PS4G files (default: work_dir/output/15_convert_ropebwt2ps4g_results)"
     ).path(mustExist = false, canBeFile = false, canBeDir = true)
 
     private val splineKnotDirOption by option(
         "--spline-knot-dir", "-s",
-        help = "Directory containing spline knots from step 13 (auto-detected if not specified)"
+        help = "Directory containing spline knots from step 14 (auto-detected if not specified)"
     ).path(mustExist = false, canBeFile = false, canBeDir = true)
 
     private val minMemLength by option(
@@ -63,14 +65,14 @@ class ConvertRopebwt2Ps4g : CliktCommand(name = "convert-ropebwt2ps4g") {
         .default(DEFAULT_MAX_NUM_HITS)
 
     private fun collectBedFiles(): List<Path> {
-        // If no input specified, try to auto-detect from step 12
+        // If no input specified, try to auto-detect from step 13 (ropebwt-mem)
         val actualInput = bedInput ?: run {
-            logger.info("No BED input specified, attempting to auto-detect from step 12")
+            logger.info("No BED input specified, attempting to auto-detect from step 13")
             FileUtils.autoDetectStepOutput(
                 workDir,
-                "12_ropebwt_mem_results",
+                UPSTREAM_BED_DIR,
                 logger,
-                "Please specify --bed-input or ensure step 12 (ropebwt-mem) has been run"
+                "Please specify --bed-input or ensure step 13 (ropebwt-mem) has been run"
             )
         }
 
@@ -85,9 +87,9 @@ class ConvertRopebwt2Ps4g : CliktCommand(name = "convert-ropebwt2ps4g") {
     private fun findSplineKnotDir(): Path {
         return FileUtils.autoDetectStepOutput(
             workDir,
-            "13_spline_knots_results",
+            UPSTREAM_SPLINE_DIR,
             logger,
-            "Please specify --spline-knot-dir manually or ensure step 13 (build-spline-knots) has been run"
+            "Please specify --spline-knot-dir manually or ensure step 14 (build-spline-knots) has been run"
         )
     }
 

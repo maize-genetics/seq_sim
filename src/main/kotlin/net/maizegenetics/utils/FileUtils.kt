@@ -169,7 +169,7 @@ object FileUtils {
      * Auto-detects output from a previous pipeline step
      *
      * @param workDir The working directory
-     * @param stepDirName The step directory name (e.g., "12_ropebwt_mem_results")
+     * @param stepDirName The step directory name (e.g., "13_ropebwt_mem_results")
      * @param logger Logger for error messages
      * @param customMessage Optional custom error message
      * @return The detected directory path

@@ -566,6 +566,65 @@ class RecombineGvcfsTest {
     }
 
     @Test
+    fun testDeriveSourceSampleKey() {
+        val recombineGvcfs = RecombineGvcfs()
+
+        // Batch mutate-assemblies output: "{base}__{donor}_mutated.g.vcf"
+        // (and its compressed variant) should reduce to the base sample name.
+        assertEquals(
+            "Batch mutated name should reduce to base sample",
+            "B73",
+            recombineGvcfs.deriveSourceSampleKey("B73__Mo17_subsampled_mutated.g.vcf")
+        )
+        assertEquals(
+            "Compressed batch mutated name should reduce to base sample",
+            "B73",
+            recombineGvcfs.deriveSourceSampleKey("B73__Mo17_subsampled_mutated.g.vcf.gz")
+        )
+        // A '__' marker takes precedence regardless of the trailing token.
+        assertEquals(
+            "Name with '__' should take substring before it",
+            "B73",
+            recombineGvcfs.deriveSourceSampleKey("B73__W22.gvcf")
+        )
+
+        // Single-pair mutate-assemblies output: "{sample}_mutated.g.vcf".
+        assertEquals(
+            "Trailing _mutated should be stripped",
+            "B73",
+            recombineGvcfs.deriveSourceSampleKey("B73_mutated.g.vcf")
+        )
+        assertEquals(
+            "Trailing _mutated should be stripped (.gvcf)",
+            "Ki3",
+            recombineGvcfs.deriveSourceSampleKey("Ki3_mutated.gvcf")
+        )
+
+        // Plain fixture-style names (no markers) are returned unchanged for
+        // every recognized gVCF extension.
+        assertEquals(
+            "Plain .gvcf name unchanged",
+            "sampleC",
+            recombineGvcfs.deriveSourceSampleKey("sampleC.gvcf")
+        )
+        assertEquals(
+            "Plain .g.vcf.gz name unchanged",
+            "sampleC",
+            recombineGvcfs.deriveSourceSampleKey("sampleC.g.vcf.gz")
+        )
+        assertEquals(
+            "Plain .gvcf.gz name unchanged",
+            "Ki3",
+            recombineGvcfs.deriveSourceSampleKey("Ki3.gvcf.gz")
+        )
+        assertEquals(
+            "Plain .g.vcf name unchanged",
+            "Mo17",
+            recombineGvcfs.deriveSourceSampleKey("Mo17.g.vcf")
+        )
+    }
+
+    @Test
     fun testBuildRefBlock() {
         //Build a sample refBlock
         val recombineGvcfs = RecombineGvcfs()

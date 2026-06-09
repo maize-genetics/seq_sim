@@ -1,16 +1,12 @@
 package net.maizegenetics.commands
 
-import biokotlin.seq.NucSeq
 import biokotlin.seq.NucSeqRecord
 import biokotlin.seqIO.NucSeqIO
-import biokotlin.util.bufferedReader
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.options.required
 import com.github.ajalt.clikt.parameters.types.path
 import com.google.common.collect.Range
-import com.google.common.collect.RangeMap
-import com.google.common.collect.TreeRangeMap
 import htsjdk.variant.variantcontext.Allele
 import htsjdk.variant.variantcontext.GenotypeBuilder
 import htsjdk.variant.variantcontext.VariantContext
@@ -20,20 +16,19 @@ import htsjdk.variant.variantcontext.writer.VariantContextWriter
 import htsjdk.variant.variantcontext.writer.VariantContextWriterBuilder
 import htsjdk.variant.vcf.VCFFileReader
 import htsjdk.variant.vcf.VCFReader
+import net.maizegenetics.Constants
 import net.maizegenetics.utils.Position
-import net.maizegenetics.utils.SimpleVariant
 import net.maizegenetics.utils.VariantContextUtils
-import java.io.File
 import java.nio.file.Path
 import java.util.AbstractMap
 import java.util.TreeMap
-import kotlin.collections.iterator
+
+
 
 fun <V> TreeMap<Position, Pair<Position, V>>.getEntry(key: Position): Map.Entry<Position, Pair<Position, V>>? {
     val entry = floorEntry(key) ?: return null
     return if (key <= entry.value.first) entry else null
 }
-
 
 
 class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
@@ -149,7 +144,7 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
                 println("Skipping file ${gvcfFile.name} as it does not match expected GVCF naming pattern.")
                 return@forEach
             }
-            val sampleName = match.groupValues[1]
+            val sampleName = deriveSourceSampleKey(gvcfFile.name)
             val ranges = recombinationMap[sampleName] ?: return@forEach
 
             VCFFileReader(gvcfFile, false).use { gvcfReader ->
@@ -349,6 +344,33 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
         }
         builder.genotypes(genotypes)
         return builder.make()
+    }
+
+
+    /**
+     * Recovers the source-sample key used to look a GVCF file up in the
+     * recombination map (which is keyed by the BED source name, e.g. the base
+     * assembly name "{base}"). Strips any recognized gVCF extension (longest
+     * first so "g.vcf.gz" wins over "gz"/"vcf"), then reduces a mutated GVCF
+     * file name back to its base sample: the substring before "__" if present
+     * (mutate-assemblies writes "{base}__{donor}_mutated.g.vcf"), otherwise a
+     * trailing "_mutated" is removed. Names without those markers (e.g. test
+     * fixtures like "sampleC") are returned unchanged.
+     */
+    fun deriveSourceSampleKey(fileName: String): String {
+        var base = fileName
+        for (ext in Constants.GVCF_EXTENSIONS.sortedByDescending { it.length }) {
+            val suffix = ".$ext"
+            if (base.endsWith(suffix)) {
+                base = base.removeSuffix(suffix)
+                break
+            }
+        }
+        return when {
+            base.contains("__") -> base.substringBefore("__")
+            base.endsWith("_mutated") -> base.removeSuffix("_mutated")
+            else -> base
+        }
     }
 
     /**

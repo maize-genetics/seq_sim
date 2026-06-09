@@ -1,9 +1,7 @@
 package net.maizegenetics.commands
 
-import biokotlin.seqIO.NucSeqIO
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.core.parse
-import com.github.ajalt.clikt.parameters.options.default
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.options.required
 import com.github.ajalt.clikt.parameters.types.path
@@ -20,10 +18,15 @@ import kotlin.system.exitProcess
  * Data classes for YAML configuration structure
  */
 data class PipelineConfig(
+    val version: String? = null,
     val work_dir: String? = null,
     val run_steps: List<String>? = null,
     val align_assemblies: AlignAssembliesConfig? = null,
     val maf_to_gvcf: MafToGvcfConfig? = null,
+    val split_gvcfs: SplitGvcfsConfig? = null,
+    val mutate_assemblies: MutateAssembliesConfig? = null,
+    val recombine_gvcfs: RecombineGvcfsConfig? = null,
+    val sort_gvcfs: SortGvcfsConfig? = null,
     val downsample_gvcf: DownsampleGvcfConfig? = null,
     val convert_to_fasta: ConvertToFastaConfig? = null,
     val align_mutated_assemblies: AlignMutatedAssembliesConfig? = null,
@@ -33,15 +36,23 @@ data class PipelineConfig(
     val generate_recombined_sequences: GenerateRecombinedSequencesConfig? = null,
     val format_recombined_fastas: FormatRecombinedFastasConfig? = null,
     val mutated_maf_to_gvcf: MutatedMafToGvcfConfig? = null,
-    val rope_bwt_chr_index: RopeBwtChrIndexConfig? = null
+    val rope_bwt_chr_index: RopeBwtChrIndexConfig? = null,
+    val ropebwt_mem: RopebwtMemConfig? = null,
+    val build_spline_knots: BuildSplineKnotsConfig? = null,
+    val convert_ropebwt2ps4g: ConvertRopebwt2Ps4gConfig? = null
 )
 
 data class AlignAssembliesConfig(
     val ref_gff: String,
     val ref_fasta: String,
     val query_fasta: String,
-    val threads: Int? = null,
-    val output: String? = null  // Custom output directory
+    val threads: Int? = null,                  // PHGv2 --total-threads
+    val in_parallel: Int? = null,              // PHGv2 --in-parallel
+    val ref_max_align_cov: Int? = null,        // PHGv2 --ref-max-align-cov (proali -R)
+    val query_max_align_cov: Int? = null,      // PHGv2 --query-max-align-cov (proali -Q)
+    val conda_env_prefix: String? = null,      // PHGv2 --conda-env-prefix
+    val just_ref_prep: Boolean? = null,        // PHGv2 --just-ref-prep
+    val output: String? = null                 // Custom output directory
 )
 
 data class MafToGvcfConfig(
@@ -50,6 +61,33 @@ data class MafToGvcfConfig(
     val output_file: String? = null,     // Optional: Output GVCF file name
     val sample_name: String? = null,     // Optional: Sample name for GVCF
     val output_dir: String? = null       // Optional: Custom GVCF output directory
+)
+
+data class SplitGvcfsConfig(
+    val keyfile: String,              // Required: tab-delimited keyfile (Base, MutationDonor)
+    val input: String? = null,        // Optional: GVCF input dir/list (defaults to maf_to_gvcf output)
+    val output: String? = null        // Optional: custom output directory
+)
+
+data class MutateAssembliesConfig(
+    val keyfile: String? = null,              // Optional: pairs file (defaults to split_gvcfs pairs.tsv)
+    val base_input: String? = null,           // Optional: base gVCF dir (defaults to split_gvcfs base/)
+    val mutation_donor_input: String? = null, // Optional: downsampled donor gVCF dir (defaults to downsample output)
+    val output: String? = null                // Optional: custom output directory
+)
+
+data class RecombineGvcfsConfig(
+    val ref_file: String? = null,    // Optional: Reference FASTA (uses align_assemblies.ref_fasta if omitted)
+    val input_bed: String? = null,   // Optional: crossover BED dir (defaults to pick_crossovers output)
+    val input_gvcf: String? = null,  // Optional: mutated base gVCF dir (defaults to mutate_assemblies output)
+    val output: String? = null,      // Optional: custom output directory for recombined gVCFs
+    val output_bed: String? = null   // Optional: custom output directory for resized BED files
+)
+
+data class SortGvcfsConfig(
+    val input: String? = null,    // Optional: recombined gVCF dir/list (defaults to recombine_gvcfs output)
+    val threads: Int? = null,     // Optional: number of threads for bcftools
+    val output: String? = null    // Optional: custom output directory for sorted gVCFs
 )
 
 data class DownsampleGvcfConfig(
@@ -71,16 +109,23 @@ data class ConvertToFastaConfig(
 )
 
 data class AlignMutatedAssembliesConfig(
-    val ref_gff: String? = null,      // Optional: Reference GFF (uses align_assemblies.ref_gff if not specified)
-    val ref_fasta: String? = null,    // Optional: Reference FASTA (uses align_assemblies.ref_fasta if not specified)
-    val fasta_input: String? = null,  // Optional: Query FASTA input (uses format_recombined_fastas output if not specified)
-    val threads: Int? = null,
-    val output: String? = null        // Custom output directory
+    val ref_gff: String? = null,             // Optional: Reference GFF (uses align_assemblies.ref_gff if not specified)
+    val ref_fasta: String? = null,           // Optional: Reference FASTA (uses align_assemblies.ref_fasta if not specified)
+    val fasta_input: String? = null,         // Optional: Query FASTA input (uses format_recombined_fastas output if not specified)
+    val threads: Int? = null,                // PHGv2 --total-threads
+    val in_parallel: Int? = null,            // PHGv2 --in-parallel
+    val ref_max_align_cov: Int? = null,      // PHGv2 --ref-max-align-cov (proali -R)
+    val query_max_align_cov: Int? = null,    // PHGv2 --query-max-align-cov (proali -Q)
+    val conda_env_prefix: String? = null,    // PHGv2 --conda-env-prefix
+    val just_ref_prep: Boolean? = null,      // PHGv2 --just-ref-prep
+    val output: String? = null               // Custom output directory
 )
 
 data class PickCrossoversConfig(
     val assembly_list: String? = null,  // Optional: If not specified, auto-generates from convert_to_fasta output
     val ref_fasta: String? = null,  // Optional: Reference FASTA (uses align_assemblies.ref_fasta if not specified)
+    val base_input: String? = null, // v2 only: base gVCF dir/list (defaults to split_gvcfs base/ output)
+    val query_fasta: String? = null, // v2 only: original assembly FASTAs (defaults to align_assemblies.query_fasta)
     val output: String? = null      // Custom output directory
 )
 
@@ -126,13 +171,186 @@ data class RopeBwtChrIndexConfig(
     val output: String? = null             // Optional: Custom output directory
 )
 
-class Orchestrate : CliktCommand(name = "orchestrate") {
-    companion object {
-        private const val LOG_FILE_NAME = "00_orchestrate.log"
-        // Regex patterns reused across multiple operations
-        private val FASTA_FILE_PATTERN = Regex(".*\\.(fa|fasta|fna)(\\.gz)?$")
-        private val FASTA_EXTENSION_PATTERN = Regex("\\.(fa|fasta|fna)(\\.gz)?$")
+data class RopebwtMemConfig(
+    val fastq_input: String,            // Required: FASTQ file, directory, or text list (no upstream auto-gen)
+    val index_file: String? = null,     // Optional: .fmd index (defaults to step 12 output)
+    val l_value: Int? = null,           // Optional: -l (defaults to 2 x FASTA count from step 12 keyfile)
+    val p_value: Int? = null,           // Optional: -p (default: 168)
+    val threads: Int? = null,           // Optional: number of threads (default: 1)
+    val output: String? = null          // Optional: Custom output directory
+)
+
+data class BuildSplineKnotsConfig(
+    val vcf_dir: String? = null,        // Optional: VCF directory (defaults to step 11 mutated GVCFs)
+    val vcf_type: String? = null,       // Optional: "hvcf" or "gvcf" (default: "hvcf")
+    val min_indel_length: Int? = null,  // Optional: gVCF only
+    val num_bps_per_knot: Int? = null,  // Optional: knot density
+    val contig_list: String? = null,    // Optional: comma-separated chromosomes
+    val random_seed: Int? = null,       // Optional: deterministic downsampling seed
+    val output: String? = null          // Optional: Custom output directory
+)
+
+data class ConvertRopebwt2Ps4gConfig(
+    val bed_input: String? = null,        // Optional: BED file/dir/list (defaults to step 13)
+    val spline_knot_dir: String? = null,  // Optional: spline knot dir (defaults to step 14)
+    val min_mem_length: Int? = null,      // Optional: minimum MEM length threshold
+    val max_num_hits: Int? = null,        // Optional: maximum haplotype hits per alignment
+    val output: String? = null            // Optional: Custom output directory
+)
+
+/**
+ * Helpers and constants shared by both pipeline versions ([OrchestrateV1]
+ * and [OrchestrateV2]). Kept separate from the [Orchestrate] command so
+ * each pipeline file depends only on this small, version-agnostic surface.
+ */
+object OrchestrateShared {
+    const val LOG_FILE_NAME = "00_orchestrate.log"
+
+    // Regex patterns reused across multiple operations
+    val FASTA_FILE_PATTERN = Regex(".*\\.(fa|fasta|fna)(\\.gz)?$")
+    val FASTA_EXTENSION_PATTERN = Regex("\\.(fa|fasta|fna)(\\.gz)?$")
+
+    fun shouldRunStep(stepName: String, config: PipelineConfig): Boolean {
+        // If run_steps is not specified, run all configured steps
+        if (config.run_steps == null) {
+            return true
+        }
+        // If run_steps is specified, only run steps in the list
+        return stepName in config.run_steps
     }
+
+    /**
+     * Appends the optional PHGv2 align-assemblies knobs shared by every
+     * align step (threads, in-parallel, proali coverage caps, conda env
+     * prefix, just-ref-prep, output dir override) to [args]. Each option
+     * is included only when its config field is non-null/true, matching
+     * the existing inline behaviour for both align_assemblies and
+     * align_mutated_assemblies.
+     */
+    fun appendPhgAlignSharedArgs(
+        args: MutableList<String>,
+        threads: Int?,
+        inParallel: Int?,
+        refMaxAlignCov: Int?,
+        queryMaxAlignCov: Int?,
+        condaEnvPrefix: String?,
+        justRefPrep: Boolean?,
+        customOutput: Path?,
+    ) {
+        if (threads != null) {
+            args.add("--threads=$threads")
+        }
+        if (inParallel != null) {
+            args.add("--in-parallel=$inParallel")
+        }
+        if (refMaxAlignCov != null) {
+            args.add("--ref-max-align-cov=$refMaxAlignCov")
+        }
+        if (queryMaxAlignCov != null) {
+            args.add("--query-max-align-cov=$queryMaxAlignCov")
+        }
+        if (condaEnvPrefix != null) {
+            args.add("--conda-env-prefix=$condaEnvPrefix")
+        }
+        if (justRefPrep == true) {
+            args.add("--just-ref-prep")
+        }
+        if (customOutput != null) {
+            args.add("--output-dir=$customOutput")
+        }
+    }
+
+    /**
+     * Restores the orchestrator's log file after a step command has run.
+     * Each step command sets up its own log file, so we need to restore
+     * the orchestrator's log file to ensure orchestrator messages go to
+     * the correct log file.
+     */
+    fun restoreOrchestratorLogging(workDir: Path, logger: Logger) {
+        LoggingUtils.setupFileLogging(workDir, LOG_FILE_NAME, logger)
+    }
+
+    /**
+     * Writes a `pick-crossovers` assembly list (`absPath<TAB>name`, one per
+     * line) for [fastaFiles] into [destDir]/[fileName]. The assembly name is
+     * the file name with its FASTA extension stripped (a `_mutated` suffix is
+     * intentionally preserved). Returns the written list file.
+     *
+     * Shared by [OrchestrateV1] (auto-generating from convert-to-fasta output)
+     * and [PickBaseCrossovers] (base-sample-filtered assemblies).
+     */
+    fun writeAssemblyList(
+        fastaFiles: List<Path>,
+        destDir: Path,
+        fileName: String = "auto_assembly_list.txt",
+        logger: Logger,
+    ): Path {
+        val assemblyListFile = destDir.resolve(fileName)
+        val lines = fastaFiles.map { fastaPath ->
+            val name = fastaPath.fileName.toString().replace(FASTA_EXTENSION_PATTERN, "")
+            "${fastaPath.toAbsolutePath()}\t$name"
+        }
+        assemblyListFile.writeText(lines.joinToString("\n"))
+        logger.info("Generated assembly list file: $assemblyListFile")
+        logger.info("  Contains ${fastaFiles.size} assemblies")
+        return assemblyListFile
+    }
+
+    /**
+     * Validates that [listFile] contains an even number of assemblies, since
+     * `pick-crossovers` pairs assemblies for crossover simulation. Throws a
+     * [RuntimeException] when the count is odd.
+     */
+    fun validateEvenAssemblyCount(listFile: Path, logger: Logger) {
+        val assemblyCount = listFile.readLines().filter { it.isNotBlank() }.size
+        if (assemblyCount % 2 != 0) {
+            throw RuntimeException(
+                "Cannot run pick-crossovers: assembly list contains $assemblyCount assemblies, " +
+                    "but this step requires an even number of assembly files to work (assemblies are paired for crossover simulation)"
+            )
+        }
+        logger.info("Assembly list contains $assemblyCount assemblies (validated: even count)")
+    }
+
+    /**
+     * Invokes the [PickCrossovers] command for [assemblyList] against
+     * [refFasta], writing to [outputDir], then restores orchestrator logging
+     * and verifies the output directory exists. Returns [outputDir].
+     *
+     * This is the single `PickCrossovers().parse(...)` invocation point shared
+     * by both pipeline versions and [PickBaseCrossovers].
+     */
+    fun runPickCrossovers(
+        workDir: Path,
+        refFasta: Path,
+        assemblyList: Path,
+        outputDir: Path,
+        logger: Logger,
+    ): Path {
+        val args = listOf(
+            "--work-dir=$workDir",
+            "--ref-fasta=$refFasta",
+            "--assembly-list=$assemblyList",
+            "--output-dir=$outputDir",
+        )
+
+        PickCrossovers().parse(args)
+        restoreOrchestratorLogging(workDir, logger)
+
+        if (!outputDir.exists()) {
+            throw RuntimeException("Expected pick-crossovers output directory not found: $outputDir")
+        }
+        return outputDir
+    }
+}
+
+/**
+ * The `orchestrate` command: parses the YAML config, ensures the
+ * environment is set up, then dispatches to the pipeline matching the
+ * config's `version` field ([OrchestrateV1] for "v1"/default,
+ * [OrchestrateV2] for "v2").
+ */
+class Orchestrate : CliktCommand(name = "orchestrate") {
 
     private val logger: Logger = LogManager.getLogger(Orchestrate::class.java)
 
@@ -141,15 +359,6 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
         help = "Path to YAML configuration file"
     ).path(mustExist = true, canBeFile = true, canBeDir = false)
         .required()
-
-    private fun shouldRunStep(stepName: String, config: PipelineConfig): Boolean {
-        // If run_steps is not specified, run all configured steps
-        if (config.run_steps == null) {
-            return true
-        }
-        // If run_steps is specified, only run steps in the list
-        return stepName in config.run_steps
-    }
 
     private fun validateEnvironment(workDir: Path): Boolean {
         // Check if working directory exists
@@ -179,6 +388,16 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
             return false
         }
 
+        // Check if PHGv2 binary exists (align-assemblies + later steps shell out to it)
+        val phgBinary = workDir.resolve(Constants.SRC_DIR)
+            .resolve(Constants.PHGV2_DIR)
+            .resolve("bin")
+            .resolve("phg")
+        if (!phgBinary.exists()) {
+            logger.info("PHGv2 binary not found: $phgBinary")
+            return false
+        }
+
         // All checks passed
         logger.info("Environment validation passed - all required tools are present")
         return true
@@ -199,16 +418,6 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
         }
     }
 
-    /**
-     * Restores the orchestrator's log file after a step command has run.
-     * Each step command sets up its own log file, so we need to restore
-     * the orchestrator's log file to ensure orchestrator messages go to
-     * the correct log file.
-     */
-    private fun restoreOrchestratorLogging(workDir: Path) {
-        LoggingUtils.setupFileLogging(workDir, LOG_FILE_NAME, logger)
-    }
-
     private fun parseYamlConfig(configPath: Path): PipelineConfig {
         logger.info("Parsing configuration file: $configPath")
 
@@ -216,6 +425,12 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
             val yaml = Yaml()
             val configMap = configPath.inputStream().use { input ->
                 yaml.load<Map<String, Any>>(input)
+            }
+
+            // Parse and validate version (default to "v1" when absent for backward compatibility)
+            val version = (configMap["version"] as? String)?.trim()?.lowercase() ?: "v1"
+            require(version == "v1" || version == "v2") {
+                "Unsupported pipeline version '$version' (expected 'v1' or 'v2')"
             }
 
             // Parse work_dir
@@ -234,6 +449,11 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                     ref_fasta = it["ref_fasta"] as? String ?: throw IllegalArgumentException("align_assemblies.ref_fasta is required"),
                     query_fasta = it["query_fasta"] as? String ?: throw IllegalArgumentException("align_assemblies.query_fasta is required"),
                     threads = it["threads"] as? Int,
+                    in_parallel = it["in_parallel"] as? Int,
+                    ref_max_align_cov = it["ref_max_align_cov"] as? Int,
+                    query_max_align_cov = it["query_max_align_cov"] as? Int,
+                    conda_env_prefix = it["conda_env_prefix"] as? String,
+                    just_ref_prep = it["just_ref_prep"] as? Boolean,
                     output = it["output"] as? String
                 )
             }
@@ -248,6 +468,54 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                     output_file = mafToGvcfMap?.get("output_file") as? String,
                     sample_name = mafToGvcfMap?.get("sample_name") as? String,
                     output_dir = mafToGvcfMap?.get("output_dir") as? String
+                )
+            } else null
+
+            // Parse split_gvcfs - keyfile is required when the section is present
+            @Suppress("UNCHECKED_CAST")
+            val splitGvcfsMap = configMap["split_gvcfs"] as? Map<String, Any>
+            val splitGvcfs = if (configMap.containsKey("split_gvcfs")) {
+                SplitGvcfsConfig(
+                    keyfile = splitGvcfsMap?.get("keyfile") as? String
+                        ?: throw IllegalArgumentException("split_gvcfs.keyfile is required"),
+                    input = splitGvcfsMap["input"] as? String,
+                    output = splitGvcfsMap["output"] as? String
+                )
+            } else null
+
+            // Parse mutate_assemblies - check if key exists (even with empty/null value means "run with defaults")
+            @Suppress("UNCHECKED_CAST")
+            val mutateAssembliesMap = configMap["mutate_assemblies"] as? Map<String, Any>
+            val mutateAssemblies = if (configMap.containsKey("mutate_assemblies")) {
+                MutateAssembliesConfig(
+                    keyfile = mutateAssembliesMap?.get("keyfile") as? String,
+                    base_input = mutateAssembliesMap?.get("base_input") as? String,
+                    mutation_donor_input = mutateAssembliesMap?.get("mutation_donor_input") as? String,
+                    output = mutateAssembliesMap?.get("output") as? String
+                )
+            } else null
+
+            // Parse recombine_gvcfs - check if key exists (even with empty/null value means "run with defaults")
+            @Suppress("UNCHECKED_CAST")
+            val recombineGvcfsMap = configMap["recombine_gvcfs"] as? Map<String, Any>
+            val recombineGvcfs = if (configMap.containsKey("recombine_gvcfs")) {
+                RecombineGvcfsConfig(
+                    ref_file = recombineGvcfsMap?.get("ref_file") as? String,
+                    input_bed = recombineGvcfsMap?.get("input_bed") as? String,
+                    input_gvcf = recombineGvcfsMap?.get("input_gvcf") as? String,
+                    output = recombineGvcfsMap?.get("output") as? String,
+                    output_bed = recombineGvcfsMap?.get("output_bed") as? String
+                )
+            } else null
+
+            // Parse sort_gvcfs - check if key exists (even with empty/null value means "run with defaults")
+            @Suppress("UNCHECKED_CAST")
+            val sortGvcfsMap = configMap["sort_gvcfs"] as? Map<String, Any>
+            val sortGvcfs = if (configMap.containsKey("sort_gvcfs")) {
+                SortGvcfsConfig(
+                    input = sortGvcfsMap?.get("input") as? String,
+                    threads = sortGvcfsMap?.get("threads") as? Int,
+                    output = sortGvcfsMap?.get("output") as? String
                 )
             } else null
 
@@ -288,6 +556,11 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                     ref_fasta = alignMutatedAssembliesMap?.get("ref_fasta") as? String,
                     fasta_input = alignMutatedAssembliesMap?.get("fasta_input") as? String,
                     threads = alignMutatedAssembliesMap?.get("threads") as? Int,
+                    in_parallel = alignMutatedAssembliesMap?.get("in_parallel") as? Int,
+                    ref_max_align_cov = alignMutatedAssembliesMap?.get("ref_max_align_cov") as? Int,
+                    query_max_align_cov = alignMutatedAssembliesMap?.get("query_max_align_cov") as? Int,
+                    conda_env_prefix = alignMutatedAssembliesMap?.get("conda_env_prefix") as? String,
+                    just_ref_prep = alignMutatedAssembliesMap?.get("just_ref_prep") as? Boolean,
                     output = alignMutatedAssembliesMap?.get("output") as? String
                 )
             } else null
@@ -299,6 +572,8 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 PickCrossoversConfig(
                     assembly_list = pickCrossoversMap?.get("assembly_list") as? String,
                     ref_fasta = pickCrossoversMap?.get("ref_fasta") as? String,
+                    base_input = pickCrossoversMap?.get("base_input") as? String,
+                    query_fasta = pickCrossoversMap?.get("query_fasta") as? String,
                     output = pickCrossoversMap?.get("output") as? String
                 )
             } else null
@@ -375,11 +650,59 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 )
             } else null
 
+            // Parse ropebwt_mem - fastq_input is required when the section is present
+            @Suppress("UNCHECKED_CAST")
+            val ropebwtMemMap = configMap["ropebwt_mem"] as? Map<String, Any>
+            val ropebwtMem = if (configMap.containsKey("ropebwt_mem")) {
+                RopebwtMemConfig(
+                    fastq_input = ropebwtMemMap?.get("fastq_input") as? String
+                        ?: throw IllegalArgumentException("ropebwt_mem.fastq_input is required"),
+                    index_file = ropebwtMemMap["index_file"] as? String,
+                    l_value = ropebwtMemMap["l_value"] as? Int,
+                    p_value = ropebwtMemMap["p_value"] as? Int,
+                    threads = ropebwtMemMap["threads"] as? Int,
+                    output = ropebwtMemMap["output"] as? String
+                )
+            } else null
+
+            // Parse build_spline_knots - check if key exists (even with empty/null value means "run with defaults")
+            @Suppress("UNCHECKED_CAST")
+            val buildSplineKnotsMap = configMap["build_spline_knots"] as? Map<String, Any>
+            val buildSplineKnots = if (configMap.containsKey("build_spline_knots")) {
+                BuildSplineKnotsConfig(
+                    vcf_dir = buildSplineKnotsMap?.get("vcf_dir") as? String,
+                    vcf_type = buildSplineKnotsMap?.get("vcf_type") as? String,
+                    min_indel_length = buildSplineKnotsMap?.get("min_indel_length") as? Int,
+                    num_bps_per_knot = buildSplineKnotsMap?.get("num_bps_per_knot") as? Int,
+                    contig_list = buildSplineKnotsMap?.get("contig_list") as? String,
+                    random_seed = buildSplineKnotsMap?.get("random_seed") as? Int,
+                    output = buildSplineKnotsMap?.get("output") as? String
+                )
+            } else null
+
+            // Parse convert_ropebwt2ps4g - check if key exists (even with empty/null value means "run with defaults")
+            @Suppress("UNCHECKED_CAST")
+            val convertRopebwt2Ps4gMap = configMap["convert_ropebwt2ps4g"] as? Map<String, Any>
+            val convertRopebwt2Ps4g = if (configMap.containsKey("convert_ropebwt2ps4g")) {
+                ConvertRopebwt2Ps4gConfig(
+                    bed_input = convertRopebwt2Ps4gMap?.get("bed_input") as? String,
+                    spline_knot_dir = convertRopebwt2Ps4gMap?.get("spline_knot_dir") as? String,
+                    min_mem_length = convertRopebwt2Ps4gMap?.get("min_mem_length") as? Int,
+                    max_num_hits = convertRopebwt2Ps4gMap?.get("max_num_hits") as? Int,
+                    output = convertRopebwt2Ps4gMap?.get("output") as? String
+                )
+            } else null
+
             return PipelineConfig(
+                version = version,
                 work_dir = workDir,
                 run_steps = runSteps,
                 align_assemblies = alignAssemblies,
                 maf_to_gvcf = mafToGvcf,
+                split_gvcfs = splitGvcfs,
+                mutate_assemblies = mutateAssemblies,
+                recombine_gvcfs = recombineGvcfs,
+                sort_gvcfs = sortGvcfs,
                 downsample_gvcf = downsampleGvcf,
                 convert_to_fasta = convertToFasta,
                 align_mutated_assemblies = alignMutatedAssemblies,
@@ -389,7 +712,10 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 generate_recombined_sequences = generateRecombinedSequences,
                 format_recombined_fastas = formatRecombinedFastas,
                 mutated_maf_to_gvcf = mutatedMafToGvcf,
-                rope_bwt_chr_index = ropeBwtChrIndex
+                rope_bwt_chr_index = ropeBwtChrIndex,
+                ropebwt_mem = ropebwtMem,
+                build_spline_knots = buildSplineKnots,
+                convert_ropebwt2ps4g = convertRopebwt2Ps4g
             )
         } catch (e: Exception) {
             logger.error("Failed to parse configuration file: ${e.message}", e)
@@ -418,1022 +744,14 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
         }
 
         // Configure file logging
-        LoggingUtils.setupFileLogging(workDir, LOG_FILE_NAME, logger)
-
-        logger.info("=".repeat(80))
-        logger.info("Starting Pipeline Orchestration")
-        logger.info("=".repeat(80))
-        logger.info("Configuration file: $configFile")
-        logger.info("Working directory: $workDir")
-
-        // Log which steps will be executed
-        if (config.run_steps != null) {
-            logger.info("Steps to execute: ${config.run_steps.joinToString(", ")}")
-        } else {
-            logger.info("Will execute all configured steps")
-        }
-        logger.info("")
-
-        // Track outputs between steps
-        var mafFilePaths: Path? = null
-        var gvcfOutputDir: Path? = null
-        var downsampledGvcfOutputDir: Path? = null
-        var fastaOutputDir: Path? = null
-        var refFasta: Path? = null
-        var refGff: Path? = null
-        var assemblyListPath: Path? = null  // Assembly list from step 5 (pick_crossovers)
-        var refkeyOutputDir: Path? = null
-        var chainOutputDir: Path? = null
-        var coordinatesOutputDir: Path? = null
-        var recombinedFastasDir: Path? = null
-        var formattedFastasDir: Path? = null
-        var mutatedMafFilePaths: Path? = null  // MAF file paths from step 10 (align_mutated_assemblies)
-        var ropeBwtIndexDir: Path? = null  // RopeBWT index output directory from step 12
-
-        try {
-            // Step 1: Align Assemblies (if configured and should run)
-            if (config.align_assemblies != null && shouldRunStep("align_assemblies", config)) {
-                logger.info("=".repeat(80))
-                logger.info("STEP 1: Align Assemblies")
-                logger.info("=".repeat(80))
-
-                // Resolve all paths to absolute paths for consistency
-                refFasta = Path.of(config.align_assemblies.ref_fasta).toAbsolutePath().normalize()
-                refGff = Path.of(config.align_assemblies.ref_gff).toAbsolutePath().normalize()
-                val queryFasta = Path.of(config.align_assemblies.query_fasta).toAbsolutePath().normalize()
-
-                // Determine output directory (custom or default) - also resolve to absolute path
-                val customOutput = config.align_assemblies.output?.let { 
-                    Path.of(it).toAbsolutePath().normalize() 
-                }
-
-                logger.info("Reference GFF: $refGff")
-                logger.info("Reference FASTA: $refFasta")
-                logger.info("Query FASTA: $queryFasta")
-
-                val args = buildList {
-                    add("--work-dir=$workDir")
-                    add("--ref-gff=$refGff")
-                    add("--ref-fasta=$refFasta")
-                    add("--query-fasta=$queryFasta")
-                    if (config.align_assemblies.threads != null) {
-                        add("--threads=${config.align_assemblies.threads}")
-                    }
-                    if (customOutput != null) {
-                        add("--output-dir=$customOutput")
-                    }
-                }
-
-                AlignAssemblies().parse(args)
-                restoreOrchestratorLogging(workDir)
-
-                // Get output path (use custom or default)
-                val outputBase = customOutput ?: workDir.resolve("output").resolve("01_anchorwave_results")
-                mafFilePaths = outputBase.toAbsolutePath().normalize().resolve("maf_file_paths.txt")
-
-                if (!mafFilePaths.exists()) {
-                    throw RuntimeException("Expected MAF paths file not found: $mafFilePaths")
-                }
-
-                logger.info("Step 1 completed successfully")
-                logger.info("")
-            } else {
-                // Check if step was skipped but outputs exist from previous run
-                if (config.align_assemblies != null) {
-                    logger.info("Skipping align-assemblies (not in run_steps)")
-
-                    // Try to use outputs from previous run - resolve to absolute paths
-                    refFasta = Path.of(config.align_assemblies.ref_fasta).toAbsolutePath().normalize()
-                    refGff = Path.of(config.align_assemblies.ref_gff).toAbsolutePath().normalize()
-                    
-                    // Check custom output location first, then default
-                    val customOutput = config.align_assemblies.output?.let { 
-                        Path.of(it).toAbsolutePath().normalize() 
-                    }
-                    val outputBase = (customOutput ?: workDir.resolve("output").resolve("01_anchorwave_results"))
-                        .toAbsolutePath().normalize()
-                    val previousMafPaths = outputBase.resolve("maf_file_paths.txt")
-
-                    if (previousMafPaths.exists()) {
-                        mafFilePaths = previousMafPaths
-                        logger.info("Using previous align-assemblies outputs: $mafFilePaths")
-                    } else {
-                        logger.warn("Previous align-assemblies outputs not found. Downstream steps may fail.")
-                    }
-                } else {
-                    logger.info("Skipping align-assemblies (not configured)")
-                }
-                logger.info("")
-            }
-
-            // Step 2: MAF to GVCF (if configured and should run)
-            if (config.maf_to_gvcf != null && shouldRunStep("maf_to_gvcf", config)) {
-                logger.info("=".repeat(80))
-                logger.info("STEP 2: MAF to GVCF Conversion")
-                logger.info("=".repeat(80))
-
-                // Determine reference file (custom or from step 1) - resolve to absolute path
-                val step2RefFasta = config.maf_to_gvcf.reference_file?.let { 
-                    Path.of(it).toAbsolutePath().normalize() 
-                } ?: refFasta
-                if (step2RefFasta == null) {
-                    throw RuntimeException("Cannot run maf-to-gvcf: reference FASTA not available (specify 'reference_file' in config or run align-assemblies first)")
-                }
-
-                // Determine MAF input (custom or from step 1) - resolve to absolute path
-                val mafInput = config.maf_to_gvcf.maf_file?.let { 
-                    Path.of(it).toAbsolutePath().normalize() 
-                } ?: mafFilePaths
-                if (mafInput == null) {
-                    throw RuntimeException("Cannot run maf-to-gvcf: no MAF input available (specify 'maf_file' in config or run align-assemblies first)")
-                }
-
-                // Determine output directory (custom or default) - resolve to absolute path
-                val customOutputDir = config.maf_to_gvcf.output_dir?.let { 
-                    Path.of(it).toAbsolutePath().normalize() 
-                }
-
-                // Determine output file if specified - resolve to absolute path
-                val outputFile = config.maf_to_gvcf.output_file?.let { 
-                    Path.of(it).toAbsolutePath().normalize() 
-                }
-
-                logger.info("Reference FASTA: $step2RefFasta")
-                logger.info("MAF input: $mafInput")
-
-                val args = buildList {
-                    add("--work-dir=$workDir")
-                    add("--reference-file=$step2RefFasta")
-                    add("--maf-file=$mafInput")
-                    if (outputFile != null) {
-                        add("--output-file=$outputFile")
-                    }
-                    if (config.maf_to_gvcf.sample_name != null) {
-                        add("--sample-name=${config.maf_to_gvcf.sample_name}")
-                    }
-                    if (customOutputDir != null) {
-                        add("--output-dir=$customOutputDir")
-                    }
-                }
-
-                MafToGvcf().parse(args)
-                restoreOrchestratorLogging(workDir)
-
-                // Get output directory (use custom or default)
-                gvcfOutputDir = (customOutputDir ?: workDir.resolve("output").resolve("02_gvcf_results"))
-                    .toAbsolutePath().normalize()
-
-                if (!gvcfOutputDir.exists()) {
-                    throw RuntimeException("Expected GVCF output directory not found: $gvcfOutputDir")
-                }
-
-                logger.info("Step 2 completed successfully")
-                logger.info("")
-            } else {
-                // Check if step was skipped but outputs exist from previous run
-                if (config.maf_to_gvcf != null) {
-                    logger.info("Skipping maf-to-gvcf (not in run_steps)")
-
-                    // Check custom output location first, then default
-                    val customOutputDir = config.maf_to_gvcf.output_dir?.let { 
-                        Path.of(it).toAbsolutePath().normalize() 
-                    }
-                    val previousGvcfDir = (customOutputDir ?: workDir.resolve("output").resolve("02_gvcf_results"))
-                        .toAbsolutePath().normalize()
-                    if (previousGvcfDir.exists()) {
-                        gvcfOutputDir = previousGvcfDir
-                        logger.info("Using previous maf-to-gvcf outputs: $gvcfOutputDir")
-                    } else {
-                        logger.warn("Previous maf-to-gvcf outputs not found. Downstream steps may fail.")
-                    }
-                } else {
-                    logger.info("Skipping maf-to-gvcf (not configured)")
-                }
-                logger.info("")
-            }
-
-            // Step 3: Downsample GVCF (if configured and should run)
-            if (config.downsample_gvcf != null && shouldRunStep("downsample_gvcf", config)) {
-                logger.info("=".repeat(80))
-                logger.info("STEP 3: Downsample GVCF")
-                logger.info("=".repeat(80))
-
-                // Determine input (custom or from previous step)
-                val gvcfInput = config.downsample_gvcf.input?.let { Path.of(it) } ?: gvcfOutputDir
-                if (gvcfInput == null) {
-                    throw RuntimeException("Cannot run downsample-gvcf: no GVCF input available (specify 'input' in config or run maf-to-gvcf first)")
-                }
-
-                // Determine output directory (custom or default)
-                val customOutput = config.downsample_gvcf.output?.let { Path.of(it) }
-
-                val args = buildList {
-                    add("--work-dir=${workDir}")
-                    add("--gvcf-dir=${gvcfInput}")
-                    if (config.downsample_gvcf.ignore_contig != null) {
-                        add("--ignore-contig=${config.downsample_gvcf.ignore_contig}")
-                    }
-                    if (config.downsample_gvcf.rates != null) {
-                        add("--rates=${config.downsample_gvcf.rates}")
-                    }
-                    if (config.downsample_gvcf.seed != null) {
-                        add("--seed=${config.downsample_gvcf.seed}")
-                    }
-                    if (config.downsample_gvcf.keep_ref != null) {
-                        add("--keep-ref=${config.downsample_gvcf.keep_ref}")
-                    }
-                    if (config.downsample_gvcf.min_ref_block_size != null) {
-                        add("--min-ref-block-size=${config.downsample_gvcf.min_ref_block_size}")
-                    }
-                    if (customOutput != null) {
-                        add("--output-dir=${customOutput}")
-                    }
-                }
-
-                DownsampleGvcf().parse(args)
-                restoreOrchestratorLogging(workDir)
-
-                // Get output directory (use custom or default)
-                downsampledGvcfOutputDir = customOutput ?: workDir.resolve("output").resolve("03_downsample_results")
-
-                if (!downsampledGvcfOutputDir.exists()) {
-                    throw RuntimeException("Expected downsampled GVCF output directory not found: $downsampledGvcfOutputDir")
-                }
-
-                logger.info("Step 3 completed successfully")
-                logger.info("")
-            } else {
-                // Check if step was skipped but outputs exist from previous run
-                if (config.downsample_gvcf != null) {
-                    logger.info("Skipping downsample-gvcf (not in run_steps)")
-
-                    // Check custom output location first, then default
-                    val customOutput = config.downsample_gvcf.output?.let { Path.of(it) }
-                    val previousDownsampleDir = customOutput ?: workDir.resolve("output").resolve("03_downsample_results")
-                    if (previousDownsampleDir.exists()) {
-                        downsampledGvcfOutputDir = previousDownsampleDir
-                        logger.info("Using previous downsample-gvcf outputs: $downsampledGvcfOutputDir")
-                    } else {
-                        logger.warn("Previous downsample-gvcf outputs not found. Downstream steps may fail.")
-                    }
-                } else {
-                    logger.info("Skipping downsample-gvcf (not configured)")
-                }
-                logger.info("")
-            }
-
-            // Step 4: Convert to FASTA (if configured and should run)
-            if (config.convert_to_fasta != null && shouldRunStep("convert_to_fasta", config)) {
-                logger.info("=".repeat(80))
-                logger.info("STEP 4: Convert to FASTA")
-                logger.info("=".repeat(80))
-
-                // Determine input (custom or from previous step)
-                val gvcfInput = config.convert_to_fasta.input?.let { Path.of(it) } ?: downsampledGvcfOutputDir
-                if (gvcfInput == null) {
-                    throw RuntimeException("Cannot run convert-to-fasta: no GVCF input available (specify 'input' in config or run downsample-gvcf first)")
-                }
-                if (refFasta == null) {
-                    throw RuntimeException("Cannot run convert-to-fasta: reference FASTA not available")
-                }
-
-                // Determine output directory (custom or default)
-                val customOutput = config.convert_to_fasta.output?.let { Path.of(it) }
-
-                val args = buildList {
-                    add("--work-dir=${workDir}")
-                    add("--gvcf-file=${gvcfInput}")
-                    add("--ref-fasta=${refFasta}")
-                    if (config.convert_to_fasta.missing_records_as != null) {
-                        add("--missing-records-as=${config.convert_to_fasta.missing_records_as}")
-                    }
-                    if (config.convert_to_fasta.missing_genotype_as != null) {
-                        add("--missing-genotype-as=${config.convert_to_fasta.missing_genotype_as}")
-                    }
-                    if (!config.convert_to_fasta.ignore_contig.isNullOrEmpty()) {
-                        add("--ignore-contig=${config.convert_to_fasta.ignore_contig}")
-                    }
-                    if (customOutput != null) {
-                        add("--output-dir=${customOutput}")
-                    }
-                }
-
-                ConvertToFasta().parse(args)
-                restoreOrchestratorLogging(workDir)
-
-                // Get output directory for downstream use (use custom or default)
-                fastaOutputDir = customOutput ?: workDir.resolve("output").resolve("04_fasta_results")
-
-                logger.info("Step 4 completed successfully")
-                logger.info("")
-            } else {
-                if (config.convert_to_fasta != null) {
-                    logger.info("Skipping convert-to-fasta (not in run_steps)")
-
-                    // Check custom output location first, then default
-                    val customOutput = config.convert_to_fasta.output?.let { Path.of(it) }
-                    val previousFastaDir = customOutput ?: workDir.resolve("output").resolve("04_fasta_results")
-                    if (previousFastaDir.exists()) {
-                        fastaOutputDir = previousFastaDir
-                        logger.info("Using previous convert-to-fasta outputs: $fastaOutputDir")
-                    } else {
-                        logger.warn("Previous convert-to-fasta outputs not found. Downstream steps may fail.")
-                    }
-                } else {
-                    logger.info("Skipping convert-to-fasta (not configured)")
-                }
-                logger.info("")
-            }
-
-            // Step 5: Pick Crossovers (if configured and should run)
-            if (config.pick_crossovers != null && shouldRunStep("pick_crossovers", config)) {
-                logger.info("=".repeat(80))
-                logger.info("STEP 5: Pick Crossovers")
-                logger.info("=".repeat(80))
-
-                // Use pick_crossovers.ref_fasta if specified, otherwise use ref FASTA from step 1
-                val pickCrossoversRefFasta = config.pick_crossovers.ref_fasta?.let { Path.of(it) } 
-                    ?: refFasta
-                if (pickCrossoversRefFasta == null) {
-                    throw RuntimeException("Cannot run pick-crossovers: reference FASTA not available (specify 'ref_fasta' in pick_crossovers config or run align_assemblies first)")
-                }
-
-                // Determine assembly list (custom or auto-generated from step 4)
-                val step6AssemblyList: Path = if (config.pick_crossovers.assembly_list != null) {
-                    Path.of(config.pick_crossovers.assembly_list).toAbsolutePath().normalize()
-                } else {
-                    // Auto-generate assembly list from step 4 output (fastaOutputDir)
-                    if (fastaOutputDir == null || !fastaOutputDir.exists()) {
-                        throw RuntimeException("Cannot run pick-crossovers: no assembly_list provided and no FASTA output directory available from convert_to_fasta step")
-                    }
-                    
-                    // Get all FASTA files from step 4 output
-                    val fastaFiles = fastaOutputDir.toFile().listFiles { file ->
-                        file.isFile && file.name.matches(FASTA_FILE_PATTERN)
-                    }?.map { it.toPath() }?.sorted() ?: emptyList()
-                    
-                    if (fastaFiles.isEmpty()) {
-                        throw RuntimeException("Cannot run pick-crossovers: no FASTA files found in $fastaOutputDir")
-                    }
-                    
-                    // Create assembly list file with path<TAB>name format
-                    // Name is derived from filename minus extension (keeping _mutated suffix)
-                    val assemblyListFile = fastaOutputDir.resolve("auto_assembly_list.txt")
-                    val lines = fastaFiles.map { fastaPath ->
-                        val fileName = fastaPath.fileName.toString()
-                        // Remove extension (including .gz if present)
-                        val baseName = fileName.replace(FASTA_EXTENSION_PATTERN, "")
-                        "${fastaPath.toAbsolutePath()}\t$baseName"
-                    }
-                    assemblyListFile.writeText(lines.joinToString("\n"))
-                    logger.info("Auto-generated assembly list file: $assemblyListFile")
-                    logger.info("  Contains ${fastaFiles.size} assemblies")
-                    
-                    assemblyListFile
-                }
-
-                // Validate that the number of assemblies is even
-                val assemblyCount = step6AssemblyList.readLines().filter { it.isNotBlank() }.size
-                if (assemblyCount % 2 != 0) {
-                    throw RuntimeException(
-                        "Cannot run pick-crossovers: assembly list contains $assemblyCount assemblies, " +
-                        "but this step requires an even number of assembly files to work (assemblies are paired for crossover simulation)"
-                    )
-                }
-                logger.info("Assembly list contains $assemblyCount assemblies (validated: even count)")
-
-                // Save assembly list path for use in steps 8 and 9
-                assemblyListPath = step6AssemblyList
-
-                // Determine output directory (custom or default)
-                val customOutput = config.pick_crossovers.output?.let { Path.of(it) }
-
-                val args = buildList {
-                    add("--work-dir=${workDir}")
-                    add("--ref-fasta=${pickCrossoversRefFasta}")
-                    add("--assembly-list=${step6AssemblyList}")
-                    if (customOutput != null) {
-                        add("--output-dir=${customOutput}")
-                    }
-                }
-
-                PickCrossovers().parse(args)
-                restoreOrchestratorLogging(workDir)
-
-                // Get output directory (use custom or default)
-                refkeyOutputDir = customOutput ?: workDir.resolve("output").resolve("05_crossovers_results")
-
-                if (!refkeyOutputDir.exists()) {
-                    throw RuntimeException("Expected refkey output directory not found: $refkeyOutputDir")
-                }
-
-                logger.info("Step 5 completed successfully")
-                logger.info("")
-            } else {
-                if (config.pick_crossovers != null) {
-                    logger.info("Skipping pick-crossovers (not in run_steps)")
-
-                    // Check custom output location first, then default
-                    val customOutput = config.pick_crossovers.output?.let { Path.of(it) }
-                    val previousRefkeyDir = customOutput ?: workDir.resolve("output").resolve("05_crossovers_results")
-                    if (previousRefkeyDir.exists()) {
-                        refkeyOutputDir = previousRefkeyDir
-                        logger.info("Using previous pick-crossovers outputs: $refkeyOutputDir")
-                    } else {
-                        logger.warn("Previous pick-crossovers outputs not found. Downstream steps may fail.")
-                    }
-
-                    // Try to recover assembly list from config or auto-generated file
-                    if (config.pick_crossovers.assembly_list != null) {
-                        assemblyListPath = Path.of(config.pick_crossovers.assembly_list).toAbsolutePath().normalize()
-                        logger.info("Using configured assembly list: $assemblyListPath")
-                    } else if (fastaOutputDir != null) {
-                        val autoGeneratedList = fastaOutputDir.resolve("auto_assembly_list.txt")
-                        if (autoGeneratedList.exists()) {
-                            assemblyListPath = autoGeneratedList
-                            logger.info("Using auto-generated assembly list from previous run: $assemblyListPath")
-                        }
-                    }
-                } else {
-                    logger.info("Skipping pick-crossovers (not configured)")
-                }
-                logger.info("")
-            }
-
-            // Step 6: Create Chain Files (if configured and should run)
-            if (config.create_chain_files != null && shouldRunStep("create_chain_files", config)) {
-                logger.info("=".repeat(80))
-                logger.info("STEP 6: Create Chain Files")
-                logger.info("=".repeat(80))
-
-                // Determine input (custom or step 1 MAF files)
-                val mafInput = config.create_chain_files.maf_file_input?.let { Path.of(it) } 
-                    ?: mafFilePaths
-                if (mafInput == null) {
-                    throw RuntimeException("Cannot run create-chain-files: no MAF input available (specify 'maf_file_input' in config or run align-assemblies first)")
-                }
-                logger.info("MAF input: $mafInput")
-
-                // Determine output directory (custom or default)
-                val customOutput = config.create_chain_files.output?.let { Path.of(it) }
-
-                val args = buildList {
-                    add("--work-dir=${workDir}")
-                    add("--maf-input=${mafInput}")
-                    if (config.create_chain_files.jobs != null) {
-                        add("--jobs=${config.create_chain_files.jobs}")
-                    }
-                    if (customOutput != null) {
-                        add("--output-dir=${customOutput}")
-                    }
-                }
-
-                CreateChainFiles().parse(args)
-                restoreOrchestratorLogging(workDir)
-
-                // Get output directory (use custom or default)
-                chainOutputDir = customOutput ?: workDir.resolve("output").resolve("06_chain_results")
-
-                if (!chainOutputDir.exists()) {
-                    throw RuntimeException("Expected chain output directory not found: $chainOutputDir")
-                }
-
-                logger.info("Step 6 completed successfully")
-                logger.info("")
-            } else {
-                if (config.create_chain_files != null) {
-                    logger.info("Skipping create-chain-files (not in run_steps)")
-
-                    // Check custom output location first, then default
-                    val customOutput = config.create_chain_files.output?.let { Path.of(it) }
-                    val previousChainDir = customOutput ?: workDir.resolve("output").resolve("06_chain_results")
-                    if (previousChainDir.exists()) {
-                        chainOutputDir = previousChainDir
-                        logger.info("Using previous create-chain-files outputs: $chainOutputDir")
-                    } else {
-                        logger.warn("Previous create-chain-files outputs not found. Downstream steps may fail.")
-                    }
-                } else {
-                    logger.info("Skipping create-chain-files (not configured)")
-                }
-                logger.info("")
-            }
-
-            // Step 7: Convert Coordinates (if configured and should run)
-            if (config.convert_coordinates != null && shouldRunStep("convert_coordinates", config)) {
-                logger.info("=".repeat(80))
-                logger.info("STEP 7: Convert Coordinates")
-                logger.info("=".repeat(80))
-
-                // Determine chain input (custom or from previous step)
-                val chainInput = config.convert_coordinates.input_chain?.let { Path.of(it) } ?: chainOutputDir
-                if (chainInput == null) {
-                    throw RuntimeException("Cannot run convert-coordinates: no chain input available (specify 'input_chain' in config or run create-chain-files first)")
-                }
-
-                // Determine refkey input (custom or from previous step)
-                val refkeyInput = config.convert_coordinates.input_refkey?.let { Path.of(it) } ?: refkeyOutputDir
-
-                // Determine assembly list (custom or from step 6)
-                val step8AssemblyList = config.convert_coordinates.assembly_list?.let { 
-                    Path.of(it).toAbsolutePath().normalize() 
-                } ?: assemblyListPath
-                if (step8AssemblyList == null) {
-                    throw RuntimeException("Cannot run convert-coordinates: no assembly_list available (specify 'assembly_list' in config or run pick-crossovers first)")
-                }
-                logger.info("Assembly list: $step8AssemblyList")
-
-                // Determine output directory (custom or default)
-                val customOutput = config.convert_coordinates.output?.let { Path.of(it) }
-
-                val args = buildList {
-                    add("--work-dir=${workDir}")
-                    add("--assembly-list=${step8AssemblyList}")
-                    add("--chain-dir=${chainInput}")
-                    if (refkeyInput != null) {
-                        add("--refkey-dir=${refkeyInput}")
-                    }
-                    if (customOutput != null) {
-                        add("--output-dir=${customOutput}")
-                    }
-                }
-
-                ConvertCoordinates().parse(args)
-                restoreOrchestratorLogging(workDir)
-
-                // Get output directory (use custom or default)
-                coordinatesOutputDir = customOutput ?: workDir.resolve("output").resolve("07_coordinates_results")
-
-                if (!coordinatesOutputDir.exists()) {
-                    throw RuntimeException("Expected coordinates output directory not found: $coordinatesOutputDir")
-                }
-
-                logger.info("Step 7 completed successfully")
-                logger.info("")
-            } else {
-                if (config.convert_coordinates != null) {
-                    logger.info("Skipping convert-coordinates (not in run_steps)")
-
-                    // Check custom output location first, then default
-                    val customOutput = config.convert_coordinates.output?.let { Path.of(it) }
-                    val previousCoordsDir = customOutput ?: workDir.resolve("output").resolve("07_coordinates_results")
-                    if (previousCoordsDir.exists()) {
-                        coordinatesOutputDir = previousCoordsDir
-                        logger.info("Using previous convert-coordinates outputs: $coordinatesOutputDir")
-                    } else {
-                        logger.warn("Previous convert-coordinates outputs not found. Downstream steps may fail.")
-                    }
-                } else {
-                    logger.info("Skipping convert-coordinates (not configured)")
-                }
-                logger.info("")
-            }
-
-            // Step 8: Generate Recombined Sequences (if configured and should run)
-            if (config.generate_recombined_sequences != null && shouldRunStep("generate_recombined_sequences", config)) {
-                logger.info("=".repeat(80))
-                logger.info("STEP 8: Generate Recombined Sequences")
-                logger.info("=".repeat(80))
-
-                // Use founder key input from previous step (convert_coordinates)
-                if (coordinatesOutputDir == null) {
-                    throw RuntimeException("Cannot run generate-recombined-sequences: no founder key input available (run convert-coordinates first)")
-                }
-                logger.info("Founder key directory: $coordinatesOutputDir")
-
-                // Determine assembly list (custom or from step 6)
-                val step9AssemblyList = config.generate_recombined_sequences.assembly_list?.let { 
-                    Path.of(it).toAbsolutePath().normalize() 
-                } ?: assemblyListPath
-                if (step9AssemblyList == null) {
-                    throw RuntimeException("Cannot run generate-recombined-sequences: no assembly_list available (specify 'assembly_list' in config or run pick-crossovers first)")
-                }
-                logger.info("Assembly list: $step9AssemblyList")
-
-                // Determine chromosome list (custom or auto-derived from first assembly)
-                val step9ChromosomeList: Path = if (config.generate_recombined_sequences.chromosome_list != null) {
-                    Path.of(config.generate_recombined_sequences.chromosome_list).toAbsolutePath().normalize()
-                } else {
-                    // Auto-derive chromosome list from the first assembly in the assembly list
-                    val firstLine = step9AssemblyList.readLines().firstOrNull { it.isNotBlank() }
-                        ?: throw RuntimeException("Cannot run generate-recombined-sequences: assembly list is empty")
-                    
-                    // Assembly list format: path<TAB>name - extract the path (first column)
-                    val firstAssemblyPath = firstLine.split("\t").firstOrNull()?.trim()
-                        ?: throw RuntimeException("Cannot run generate-recombined-sequences: invalid assembly list format")
-                    
-                    logger.info("Auto-deriving chromosome list from first assembly: $firstAssemblyPath")
-                    
-                    // Use BioKotlin to read the FASTA and extract chromosome IDs
-                    val seq = NucSeqIO(firstAssemblyPath).readAll()
-                    val chromosomeIds = seq.keys.toList()
-                    
-                    if (chromosomeIds.isEmpty()) {
-                        throw RuntimeException("Cannot run generate-recombined-sequences: no chromosomes found in $firstAssemblyPath")
-                    }
-                    
-                    // Write chromosome list to a temporary file
-                    val chromosomeListFile = workDir.resolve("output").resolve("08_recombined_sequences").resolve("auto_chromosome_list.txt")
-                    chromosomeListFile.parent.createDirectories()
-                    chromosomeListFile.writeText(chromosomeIds.joinToString("\n"))
-                    logger.info("Auto-generated chromosome list: $chromosomeListFile")
-                    logger.info("  Contains ${chromosomeIds.size} chromosomes: ${chromosomeIds.take(5).joinToString(", ")}${if (chromosomeIds.size > 5) ", ..." else ""}")
-                    
-                    chromosomeListFile
-                }
-
-                // Determine output directory (step 8 default output)
-                val outputBase = workDir.resolve("output").resolve("08_recombined_sequences")
-
-                // Determine assembly directory (custom or from step 4 FASTA output)
-                // The Python script needs to read parent FASTA files which are in the FASTA output directory
-                val step9AssemblyDir = config.generate_recombined_sequences.assembly_dir?.let {
-                    Path.of(it).toAbsolutePath().normalize()
-                } ?: fastaOutputDir ?: throw RuntimeException("Cannot run generate-recombined-sequences: no assembly directory available (specify 'assembly_dir' in config or run convert-to-fasta first)")
-                logger.info("Assembly directory: $step9AssemblyDir")
-
-                val args = buildList {
-                    add("--work-dir=${workDir}")
-                    add("--assembly-list=${step9AssemblyList}")
-                    add("--chromosome-list=${step9ChromosomeList}")
-                    add("--assembly-dir=${step9AssemblyDir}")
-                    add("--founder-key-dir=${coordinatesOutputDir}")
-                }
-
-                GenerateRecombinedSequences().parse(args)
-                restoreOrchestratorLogging(workDir)
-
-                // Get output directory
-                recombinedFastasDir = outputBase.resolve("recombinate_fastas")
-
-                logger.info("Step 8 completed successfully")
-                logger.info("")
-            } else {
-                if (config.generate_recombined_sequences != null) {
-                    logger.info("Skipping generate-recombined-sequences (not in run_steps)")
-
-                    // Check default output location
-                    val outputBase = workDir.resolve("output").resolve("08_recombined_sequences")
-                    val previousRecombinedDir = outputBase.resolve("recombinate_fastas")
-                    if (previousRecombinedDir.exists()) {
-                        recombinedFastasDir = previousRecombinedDir
-                        logger.info("Using previous generate-recombined-sequences outputs: $recombinedFastasDir")
-                    } else {
-                        logger.warn("Previous generate-recombined-sequences outputs not found.")
-                    }
-                } else {
-                    logger.info("Skipping generate-recombined-sequences (not configured)")
-                }
-                logger.info("")
-            }
-
-            // Step 9: Format Recombined Fastas (if configured and should run)
-            if (config.format_recombined_fastas != null && shouldRunStep("format_recombined_fastas", config)) {
-                logger.info("=".repeat(80))
-                logger.info("STEP 9: Format Recombined Fastas")
-                logger.info("=".repeat(80))
-
-                // Determine input (custom or from previous step)
-                val fastaInput = config.format_recombined_fastas.input?.let { Path.of(it) } ?: recombinedFastasDir
-                if (fastaInput == null) {
-                    throw RuntimeException("Cannot run format-recombined-fastas: no FASTA input available (specify 'input' in config or run generate-recombined-sequences first)")
-                }
-
-                // Determine output directory (custom or default)
-                val customOutput = config.format_recombined_fastas.output?.let { Path.of(it) }
-
-                val args = buildList {
-                    add("--work-dir=${workDir}")
-                    add("--fasta-input=${fastaInput}")
-                    if (config.format_recombined_fastas.line_width != null) {
-                        add("--line-width=${config.format_recombined_fastas.line_width}")
-                    }
-                    if (config.format_recombined_fastas.threads != null) {
-                        add("--threads=${config.format_recombined_fastas.threads}")
-                    }
-                    if (customOutput != null) {
-                        add("--output-dir=${customOutput}")
-                    }
-                }
-
-                FormatRecombinedFastas().parse(args)
-                restoreOrchestratorLogging(workDir)
-
-                // Get output directory (use custom or default)
-                formattedFastasDir = customOutput ?: workDir.resolve("output").resolve("09_formatted_fastas")
-
-                logger.info("Step 9 completed successfully")
-                logger.info("")
-            } else {
-                if (config.format_recombined_fastas != null) {
-                    logger.info("Skipping format-recombined-fastas (not in run_steps)")
-
-                    // Check custom output location first, then default
-                    val customOutput = config.format_recombined_fastas.output?.let { Path.of(it) }
-                    val previousFormattedDir = customOutput ?: workDir.resolve("output").resolve("09_formatted_fastas")
-                    if (previousFormattedDir.exists()) {
-                        formattedFastasDir = previousFormattedDir
-                        logger.info("Using previous format-recombined-fastas outputs: $formattedFastasDir")
-                    } else {
-                        logger.warn("Previous format-recombined-fastas outputs not found.")
-                    }
-                } else {
-                    logger.info("Skipping format-recombined-fastas (not configured)")
-                }
-                logger.info("")
-            }
-
-            // Step 10: Align Mutated Assemblies (if configured and should run)
-            if (config.align_mutated_assemblies != null && shouldRunStep("align_mutated_assemblies", config)) {
-                logger.info("=".repeat(80))
-                logger.info("STEP 10: Align Mutated Assemblies")
-                logger.info("=".repeat(80))
-
-                // Determine ref_gff (config value or from step 1)
-                val step10RefGff = config.align_mutated_assemblies.ref_gff?.let { Path.of(it) } ?: refGff
-                if (step10RefGff == null) {
-                    throw RuntimeException("Cannot run align-mutated-assemblies: reference GFF not available (specify 'ref_gff' in config or run align_assemblies first)")
-                }
-
-                // Determine ref_fasta (config value or from step 1)
-                val step10RefFasta = config.align_mutated_assemblies.ref_fasta?.let { Path.of(it) } ?: refFasta
-                if (step10RefFasta == null) {
-                    throw RuntimeException("Cannot run align-mutated-assemblies: reference FASTA not available (specify 'ref_fasta' in config or run align_assemblies first)")
-                }
-
-                // Determine fasta_input (config value or from format_recombined_fastas output)
-                val step10FastaInput = config.align_mutated_assemblies.fasta_input?.let { Path.of(it) } ?: formattedFastasDir
-                if (step10FastaInput == null) {
-                    throw RuntimeException("Cannot run align-mutated-assemblies: no FASTA input available (specify 'fasta_input' in config or run format-recombined-fastas first)")
-                }
-
-                logger.info("Reference GFF: $step10RefGff")
-                logger.info("Reference FASTA: $step10RefFasta")
-                logger.info("FASTA input: $step10FastaInput")
-
-                // Determine output directory (custom or default)
-                val customOutput = config.align_mutated_assemblies.output?.let { Path.of(it) }
-
-                val args = buildList {
-                    add("--work-dir=${workDir}")
-                    add("--ref-gff=${step10RefGff}")
-                    add("--ref-fasta=${step10RefFasta}")
-                    add("--fasta-input=${step10FastaInput}")
-                    if (config.align_mutated_assemblies.threads != null) {
-                        add("--threads=${config.align_mutated_assemblies.threads}")
-                    }
-                    if (customOutput != null) {
-                        add("--output-dir=${customOutput}")
-                    }
-                }
-
-                AlignMutatedAssemblies().parse(args)
-                restoreOrchestratorLogging(workDir)
-
-                // Get output path (use custom or default)
-                val outputBase = customOutput ?: workDir.resolve("output").resolve("10_mutated_alignment_results")
-                mutatedMafFilePaths = outputBase.toAbsolutePath().normalize().resolve("maf_file_paths.txt")
-
-                if (!mutatedMafFilePaths.exists()) {
-                    throw RuntimeException("Expected MAF paths file not found: $mutatedMafFilePaths")
-                }
-
-                logger.info("Step 10 completed successfully")
-                logger.info("")
-            } else {
-                if (config.align_mutated_assemblies != null) {
-                    logger.info("Skipping align-mutated-assemblies (not in run_steps)")
-
-                    // Check custom output location first, then default
-                    val customOutput = config.align_mutated_assemblies.output?.let { 
-                        Path.of(it).toAbsolutePath().normalize() 
-                    }
-                    val outputBase = (customOutput ?: workDir.resolve("output").resolve("10_mutated_alignment_results"))
-                        .toAbsolutePath().normalize()
-                    val previousMafPaths = outputBase.resolve("maf_file_paths.txt")
-
-                    if (previousMafPaths.exists()) {
-                        mutatedMafFilePaths = previousMafPaths
-                        logger.info("Using previous align-mutated-assemblies outputs: $mutatedMafFilePaths")
-                    } else {
-                        logger.warn("Previous align-mutated-assemblies outputs not found. Downstream steps may fail.")
-                    }
-                } else {
-                    logger.info("Skipping align-mutated-assemblies (not configured)")
-                }
-                logger.info("")
-            }
-
-            // Step 11: Mutated MAF to GVCF (if configured and should run)
-            if (config.mutated_maf_to_gvcf != null && shouldRunStep("mutated_maf_to_gvcf", config)) {
-                logger.info("=".repeat(80))
-                logger.info("STEP 11: Mutated MAF to GVCF Conversion")
-                logger.info("=".repeat(80))
-
-                // Determine reference file (custom or from step 1) - resolve to absolute path
-                val step11RefFasta = config.mutated_maf_to_gvcf.reference_file?.let { 
-                    Path.of(it).toAbsolutePath().normalize() 
-                } ?: refFasta
-                if (step11RefFasta == null) {
-                    throw RuntimeException("Cannot run mutated-maf-to-gvcf: reference FASTA not available (specify 'reference_file' in config or run align-assemblies first)")
-                }
-
-                // Determine MAF input (custom or from step 10) - resolve to absolute path
-                val mafInput = config.mutated_maf_to_gvcf.maf_file?.let { 
-                    Path.of(it).toAbsolutePath().normalize() 
-                } ?: mutatedMafFilePaths
-                if (mafInput == null) {
-                    throw RuntimeException("Cannot run mutated-maf-to-gvcf: no MAF input available (specify 'maf_file' in config or run align-mutated-assemblies first)")
-                }
-
-                // Determine output directory (custom or default) - resolve to absolute path
-                // Always use step 11 output directory by default (not MafToGvcf's default)
-                val mutatedGvcfOutputDir = (config.mutated_maf_to_gvcf.output_dir?.let { 
-                    Path.of(it).toAbsolutePath().normalize() 
-                } ?: workDir.resolve("output").resolve("11_mutated_gvcf_results"))
-                    .toAbsolutePath().normalize()
-
-                // Determine output file if specified - resolve to absolute path
-                val outputFile = config.mutated_maf_to_gvcf.output_file?.let { 
-                    Path.of(it).toAbsolutePath().normalize() 
-                }
-
-                logger.info("Reference FASTA: $step11RefFasta")
-                logger.info("MAF input: $mafInput")
-                logger.info("Output directory: $mutatedGvcfOutputDir")
-
-                val args = buildList {
-                    add("--work-dir=$workDir")
-                    add("--reference-file=$step11RefFasta")
-                    add("--maf-file=$mafInput")
-                    add("--output-dir=$mutatedGvcfOutputDir")  // Always pass output dir to ensure step 11 location
-                    if (outputFile != null) {
-                        add("--output-file=$outputFile")
-                    }
-                    if (config.mutated_maf_to_gvcf.sample_name != null) {
-                        add("--sample-name=${config.mutated_maf_to_gvcf.sample_name}")
-                    }
-                }
-
-                MafToGvcf().parse(args)
-                restoreOrchestratorLogging(workDir)
-
-                if (!mutatedGvcfOutputDir.exists()) {
-                    throw RuntimeException("Expected mutated GVCF output directory not found: $mutatedGvcfOutputDir")
-                }
-
-                logger.info("Step 11 completed successfully")
-                logger.info("")
-            } else {
-                if (config.mutated_maf_to_gvcf != null) {
-                    logger.info("Skipping mutated-maf-to-gvcf (not in run_steps)")
-                } else {
-                    logger.info("Skipping mutated-maf-to-gvcf (not configured)")
-                }
-                logger.info("")
-            }
-
-            // Step 12: RopeBWT Chr Index (if configured and should run)
-            if (config.rope_bwt_chr_index != null && shouldRunStep("rope_bwt_chr_index", config)) {
-                logger.info("=".repeat(80))
-                logger.info("STEP 12: RopeBWT Chr Index")
-                logger.info("=".repeat(80))
-
-                // Determine output directory (custom or default) - resolve to absolute path
-                val customOutput = config.rope_bwt_chr_index.output?.let { 
-                    Path.of(it).toAbsolutePath().normalize() 
-                }
-                val outputBase = customOutput ?: workDir.resolve("output").resolve("12_rope_bwt_index_results")
-                outputBase.createDirectories()
-
-                // Determine keyfile - either provided or auto-generated from format_recombined_fastas output
-                val actualKeyfile: Path = if (config.rope_bwt_chr_index.keyfile != null) {
-                    // Use provided keyfile
-                    val keyfilePath = Path.of(config.rope_bwt_chr_index.keyfile).toAbsolutePath().normalize()
-                    logger.info("Using provided keyfile: $keyfilePath")
-                    keyfilePath
-                } else {
-                    // Auto-generate keyfile from format_recombined_fastas output
-                    if (formattedFastasDir == null || !formattedFastasDir.exists()) {
-                        throw RuntimeException("Cannot run rope-bwt-chr-index: no FASTA input available (specify 'keyfile' in config or run format-recombined-fastas first)")
-                    }
-                    
-                    logger.info("Auto-generating keyfile from formatted FASTA files in: $formattedFastasDir")
-                    
-                    // Collect FASTA files
-                    val fastaFiles = formattedFastasDir.toFile().listFiles { file ->
-                        file.isFile && file.name.matches(FASTA_FILE_PATTERN)
-                    }?.map { it.toPath() }?.sorted() ?: emptyList()
-                    
-                    if (fastaFiles.isEmpty()) {
-                        throw RuntimeException("Cannot run rope-bwt-chr-index: no FASTA files found in $formattedFastasDir")
-                    }
-                    
-                    logger.info("Found ${fastaFiles.size} FASTA files")
-                    
-                    // Generate keyfile with sample names derived from filenames (no header)
-                    val keyfilePath = outputBase.resolve("phg_keyfile.txt")
-                    val keyfileLines = mutableListOf<String>()
-                    val renamedSamples = mutableListOf<Pair<String, String>>()  // original -> fixed
-                    
-                    fastaFiles.forEach { fastaFile ->
-                        var sampleName = fastaFile.fileName.toString()
-                            .replace(FASTA_EXTENSION_PATTERN, "")
-                        
-                        // Replace underscores with hyphens and warn
-                        if (sampleName.contains("_")) {
-                            val originalName = sampleName
-                            sampleName = sampleName.replace("_", "-")
-                            renamedSamples.add(Pair(originalName, sampleName))
-                        }
-                        
-                        keyfileLines.add("${fastaFile.toAbsolutePath()}\t$sampleName")
-                    }
-                    
-                    // Write keyfile
-                    keyfilePath.writeText(keyfileLines.joinToString("\n"))
-                    logger.info("Generated keyfile: $keyfilePath")
-                    
-                    // Warn about renamed samples
-                    if (renamedSamples.isNotEmpty()) {
-                        logger.warn("WARNING: The following sample names contained underscores and were converted to hyphens:")
-                        renamedSamples.forEach { (original, fixed) ->
-                            logger.warn("  '$original' -> '$fixed'")
-                        }
-                        logger.warn("PHG uses underscores internally for contig renaming (format: samplename_contig)")
-                    }
-                    
-                    keyfilePath
-                }
-
-                logger.info("Keyfile: $actualKeyfile")
-
-                val args = buildList {
-                    add("--work-dir=$workDir")
-                    add("--keyfile=$actualKeyfile")
-                    if (config.rope_bwt_chr_index.index_file_prefix != null) {
-                        add("--index-file-prefix=${config.rope_bwt_chr_index.index_file_prefix}")
-                    }
-                    if (config.rope_bwt_chr_index.threads != null) {
-                        add("--threads=${config.rope_bwt_chr_index.threads}")
-                    }
-                    // delete-fmr-index is a presence flag (include only when true)
-                    if (config.rope_bwt_chr_index.delete_fmr_index == true) {
-                        add("--delete-fmr-index")
-                    }
-                    if (customOutput != null) {
-                        add("--output-dir=$customOutput")
-                    }
-                }
-
-                RopeBwtChrIndex().parse(args)
-                restoreOrchestratorLogging(workDir)
-
-                // Track output directory
-                ropeBwtIndexDir = outputBase
-
-                if (!ropeBwtIndexDir.exists()) {
-                    throw RuntimeException("Expected RopeBWT index output directory not found: $ropeBwtIndexDir")
-                }
-
-                logger.info("Step 12 completed successfully")
-                logger.info("")
-            } else {
-                if (config.rope_bwt_chr_index != null) {
-                    logger.info("Skipping rope-bwt-chr-index (not in run_steps)")
-
-                    // Check custom output location first, then default
-                    val customOutput = config.rope_bwt_chr_index.output?.let { 
-                        Path.of(it).toAbsolutePath().normalize() 
-                    }
-                    val previousIndexDir = (customOutput ?: workDir.resolve("output").resolve("12_rope_bwt_index_results"))
-                        .toAbsolutePath().normalize()
-                    if (previousIndexDir.exists()) {
-                        ropeBwtIndexDir = previousIndexDir
-                        logger.info("Using previous rope-bwt-chr-index outputs: $ropeBwtIndexDir")
-                    } else {
-                        logger.warn("Previous rope-bwt-chr-index outputs not found. Downstream steps may fail.")
-                    }
-                } else {
-                    logger.info("Skipping rope-bwt-chr-index (not configured)")
-                }
-                logger.info("")
-            }
-
-            // Pipeline completed successfully
-            logger.info("=".repeat(80))
-            logger.info("PIPELINE COMPLETED SUCCESSFULLY!")
-            logger.info("=".repeat(80))
-            logger.info("All configured steps have been executed")
-            logger.info("Working directory: $workDir")
-            logger.info("Outputs are available in: ${workDir.resolve("output")}")
-
-        } catch (e: Exception) {
-            logger.error("=".repeat(80))
-            logger.error("PIPELINE FAILED")
-            logger.error("=".repeat(80))
-            logger.error("Error: ${e.message}", e)
-            exitProcess(1)
+        LoggingUtils.setupFileLogging(workDir, OrchestrateShared.LOG_FILE_NAME, logger)
+
+        // Dispatch to the requested pipeline version. "v1" (the default when
+        // the YAML omits `version`) runs the full 15-step pipeline; "v2" runs
+        // the trimmed variant pipeline (align-assemblies + maf-to-gvcf).
+        when (config.version) {
+            "v2" -> OrchestrateV2(logger, configFile).run(config, workDir)
+            else -> OrchestrateV1(logger, configFile).run(config, workDir)
         }
     }
 }

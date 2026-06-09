@@ -19,3 +19,15 @@ dependencies:
   - agc>=3.1
   - ropebwt3>=3.8
   - minimap2>=2.28
+  # Python deps needed by the MLImpute scripts that back pick_crossovers,
+  # convert_coordinates, and generate_recombined_sequences. They live in
+  # the seq-sim pixi env, but inside the container SEQ_SIM_SKIP_PIXI_PREFIX=1
+  # routes those calls through this conda env directly, so the deps must
+  # be present here too.
+  - numpy
+  - pandas
+  - pysam
+  - crossmap
+  # Native CLI deps used by create_chain_files / format_recombined_fastas.
+  - seqkit
+  - parallel

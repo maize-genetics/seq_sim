@@ -21,6 +21,7 @@ crossmap = "*"
 parallel = "*"
 pysam = "*"
 samtools = "*"
+bcftools = "*"
 
 # Linux-only dependencies (AnchorWave not available on macOS)
 [target.linux-64.dependencies]
