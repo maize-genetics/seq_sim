@@ -67,6 +67,7 @@ class OrchestrateV2(
         var sortedGvcfDir: Path? = null
         var fastaOutputDir: Path? = null
         var splineKnotsOutputDir: Path? = null
+        var ropebwtOutputDir: Path? = null
 
         try {
             // Step 1: Align Assemblies (if configured and should run)
@@ -834,6 +835,132 @@ class OrchestrateV2(
                     }
                 } else {
                     logger.info("Skipping build-spline-knots (not configured)")
+                }
+                logger.info("")
+            }
+
+            // Step 11: RopeBWT (index recombined FASTAs + align user FASTQ reads -> BED)
+            if (config.ropebwt != null && shouldRunStep("ropebwt", config)) {
+                logger.info("=".repeat(80))
+                logger.info("STEP 11: RopeBWT (index + mem alignment)")
+                logger.info("=".repeat(80))
+
+                // Recombined FASTA input (custom or from step 9 convert-to-fasta)
+                val fastaInput = config.ropebwt.fasta_input?.let {
+                    Path.of(it).toAbsolutePath().normalize()
+                } ?: fastaOutputDir
+                if (fastaInput == null) {
+                    throw RuntimeException("Cannot run ropebwt: no FASTA input available (specify 'fasta_input' in config or run convert-to-fasta first)")
+                }
+                if (!fastaInput.exists()) {
+                    throw RuntimeException("Cannot run ropebwt: FASTA input not found at $fastaInput")
+                }
+
+                // FASTQ input is required when this step is configured
+                val fastqInput = Path.of(config.ropebwt.fastq_input).toAbsolutePath().normalize()
+                if (!fastqInput.exists()) {
+                    throw RuntimeException("Cannot run ropebwt: FASTQ input not found at $fastqInput")
+                }
+
+                val customOutput = config.ropebwt.output?.let {
+                    Path.of(it).toAbsolutePath().normalize()
+                }
+                val outputBase = (customOutput ?: workDir.resolve("output").resolve("11_ropebwt_results"))
+                    .toAbsolutePath().normalize()
+                val indexDir = outputBase.resolve("index")
+                indexDir.createDirectories()
+
+                logger.info("Recombined FASTA input: $fastaInput")
+                logger.info("FASTQ input: $fastqInput")
+                logger.info("Output directory: $outputBase")
+
+                // Sub-step A: build the ropebwt3 index from the recombined FASTAs.
+                logger.info("Building ropebwt3 index from recombined FASTAs")
+                val indexArgs = buildList {
+                    add("--work-dir=$workDir")
+                    add("--fasta-input=$fastaInput")
+                    add("--output-dir=$indexDir")
+                    if (config.ropebwt.index_file_prefix != null) {
+                        add("--index-file-prefix=${config.ropebwt.index_file_prefix}")
+                    }
+                    if (config.ropebwt.threads != null) {
+                        add("--threads=${config.ropebwt.threads}")
+                    }
+                    if (config.ropebwt.delete_fmr_index == true) {
+                        add("--delete-fmr-index")
+                    }
+                }
+
+                RopeBwtChrIndex().parse(indexArgs)
+                restoreOrchestratorLogging(workDir)
+
+                // Locate the generated .fmd index file.
+                val fmdFiles = indexDir.listDirectoryEntries("*.fmd")
+                if (fmdFiles.isEmpty()) {
+                    throw RuntimeException("Cannot run ropebwt: no .fmd index file produced in $indexDir")
+                }
+                val indexFile = fmdFiles.first()
+                logger.info("Using index file: $indexFile")
+
+                // Compute -l explicitly (2 x FASTA sample count from the generated
+                // keyfile) so we do not depend on RopeBwtMem's hardcoded v1
+                // auto-detect directory (12_rope_bwt_index_results).
+                val lValue = config.ropebwt.l_value ?: run {
+                    val keyfile = indexDir.resolve("phg_keyfile.txt")
+                    if (!keyfile.exists()) {
+                        throw RuntimeException("Cannot run ropebwt: keyfile not found at $keyfile (specify 'l_value' in config)")
+                    }
+                    val fastaCount = keyfile.readLines().count { it.isNotBlank() }
+                    if (fastaCount <= 0) {
+                        throw RuntimeException("Cannot run ropebwt: keyfile has no FASTA entries: $keyfile")
+                    }
+                    fastaCount * 2
+                }
+                logger.info("Using -l value: $lValue")
+
+                // Sub-step B: align the user FASTQ reads to the index -> BED files.
+                logger.info("Aligning FASTQ reads to the index")
+                val memArgs = buildList {
+                    add("--work-dir=$workDir")
+                    add("--fastq-input=$fastqInput")
+                    add("--index-file=$indexFile")
+                    add("--l-value=$lValue")
+                    if (config.ropebwt.p_value != null) {
+                        add("--p-value=${config.ropebwt.p_value}")
+                    }
+                    if (config.ropebwt.threads != null) {
+                        add("--threads=${config.ropebwt.threads}")
+                    }
+                    add("--output-dir=$outputBase")
+                }
+
+                RopeBwtMem().parse(memArgs)
+                restoreOrchestratorLogging(workDir)
+
+                if (!outputBase.exists()) {
+                    throw RuntimeException("Expected ropebwt output directory not found: $outputBase")
+                }
+
+                ropebwtOutputDir = outputBase
+                logger.info("Step 11 completed successfully")
+                logger.info("")
+            } else {
+                if (config.ropebwt != null) {
+                    logger.info("Skipping ropebwt (not in run_steps)")
+
+                    val customOutput = config.ropebwt.output?.let {
+                        Path.of(it).toAbsolutePath().normalize()
+                    }
+                    val previousDir = (customOutput ?: workDir.resolve("output").resolve("11_ropebwt_results"))
+                        .toAbsolutePath().normalize()
+                    if (previousDir.exists()) {
+                        ropebwtOutputDir = previousDir
+                        logger.info("Using previous ropebwt outputs: $ropebwtOutputDir")
+                    } else {
+                        logger.warn("Previous ropebwt outputs not found.")
+                    }
+                } else {
+                    logger.info("Skipping ropebwt (not configured)")
                 }
                 logger.info("")
             }
