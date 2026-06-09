@@ -29,6 +29,9 @@
 # 11. ropebwt:            Build a ropebwt3 index from the recombined FASTAs
 #                         (step 09) and align user-provided FASTQ reads to it,
 #                         producing BED alignments (via PHGv2 + ropebwt3)
+# 12. convert-ropebwt2ps4g: Convert the ropebwt BED alignments (step 11) into
+#                         PS4G files, using the spline knots (step 10) for
+#                         assembly-to-reference coordinate mapping (via PHGv2)
 #
 # NOTE (1): Environment setup is automatic. The orchestrate command detects a
 #       missing working directory or tools (MLImpute, biokotlin-tools, PHGv2)
@@ -57,6 +60,7 @@ run_steps:
   - convert_to_fasta     # Step 09: Convert sorted gVCFs back to FASTA
   - build_spline_knots   # Step 10: Build spline knots from sorted gVCFs
   - ropebwt              # Step 11: Index recombined FASTAs and align FASTQ reads
+  - convert_ropebwt2ps4g # Step 12: Convert ropebwt BED alignments to PS4G files
 
 # ============================================================================
 # STEP CONFIGURATION
@@ -188,6 +192,17 @@ ropebwt:
   # p_value: 168                            # Optional: -p (default: 168)
   # output: "/custom/ropebwt/output/"       # Optional: Custom output directory
 
+# Step 12: Convert RopeBWT to PS4G
+# Converts the ropebwt BED alignments (step 11) into PS4G files, using the
+# spline knots (step 10) to map assembly coordinates back to the reference
+# (via PHGv2). Produces one PS4G file per BED input.
+convert_ropebwt2ps4g:
+  # bed_input: "/custom/ropebwt/beds/"      # Optional: Defaults to ropebwt output (step 11)
+  # spline_knot_dir: "/custom/spline/dir/"  # Optional: Defaults to build_spline_knots output (step 10)
+  # min_mem_length: 135                      # Optional: Minimum MEM length threshold (default: 135)
+  # max_num_hits: 16                         # Optional: Max haplotype hits per alignment (default: 16)
+  # output: "/custom/ps4g/output/"          # Optional: Custom output directory
+
 # ============================================================================
 # SPLIT KEYFILE FORMAT (for split_gvcfs / mutate_assemblies)
 # ============================================================================
@@ -219,4 +234,5 @@ ropebwt:
 #   09_convert_to_fasta_results/    {sample}.fasta + fasta_file_paths.txt
 #   10_build_spline_knots_results/  spline knot files for PHGv2 imputation
 #   11_ropebwt_results/             index/ (.fmd + phg_keyfile.txt) + {sample}_ropebwt.bed + bed_file_paths.txt
+#   12_convert_ropebwt2ps4g_results/ {sample}.ps4g + ps4g_file_paths.txt
 # ============================================================================
