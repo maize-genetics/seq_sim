@@ -81,7 +81,6 @@ data class RecombineGvcfsConfig(
     val input_bed: String? = null,   // Optional: crossover BED dir (defaults to pick_crossovers output)
     val input_gvcf: String? = null,  // Optional: mutated base gVCF dir (defaults to mutate_assemblies output)
     val output: String? = null,      // Optional: custom output directory for recombined gVCFs
-    val output_bed: String? = null   // Optional: custom output directory for resized BED files
 )
 
 data class SortGvcfsConfig(
@@ -504,7 +503,6 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                     input_bed = recombineGvcfsMap?.get("input_bed") as? String,
                     input_gvcf = recombineGvcfsMap?.get("input_gvcf") as? String,
                     output = recombineGvcfsMap?.get("output") as? String,
-                    output_bed = recombineGvcfsMap?.get("output_bed") as? String
                 )
             } else null
 

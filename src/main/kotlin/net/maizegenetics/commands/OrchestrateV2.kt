@@ -562,14 +562,10 @@ class OrchestrateV2(
                 }
                 val outputBase = (customOutput ?: workDir.resolve("output").resolve("07_recombine_gvcfs_results"))
                     .toAbsolutePath().normalize()
-                val outputBedDir = config.recombine_gvcfs.output_bed?.let {
-                    Path.of(it).toAbsolutePath().normalize()
-                } ?: outputBase.resolve("resized_beds")
 
                 // RecombineGvcfs keeps no auto dir-creation, so create the
                 // output directories here before invoking it.
                 outputBase.createDirectories()
-                outputBedDir.createDirectories()
 
                 logger.info("Reference FASTA: $recombineRefFasta")
                 logger.info("Crossover BED input: $inputBedDir")
@@ -580,7 +576,6 @@ class OrchestrateV2(
                     "--input-gvcf-dir=$inputGvcfDir",
                     "--ref-file=$recombineRefFasta",
                     "--output-dir=$outputBase",
-                    "--output-bed-dir=$outputBedDir",
                 )
 
                 RecombineGvcfs().parse(args)

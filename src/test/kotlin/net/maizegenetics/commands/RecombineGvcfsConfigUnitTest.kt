@@ -41,7 +41,6 @@ class RecombineGvcfsConfigUnitTest {
                   input_bed: "beds/"
                   input_gvcf: "gvcfs/"
                   output: "out/"
-                  output_bed: "outbeds/"
                 """
             )
         )
@@ -52,7 +51,6 @@ class RecombineGvcfsConfigUnitTest {
         assertEquals("beds/", recombine.input_bed)
         assertEquals("gvcfs/", recombine.input_gvcf)
         assertEquals("out/", recombine.output)
-        assertEquals("outbeds/", recombine.output_bed)
     }
 
     @Test
@@ -75,7 +73,6 @@ class RecombineGvcfsConfigUnitTest {
         assertNull(recombine.input_bed)
         assertNull(recombine.input_gvcf)
         assertNull(recombine.output)
-        assertNull(recombine.output_bed)
     }
 
     @Test
