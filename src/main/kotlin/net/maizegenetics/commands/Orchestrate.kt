@@ -219,6 +219,23 @@ data class RopebwtConfig(
 object OrchestrateShared {
     const val LOG_FILE_NAME = "00_orchestrate.log"
 
+    // Width of the "=" borders used for orchestrate banner logging
+    const val BANNER_WIDTH = 80
+
+    /**
+     * Logs a banner: a "=" border line, one line per [lines] message, then a
+     * closing "=" border. Logs at error level when [error] is true, otherwise
+     * info level. Replaces the repeated three-line banner idiom in the
+     * orchestrators.
+     */
+    fun logBanner(logger: Logger, vararg lines: String, error: Boolean = false) {
+        val border = "=".repeat(BANNER_WIDTH)
+        val log: (String) -> Unit = if (error) logger::error else logger::info
+        log(border)
+        lines.forEach(log)
+        log(border)
+    }
+
     // Regex patterns reused across multiple operations
     val FASTA_FILE_PATTERN = Regex(".*\\.(fa|fasta|fna)(\\.gz)?$")
     val FASTA_EXTENSION_PATTERN = Regex("\\.(fa|fasta|fna)(\\.gz)?$")
