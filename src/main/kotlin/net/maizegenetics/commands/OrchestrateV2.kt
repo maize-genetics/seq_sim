@@ -2,6 +2,7 @@ package net.maizegenetics.commands
 
 import com.github.ajalt.clikt.core.parse
 import net.maizegenetics.commands.OrchestrateShared.appendPhgAlignSharedArgs
+import net.maizegenetics.commands.OrchestrateShared.logBanner
 import net.maizegenetics.commands.OrchestrateShared.shouldRunStep
 import org.apache.logging.log4j.Logger
 import java.nio.file.Path
@@ -9,12 +10,15 @@ import kotlin.io.path.*
 import kotlin.system.exitProcess
 
 /**
- * v2 pipeline: a trimmed variant pipeline that currently runs only the
- * first two steps -- align-assemblies (01) and maf-to-gvcf (02). It is
- * intentionally kept independent from [OrchestrateV1] so it can diverge
- * as the v2 workflow grows. Step chaining, `run_steps` filtering, default
- * output directories, and skip/reuse-previous-output handling mirror v1
- * so logs and outputs stay consistent.
+ * v2 pipeline: the variant pipeline running align-assemblies (01),
+ * maf-to-gvcf (02), split-gvcfs (03), downsample-gvcf (04),
+ * mutate-assemblies (05), pick-crossovers (06), recombine-gvcfs (07),
+ * sort-gvcfs (08), convert-to-fasta (09), build-spline-knots (10),
+ * ropebwt (11), and convert-ropebwt2ps4g (12). It is intentionally kept
+ * independent from [OrchestrateV1] so it can diverge as the v2 workflow
+ * grows. Step chaining, `run_steps` filtering, default output directories,
+ * and skip/reuse-previous-output handling mirror v1 so logs and outputs
+ * stay consistent.
  *
  * Driven by [Orchestrate], which performs config parsing and environment
  * setup before delegating here. Shared step helpers live in
@@ -36,10 +40,7 @@ class OrchestrateV2(
     }
 
     fun run(config: PipelineConfig, workDir: Path) {
-        logger.info("=".repeat(80))
-        logger.info("Starting Pipeline Orchestration")
-        logger.info("Pipeline version: v2 (variant pipeline)")
-        logger.info("=".repeat(80))
+        logBanner(logger, "Starting Pipeline Orchestration", "Pipeline version: v2 (variant pipeline)")
         logger.info("Configuration file: $configFile")
         logger.info("Working directory: $workDir")
 
@@ -62,13 +63,16 @@ class OrchestrateV2(
         var mutatedGvcfDir: Path? = null
         var crossoverBedDir: Path? = null
         var recombinedGvcfDir: Path? = null
+        var sortedGvcfDir: Path? = null
+        var fastaOutputDir: Path? = null
+        var splineKnotsOutputDir: Path? = null
+        var ropebwtOutputDir: Path? = null
+        var ps4gOutputDir: Path? = null
 
         try {
             // Step 1: Align Assemblies (if configured and should run)
             if (config.align_assemblies != null && shouldRunStep("align_assemblies", config)) {
-                logger.info("=".repeat(80))
-                logger.info("STEP 1: Align Assemblies")
-                logger.info("=".repeat(80))
+                logBanner(logger, "STEP 1: Align Assemblies")
 
                 // Resolve all paths to absolute paths for consistency
                 refFasta = Path.of(config.align_assemblies.ref_fasta).toAbsolutePath().normalize()
@@ -144,9 +148,7 @@ class OrchestrateV2(
 
             // Step 2: MAF to GVCF (if configured and should run)
             if (config.maf_to_gvcf != null && shouldRunStep("maf_to_gvcf", config)) {
-                logger.info("=".repeat(80))
-                logger.info("STEP 2: MAF to GVCF Conversion")
-                logger.info("=".repeat(80))
+                logBanner(logger, "STEP 2: MAF to GVCF Conversion")
 
                 // Determine reference file (custom or from step 1) - resolve to absolute path
                 val step2RefFasta = config.maf_to_gvcf.reference_file?.let {
@@ -229,9 +231,7 @@ class OrchestrateV2(
 
             // Step 3: Split GVCFs into base / mutation-donor (if configured and should run)
             if (config.split_gvcfs != null && shouldRunStep("split_gvcfs", config)) {
-                logger.info("=".repeat(80))
-                logger.info("STEP 3: Split GVCFs (base / mutation donor)")
-                logger.info("=".repeat(80))
+                logBanner(logger, "STEP 3: Split GVCFs (base / mutation donor)")
 
                 val keyfile = Path.of(config.split_gvcfs.keyfile).toAbsolutePath().normalize()
                 val gvcfInput = config.split_gvcfs.input?.let {
@@ -297,9 +297,7 @@ class OrchestrateV2(
 
             // Step 4: Downsample the mutation-donor GVCFs (if configured and should run)
             if (config.downsample_gvcf != null && shouldRunStep("downsample_gvcf", config)) {
-                logger.info("=".repeat(80))
-                logger.info("STEP 4: Downsample mutation-donor GVCFs")
-                logger.info("=".repeat(80))
+                logBanner(logger, "STEP 4: Downsample mutation-donor GVCFs")
 
                 val gvcfInput = config.downsample_gvcf.input?.let {
                     Path.of(it).toAbsolutePath().normalize()
@@ -370,9 +368,7 @@ class OrchestrateV2(
 
             // Step 5: Mutate assemblies (base + downsampled mutation donor -> mutated base GVCFs)
             if (config.mutate_assemblies != null && shouldRunStep("mutate_assemblies", config)) {
-                logger.info("=".repeat(80))
-                logger.info("STEP 5: Mutate assemblies")
-                logger.info("=".repeat(80))
+                logBanner(logger, "STEP 5: Mutate assemblies")
 
                 val keyfile = config.mutate_assemblies.keyfile?.let {
                     Path.of(it).toAbsolutePath().normalize()
@@ -446,9 +442,7 @@ class OrchestrateV2(
 
             // Step 6: Pick Crossovers on the base assemblies (if configured and should run)
             if (config.pick_crossovers != null && shouldRunStep("pick_crossovers", config)) {
-                logger.info("=".repeat(80))
-                logger.info("STEP 6: Pick Crossovers (base assemblies)")
-                logger.info("=".repeat(80))
+                logBanner(logger, "STEP 6: Pick Crossovers (base assemblies)")
 
                 // Reference FASTA (custom or from step 1)
                 val pickRefFasta = config.pick_crossovers.ref_fasta?.let {
@@ -529,9 +523,7 @@ class OrchestrateV2(
 
             // Step 7: Recombine GVCFs (mutated base gVCFs + crossover BEDs -> recombined gVCFs)
             if (config.recombine_gvcfs != null && shouldRunStep("recombine_gvcfs", config)) {
-                logger.info("=".repeat(80))
-                logger.info("STEP 7: Recombine GVCFs")
-                logger.info("=".repeat(80))
+                logBanner(logger, "STEP 7: Recombine GVCFs")
 
                 // Reference FASTA (custom or from step 1)
                 val recombineRefFasta = config.recombine_gvcfs.ref_file?.let {
@@ -616,9 +608,7 @@ class OrchestrateV2(
 
             // Step 8: Sort the recombined GVCFs with bcftools (if configured and should run)
             if (config.sort_gvcfs != null && shouldRunStep("sort_gvcfs", config)) {
-                logger.info("=".repeat(80))
-                logger.info("STEP 8: Sort GVCFs")
-                logger.info("=".repeat(80))
+                logBanner(logger, "STEP 8: Sort GVCFs")
 
                 // Recombined gVCF input (custom or from step 7)
                 val gvcfInput = config.sort_gvcfs.input?.let {
@@ -652,29 +642,387 @@ class OrchestrateV2(
                     throw RuntimeException("Expected sort-gvcfs output directory not found: $outputBase")
                 }
 
+                sortedGvcfDir = outputBase
                 logger.info("Step 8 completed successfully")
                 logger.info("")
             } else {
                 if (config.sort_gvcfs != null) {
                     logger.info("Skipping sort-gvcfs (not in run_steps)")
+
+                    val customOutput = config.sort_gvcfs.output?.let {
+                        Path.of(it).toAbsolutePath().normalize()
+                    }
+                    val previousDir = (customOutput ?: workDir.resolve("output").resolve("08_sort_gvcfs_results"))
+                        .toAbsolutePath().normalize()
+                    if (previousDir.exists()) {
+                        sortedGvcfDir = previousDir
+                        logger.info("Using previous sort-gvcfs outputs: $sortedGvcfDir")
+                    } else {
+                        logger.warn("Previous sort-gvcfs outputs not found. Downstream steps may fail.")
+                    }
                 } else {
                     logger.info("Skipping sort-gvcfs (not configured)")
                 }
                 logger.info("")
             }
 
+            // Step 9: Convert sorted GVCFs to FASTA (if configured and should run)
+            if (config.convert_to_fasta != null && shouldRunStep("convert_to_fasta", config)) {
+                logBanner(logger, "STEP 9: Convert to FASTA")
+
+                // Reference FASTA (custom or from step 1)
+                val convertRefFasta = config.convert_to_fasta.reference_file?.let {
+                    Path.of(it).toAbsolutePath().normalize()
+                } ?: refFasta
+                if (convertRefFasta == null) {
+                    throw RuntimeException("Cannot run convert-to-fasta: reference FASTA not available (specify 'reference_file' in convert_to_fasta config or run align-assemblies first)")
+                }
+
+                // Sorted gVCF input (custom or from step 8)
+                val gvcfInput = config.convert_to_fasta.input?.let {
+                    Path.of(it).toAbsolutePath().normalize()
+                } ?: sortedGvcfDir
+                if (gvcfInput == null) {
+                    throw RuntimeException("Cannot run convert-to-fasta: no sorted gVCF input available (specify 'input' in config or run sort-gvcfs first)")
+                }
+
+                val customOutput = config.convert_to_fasta.output?.let {
+                    Path.of(it).toAbsolutePath().normalize()
+                }
+                val outputBase = (customOutput ?: workDir.resolve("output").resolve("09_convert_to_fasta_results"))
+                    .toAbsolutePath().normalize()
+
+                logger.info("Reference FASTA: $convertRefFasta")
+                logger.info("Sorted gVCF input: $gvcfInput")
+
+                val args = buildList {
+                    add("--work-dir=$workDir")
+                    add("--gvcf-file=$gvcfInput")
+                    add("--ref-fasta=$convertRefFasta")
+                    add("--output-dir=$outputBase")
+                    if (config.convert_to_fasta.missing_records_as != null) {
+                        add("--missing-records-as=${config.convert_to_fasta.missing_records_as}")
+                    }
+                    if (config.convert_to_fasta.missing_genotype_as != null) {
+                        add("--missing-genotype-as=${config.convert_to_fasta.missing_genotype_as}")
+                    }
+                    if (!config.convert_to_fasta.ignore_contig.isNullOrEmpty()) {
+                        add("--ignore-contig=${config.convert_to_fasta.ignore_contig}")
+                    }
+                }
+
+                ConvertToFasta().parse(args)
+                restoreOrchestratorLogging(workDir)
+
+                if (!outputBase.exists()) {
+                    throw RuntimeException("Expected convert-to-fasta output directory not found: $outputBase")
+                }
+
+                fastaOutputDir = outputBase
+                logger.info("Step 9 completed successfully")
+                logger.info("")
+            } else {
+                if (config.convert_to_fasta != null) {
+                    logger.info("Skipping convert-to-fasta (not in run_steps)")
+
+                    val customOutput = config.convert_to_fasta.output?.let {
+                        Path.of(it).toAbsolutePath().normalize()
+                    }
+                    val previousDir = (customOutput ?: workDir.resolve("output").resolve("09_convert_to_fasta_results"))
+                        .toAbsolutePath().normalize()
+                    if (previousDir.exists()) {
+                        fastaOutputDir = previousDir
+                        logger.info("Using previous convert-to-fasta outputs: $fastaOutputDir")
+                    } else {
+                        logger.warn("Previous convert-to-fasta outputs not found.")
+                    }
+                } else {
+                    logger.info("Skipping convert-to-fasta (not configured)")
+                }
+                logger.info("")
+            }
+
+            // Step 10: Build spline knots from the sorted GVCFs (if configured and should run)
+            if (config.build_spline_knots != null && shouldRunStep("build_spline_knots", config)) {
+                logBanner(logger, "STEP 10: Build Spline Knots")
+
+                // Sorted gVCF input (custom or from step 8)
+                val vcfDir = config.build_spline_knots.vcf_dir?.let {
+                    Path.of(it).toAbsolutePath().normalize()
+                } ?: sortedGvcfDir
+                if (vcfDir == null) {
+                    throw RuntimeException("Cannot run build-spline-knots: no sorted gVCF input available (specify 'vcf_dir' in config or run sort-gvcfs first)")
+                }
+                if (!vcfDir.exists()) {
+                    throw RuntimeException("Cannot run build-spline-knots: VCF input directory not found at $vcfDir")
+                }
+
+                // Sorted gVCFs are gVCFs, so default to "gvcf" unless overridden.
+                val vcfType = config.build_spline_knots.vcf_type ?: "gvcf"
+
+                val customOutput = config.build_spline_knots.output?.let {
+                    Path.of(it).toAbsolutePath().normalize()
+                }
+                val outputBase = (customOutput ?: workDir.resolve("output").resolve("10_build_spline_knots_results"))
+                    .toAbsolutePath().normalize()
+
+                logger.info("Sorted gVCF input: $vcfDir")
+                logger.info("VCF type: $vcfType")
+
+                val args = buildList {
+                    add("--work-dir=$workDir")
+                    add("--vcf-dir=$vcfDir")
+                    add("--vcf-type=$vcfType")
+                    if (config.build_spline_knots.min_indel_length != null) {
+                        add("--min-indel-length=${config.build_spline_knots.min_indel_length}")
+                    }
+                    if (config.build_spline_knots.num_bps_per_knot != null) {
+                        add("--num-bps-per-knot=${config.build_spline_knots.num_bps_per_knot}")
+                    }
+                    if (config.build_spline_knots.contig_list != null) {
+                        add("--contig-list=${config.build_spline_knots.contig_list}")
+                    }
+                    if (config.build_spline_knots.random_seed != null) {
+                        add("--random-seed=${config.build_spline_knots.random_seed}")
+                    }
+                    add("--output-dir=$outputBase")
+                }
+
+                BuildSplineKnots().parse(args)
+                restoreOrchestratorLogging(workDir)
+
+                if (!outputBase.exists()) {
+                    throw RuntimeException("Expected build-spline-knots output directory not found: $outputBase")
+                }
+
+                splineKnotsOutputDir = outputBase
+                logger.info("Step 10 completed successfully")
+                logger.info("")
+            } else {
+                if (config.build_spline_knots != null) {
+                    logger.info("Skipping build-spline-knots (not in run_steps)")
+
+                    val customOutput = config.build_spline_knots.output?.let {
+                        Path.of(it).toAbsolutePath().normalize()
+                    }
+                    val previousDir = (customOutput ?: workDir.resolve("output").resolve("10_build_spline_knots_results"))
+                        .toAbsolutePath().normalize()
+                    if (previousDir.exists()) {
+                        splineKnotsOutputDir = previousDir
+                        logger.info("Using previous build-spline-knots outputs: $splineKnotsOutputDir")
+                    } else {
+                        logger.warn("Previous build-spline-knots outputs not found.")
+                    }
+                } else {
+                    logger.info("Skipping build-spline-knots (not configured)")
+                }
+                logger.info("")
+            }
+
+            // Step 11: RopeBWT (index recombined FASTAs + align user FASTQ reads -> BED)
+            if (config.ropebwt != null && shouldRunStep("ropebwt", config)) {
+                logBanner(logger, "STEP 11: RopeBWT (index + mem alignment)")
+
+                // Recombined FASTA input (custom or from step 9 convert-to-fasta)
+                val fastaInput = config.ropebwt.fasta_input?.let {
+                    Path.of(it).toAbsolutePath().normalize()
+                } ?: fastaOutputDir
+                if (fastaInput == null) {
+                    throw RuntimeException("Cannot run ropebwt: no FASTA input available (specify 'fasta_input' in config or run convert-to-fasta first)")
+                }
+                if (!fastaInput.exists()) {
+                    throw RuntimeException("Cannot run ropebwt: FASTA input not found at $fastaInput")
+                }
+
+                // FASTQ input is required when this step is configured
+                val fastqInput = Path.of(config.ropebwt.fastq_input).toAbsolutePath().normalize()
+                if (!fastqInput.exists()) {
+                    throw RuntimeException("Cannot run ropebwt: FASTQ input not found at $fastqInput")
+                }
+
+                val customOutput = config.ropebwt.output?.let {
+                    Path.of(it).toAbsolutePath().normalize()
+                }
+                val outputBase = (customOutput ?: workDir.resolve("output").resolve("11_ropebwt_results"))
+                    .toAbsolutePath().normalize()
+                val indexDir = outputBase.resolve("index")
+                indexDir.createDirectories()
+
+                logger.info("Recombined FASTA input: $fastaInput")
+                logger.info("FASTQ input: $fastqInput")
+                logger.info("Output directory: $outputBase")
+
+                // Sub-step A: build the ropebwt3 index from the recombined FASTAs.
+                logger.info("Building ropebwt3 index from recombined FASTAs")
+                val indexArgs = buildList {
+                    add("--work-dir=$workDir")
+                    add("--fasta-input=$fastaInput")
+                    add("--output-dir=$indexDir")
+                    if (config.ropebwt.index_file_prefix != null) {
+                        add("--index-file-prefix=${config.ropebwt.index_file_prefix}")
+                    }
+                    if (config.ropebwt.threads != null) {
+                        add("--threads=${config.ropebwt.threads}")
+                    }
+                    if (config.ropebwt.delete_fmr_index == true) {
+                        add("--delete-fmr-index")
+                    }
+                }
+
+                RopeBwtChrIndex().parse(indexArgs)
+                restoreOrchestratorLogging(workDir)
+
+                // Locate the generated .fmd index file.
+                val fmdFiles = indexDir.listDirectoryEntries("*.fmd")
+                if (fmdFiles.isEmpty()) {
+                    throw RuntimeException("Cannot run ropebwt: no .fmd index file produced in $indexDir")
+                }
+                val indexFile = fmdFiles.first()
+                logger.info("Using index file: $indexFile")
+
+                // Compute -l explicitly (2 x FASTA sample count from the generated
+                // keyfile) so we do not depend on RopeBwtMem's hardcoded v1
+                // auto-detect directory (12_rope_bwt_index_results).
+                val lValue = config.ropebwt.l_value ?: run {
+                    val keyfile = indexDir.resolve("phg_keyfile.txt")
+                    if (!keyfile.exists()) {
+                        throw RuntimeException("Cannot run ropebwt: keyfile not found at $keyfile (specify 'l_value' in config)")
+                    }
+                    val fastaCount = keyfile.readLines().count { it.isNotBlank() }
+                    if (fastaCount <= 0) {
+                        throw RuntimeException("Cannot run ropebwt: keyfile has no FASTA entries: $keyfile")
+                    }
+                    fastaCount * 2
+                }
+                logger.info("Using -l value: $lValue")
+
+                // Sub-step B: align the user FASTQ reads to the index -> BED files.
+                logger.info("Aligning FASTQ reads to the index")
+                val memArgs = buildList {
+                    add("--work-dir=$workDir")
+                    add("--fastq-input=$fastqInput")
+                    add("--index-file=$indexFile")
+                    add("--l-value=$lValue")
+                    if (config.ropebwt.p_value != null) {
+                        add("--p-value=${config.ropebwt.p_value}")
+                    }
+                    if (config.ropebwt.threads != null) {
+                        add("--threads=${config.ropebwt.threads}")
+                    }
+                    add("--output-dir=$outputBase")
+                }
+
+                RopeBwtMem().parse(memArgs)
+                restoreOrchestratorLogging(workDir)
+
+                if (!outputBase.exists()) {
+                    throw RuntimeException("Expected ropebwt output directory not found: $outputBase")
+                }
+
+                ropebwtOutputDir = outputBase
+                logger.info("Step 11 completed successfully")
+                logger.info("")
+            } else {
+                if (config.ropebwt != null) {
+                    logger.info("Skipping ropebwt (not in run_steps)")
+
+                    val customOutput = config.ropebwt.output?.let {
+                        Path.of(it).toAbsolutePath().normalize()
+                    }
+                    val previousDir = (customOutput ?: workDir.resolve("output").resolve("11_ropebwt_results"))
+                        .toAbsolutePath().normalize()
+                    if (previousDir.exists()) {
+                        ropebwtOutputDir = previousDir
+                        logger.info("Using previous ropebwt outputs: $ropebwtOutputDir")
+                    } else {
+                        logger.warn("Previous ropebwt outputs not found.")
+                    }
+                } else {
+                    logger.info("Skipping ropebwt (not configured)")
+                }
+                logger.info("")
+            }
+
+            // Step 12: Convert RopeBWT BED alignments to PS4G (if configured and should run)
+            if (config.convert_ropebwt2ps4g != null && shouldRunStep("convert_ropebwt2ps4g", config)) {
+                logBanner(logger, "STEP 12: Convert RopeBWT to PS4G")
+
+                // BED input: explicit override, else chain from step 11 (ropebwt)
+                val bedInput = config.convert_ropebwt2ps4g.bed_input?.let {
+                    Path.of(it).toAbsolutePath().normalize()
+                } ?: ropebwtOutputDir
+                if (bedInput == null) {
+                    throw RuntimeException("Cannot run convert-ropebwt2ps4g: no BED input available (specify 'bed_input' in config or run ropebwt first)")
+                }
+                logger.info("BED input: $bedInput")
+
+                // Spline knots: explicit override, else chain from step 10 (build-spline-knots)
+                val splineKnotDir = config.convert_ropebwt2ps4g.spline_knot_dir?.let {
+                    Path.of(it).toAbsolutePath().normalize()
+                } ?: splineKnotsOutputDir
+                if (splineKnotDir == null) {
+                    throw RuntimeException("Cannot run convert-ropebwt2ps4g: no spline-knot directory available (specify 'spline_knot_dir' in config or run build-spline-knots first)")
+                }
+                logger.info("Spline knot directory: $splineKnotDir")
+
+                val customOutput = config.convert_ropebwt2ps4g.output?.let {
+                    Path.of(it).toAbsolutePath().normalize()
+                }
+                val outputBase = (customOutput ?: workDir.resolve("output").resolve("12_convert_ropebwt2ps4g_results"))
+                    .toAbsolutePath().normalize()
+
+                val args = buildList {
+                    add("--work-dir=$workDir")
+                    add("--bed-input=$bedInput")
+                    add("--spline-knot-dir=$splineKnotDir")
+                    add("--output-dir=$outputBase")
+                    if (config.convert_ropebwt2ps4g.min_mem_length != null) {
+                        add("--min-mem-length=${config.convert_ropebwt2ps4g.min_mem_length}")
+                    }
+                    if (config.convert_ropebwt2ps4g.max_num_hits != null) {
+                        add("--max-num-hits=${config.convert_ropebwt2ps4g.max_num_hits}")
+                    }
+                }
+
+                ConvertRopebwt2Ps4g().parse(args)
+                restoreOrchestratorLogging(workDir)
+
+                if (!outputBase.exists()) {
+                    throw RuntimeException("Expected convert-ropebwt2ps4g output directory not found: $outputBase")
+                }
+
+                ps4gOutputDir = outputBase
+                logger.info("Step 12 completed successfully")
+                logger.info("")
+            } else {
+                if (config.convert_ropebwt2ps4g != null) {
+                    logger.info("Skipping convert-ropebwt2ps4g (not in run_steps)")
+
+                    val customOutput = config.convert_ropebwt2ps4g.output?.let {
+                        Path.of(it).toAbsolutePath().normalize()
+                    }
+                    val previousDir = (customOutput ?: workDir.resolve("output").resolve("12_convert_ropebwt2ps4g_results"))
+                        .toAbsolutePath().normalize()
+                    if (previousDir.exists()) {
+                        ps4gOutputDir = previousDir
+                        logger.info("Using previous convert-ropebwt2ps4g outputs: $ps4gOutputDir")
+                    } else {
+                        logger.warn("Previous convert-ropebwt2ps4g outputs not found.")
+                    }
+                } else {
+                    logger.info("Skipping convert-ropebwt2ps4g (not configured)")
+                }
+                logger.info("")
+            }
+
             // Pipeline completed successfully
-            logger.info("=".repeat(80))
-            logger.info("PIPELINE COMPLETED SUCCESSFULLY!")
-            logger.info("=".repeat(80))
+            logBanner(logger, "PIPELINE COMPLETED SUCCESSFULLY!")
             logger.info("All configured steps have been executed")
             logger.info("Working directory: $workDir")
             logger.info("Outputs are available in: ${workDir.resolve("output")}")
 
         } catch (e: Exception) {
-            logger.error("=".repeat(80))
-            logger.error("PIPELINE FAILED")
-            logger.error("=".repeat(80))
+            logBanner(logger, "PIPELINE FAILED", error = true)
             logger.error("Error: ${e.message}", e)
             exitProcess(1)
         }

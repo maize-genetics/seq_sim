@@ -22,6 +22,16 @@
 #                         crossover BEDs (step 06) -> recombined gVCFs
 # 08. sort-gvcfs:         Sort the recombined gVCFs (step 07) with bcftools ->
 #                         bgzip-compressed, indexed gVCFs
+# 09. convert-to-fasta:   Convert the sorted gVCFs (step 08) back to FASTA using
+#                         the reference FASTA (via MLImpute)
+# 10. build-spline-knots: Build spline knots from the sorted gVCFs (step 08) for
+#                         downstream PHGv2 imputation (via PHGv2)
+# 11. ropebwt:            Build a ropebwt3 index from the recombined FASTAs
+#                         (step 09) and align user-provided FASTQ reads to it,
+#                         producing BED alignments (via PHGv2 + ropebwt3)
+# 12. convert-ropebwt2ps4g: Convert the ropebwt BED alignments (step 11) into
+#                         PS4G files, using the spline knots (step 10) for
+#                         assembly-to-reference coordinate mapping (via PHGv2)
 #
 # NOTE (1): Environment setup is automatic. The orchestrate command detects a
 #       missing working directory or tools (MLImpute, biokotlin-tools, PHGv2)
@@ -47,6 +57,10 @@ run_steps:
   - pick_crossovers      # Step 06: Pick crossovers on the base assemblies
   - recombine_gvcfs      # Step 07: Recombine mutated base gVCFs along crossovers
   - sort_gvcfs           # Step 08: Sort recombined gVCFs with bcftools
+  - convert_to_fasta     # Step 09: Convert sorted gVCFs back to FASTA
+  - build_spline_knots   # Step 10: Build spline knots from sorted gVCFs
+  - ropebwt              # Step 11: Index recombined FASTAs and align FASTQ reads
+  - convert_ropebwt2ps4g # Step 12: Convert ropebwt BED alignments to PS4G files
 
 # ============================================================================
 # STEP CONFIGURATION
@@ -140,6 +154,55 @@ sort_gvcfs:
   # threads: 4                            # Optional: Threads for bcftools (default: 4)
   # output: "/custom/sorted/output/"      # Optional: Custom output directory
 
+# Step 9: Convert to FASTA
+# Converts the sorted gVCFs from step 08 back into FASTA sequences using the
+# reference FASTA (via MLImpute), producing one FASTA per input gVCF.
+convert_to_fasta:
+  # reference_file: "path/to/reference.fa"  # Optional: Uses align_assemblies.ref_fasta if omitted
+  # input: "/custom/sorted/gvcfs/"          # Optional: Defaults to sort_gvcfs output (step 08)
+  # missing_records_as: "asRef"             # Optional: asN, asRef, or asNone (default: asRef)
+  # missing_genotype_as: "asN"              # Optional: asN, asRef, or asNone (default: asN)
+  # ignore_contig: ""                       # Optional: Comma-separated contig patterns to ignore
+  # output: "/custom/fasta/output/"         # Optional: Custom output directory
+
+# Step 10: Build Spline Knots
+# Builds spline knots from the sorted gVCFs (step 08) using PHGv2, producing
+# the spline representations used for downstream PHGv2 imputation.
+build_spline_knots:
+  # vcf_dir: "/custom/sorted/gvcfs/"        # Optional: Defaults to sort_gvcfs output (step 08)
+  # vcf_type: "gvcf"                        # Optional: hvcf or gvcf (defaults to gvcf for sorted gVCFs)
+  # num_bps_per_knot: 50000                 # Optional: Max base pairs per knot per contig (default: 50000)
+  # min_indel_length: 10                    # Optional: Min indel length to break blocks, gVCF only (default: 10)
+  # contig_list: "chr1,chr2"                # Optional: Comma-separated chromosomes (omit for all)
+  # random_seed: 12345                      # Optional: Seed for downsampling points per chromosome (default: 12345)
+  # output: "/custom/spline/output/"        # Optional: Custom output directory
+
+# Step 11: RopeBWT (index + align)
+# Builds a ropebwt3 index from the recombined FASTAs (step 09) and aligns the
+# user-provided FASTQ reads to it, producing one BED alignment file per FASTQ
+# sample. The index (.fmd + phg_keyfile.txt) is written to an index/ subdir and
+# the BED files to the step output directory.
+ropebwt:
+  fastq_input: "path/to/reads/"             # Required: FASTQ file, directory, or text list of read files
+  # fasta_input: "/custom/recombined/fastas/"  # Optional: Defaults to convert_to_fasta output (step 09)
+  # index_file_prefix: "phgIndex"           # Optional: Prefix for index files (default: "phgIndex")
+  # threads: 20                             # Optional: Threads for index creation and mem alignment
+  # delete_fmr_index: true                  # Optional: Delete .fmr files after converting to .fmd
+  # l_value: 100                            # Optional: -l (defaults to 2 x number of recombined FASTAs)
+  # p_value: 168                            # Optional: -p (default: 168)
+  # output: "/custom/ropebwt/output/"       # Optional: Custom output directory
+
+# Step 12: Convert RopeBWT to PS4G
+# Converts the ropebwt BED alignments (step 11) into PS4G files, using the
+# spline knots (step 10) to map assembly coordinates back to the reference
+# (via PHGv2). Produces one PS4G file per BED input.
+convert_ropebwt2ps4g:
+  # bed_input: "/custom/ropebwt/beds/"      # Optional: Defaults to ropebwt output (step 11)
+  # spline_knot_dir: "/custom/spline/dir/"  # Optional: Defaults to build_spline_knots output (step 10)
+  # min_mem_length: 135                      # Optional: Minimum MEM length threshold (default: 135)
+  # max_num_hits: 16                         # Optional: Max haplotype hits per alignment (default: 16)
+  # output: "/custom/ps4g/output/"          # Optional: Custom output directory
+
 # ============================================================================
 # SPLIT KEYFILE FORMAT (for split_gvcfs / mutate_assemblies)
 # ============================================================================
@@ -168,4 +231,8 @@ sort_gvcfs:
 #   06_crossovers_results/          base_assembly_list.txt + {assembly}_refkey.bed
 #   07_recombine_gvcfs_results/     {target}_recombined.gvcf + resized_beds/
 #   08_sort_gvcfs_results/          {target}_recombined.g.vcf.gz (+ .csi) + sorted_gvcf_paths.txt
+#   09_convert_to_fasta_results/    {sample}.fasta + fasta_file_paths.txt
+#   10_build_spline_knots_results/  spline knot files for PHGv2 imputation
+#   11_ropebwt_results/             index/ (.fmd + phg_keyfile.txt) + {sample}_ropebwt.bed + bed_file_paths.txt
+#   12_convert_ropebwt2ps4g_results/ {sample}.ps4g + ps4g_file_paths.txt
 # ============================================================================

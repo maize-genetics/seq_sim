@@ -502,6 +502,11 @@ seq_sim maf-to-gvcf -r ref.fa \
 
 Builds a PHGv2 ropebwt3 index from FASTA files for downstream genotype imputation.
 
+In the v2 `orchestrate` pipeline this runs as the first half of the combined
+Step 11 (`ropebwt`), where the orchestrator invokes it on the recombined FASTAs
+from `convert-to-fasta` (Step 09) and writes the index into the `index/`
+subdirectory of `11_ropebwt_results/`.
+
 **Usage:**
 ```bash
 seq_sim rope-bwt-chr-index [OPTIONS]
@@ -540,6 +545,12 @@ seq_sim rope-bwt-chr-index -k my_keyfile.txt -p myIndex -t 40
 
 Aligns FASTQ reads to the ropebwt3 index from step 12 and writes per-sample BED
 alignment files.
+
+In the v2 `orchestrate` pipeline this runs as the second half of the combined
+Step 11 (`ropebwt`): after building the index from the recombined FASTAs, the
+orchestrator aligns the user-provided FASTQ reads to it, passing the generated
+`.fmd` and `-l` explicitly and writing the BED alignments to
+`11_ropebwt_results/`.
 
 **Usage:**
 ```bash
