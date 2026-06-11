@@ -5,6 +5,7 @@ import com.github.ajalt.clikt.core.parse
 import net.maizegenetics.commands.OrchestrateShared.FASTA_EXTENSION_PATTERN
 import net.maizegenetics.commands.OrchestrateShared.FASTA_FILE_PATTERN
 import net.maizegenetics.commands.OrchestrateShared.appendPhgAlignSharedArgs
+import net.maizegenetics.commands.OrchestrateShared.logBanner
 import net.maizegenetics.commands.OrchestrateShared.shouldRunStep
 import org.apache.logging.log4j.Logger
 import java.nio.file.Path
@@ -35,10 +36,7 @@ class OrchestrateV1(
     }
 
     fun run(config: PipelineConfig, workDir: Path) {
-        logger.info("=".repeat(80))
-        logger.info("Starting Pipeline Orchestration")
-        logger.info("Pipeline version: v1 (full pipeline)")
-        logger.info("=".repeat(80))
+        logBanner(logger, "Starting Pipeline Orchestration", "Pipeline version: v1 (full pipeline)")
         logger.info("Configuration file: $configFile")
         logger.info("Working directory: $workDir")
 
@@ -104,9 +102,7 @@ class OrchestrateV1(
         try {
             // Step 1: Align Assemblies (if configured and should run)
             if (config.align_assemblies != null && shouldRunStep("align_assemblies", config)) {
-                logger.info("=".repeat(80))
-                logger.info("STEP 1: Align Assemblies")
-                logger.info("=".repeat(80))
+                logBanner(logger, "STEP 1: Align Assemblies")
 
                 // Resolve all paths to absolute paths for consistency
                 refFasta = Path.of(config.align_assemblies.ref_fasta).toAbsolutePath().normalize()
@@ -183,9 +179,7 @@ class OrchestrateV1(
 
             // Step 2: MAF to GVCF (if configured and should run)
             if (config.maf_to_gvcf != null && shouldRunStep("maf_to_gvcf", config)) {
-                logger.info("=".repeat(80))
-                logger.info("STEP 2: MAF to GVCF Conversion")
-                logger.info("=".repeat(80))
+                logBanner(logger, "STEP 2: MAF to GVCF Conversion")
 
                 // Determine reference file (custom or from step 1) - resolve to absolute path
                 val step2RefFasta = config.maf_to_gvcf.reference_file?.let { 
@@ -269,9 +263,7 @@ class OrchestrateV1(
 
             // Step 3: Downsample GVCF (if configured and should run)
             if (config.downsample_gvcf != null && shouldRunStep("downsample_gvcf", config)) {
-                logger.info("=".repeat(80))
-                logger.info("STEP 3: Downsample GVCF")
-                logger.info("=".repeat(80))
+                logBanner(logger, "STEP 3: Downsample GVCF")
 
                 // Determine input (custom or from previous step)
                 val gvcfInput = config.downsample_gvcf.input?.let { Path.of(it) } ?: gvcfOutputDir
@@ -339,9 +331,7 @@ class OrchestrateV1(
 
             // Step 4: Convert to FASTA (if configured and should run)
             if (config.convert_to_fasta != null && shouldRunStep("convert_to_fasta", config)) {
-                logger.info("=".repeat(80))
-                logger.info("STEP 4: Convert to FASTA")
-                logger.info("=".repeat(80))
+                logBanner(logger, "STEP 4: Convert to FASTA")
 
                 // Determine input (custom or from previous step)
                 val gvcfInput = config.convert_to_fasta.input?.let { Path.of(it) } ?: downsampledGvcfOutputDir
@@ -402,9 +392,7 @@ class OrchestrateV1(
 
             // Step 5: Pick Crossovers (if configured and should run)
             if (config.pick_crossovers != null && shouldRunStep("pick_crossovers", config)) {
-                logger.info("=".repeat(80))
-                logger.info("STEP 5: Pick Crossovers")
-                logger.info("=".repeat(80))
+                logBanner(logger, "STEP 5: Pick Crossovers")
 
                 // Use pick_crossovers.ref_fasta if specified, otherwise use ref FASTA from step 1
                 val pickCrossoversRefFasta = config.pick_crossovers.ref_fasta?.let { Path.of(it) } 
@@ -486,9 +474,7 @@ class OrchestrateV1(
 
             // Step 6: Create Chain Files (if configured and should run)
             if (config.create_chain_files != null && shouldRunStep("create_chain_files", config)) {
-                logger.info("=".repeat(80))
-                logger.info("STEP 6: Create Chain Files")
-                logger.info("=".repeat(80))
+                logBanner(logger, "STEP 6: Create Chain Files")
 
                 // Determine input (custom or step 1 MAF files)
                 val mafInput = config.create_chain_files.maf_file_input?.let { Path.of(it) } 
@@ -545,9 +531,7 @@ class OrchestrateV1(
 
             // Step 7: Convert Coordinates (if configured and should run)
             if (config.convert_coordinates != null && shouldRunStep("convert_coordinates", config)) {
-                logger.info("=".repeat(80))
-                logger.info("STEP 7: Convert Coordinates")
-                logger.info("=".repeat(80))
+                logBanner(logger, "STEP 7: Convert Coordinates")
 
                 // Determine chain input (custom or from previous step)
                 val chainInput = config.convert_coordinates.input_chain?.let { Path.of(it) } ?: chainOutputDir
@@ -615,9 +599,7 @@ class OrchestrateV1(
 
             // Step 8: Generate Recombined Sequences (if configured and should run)
             if (config.generate_recombined_sequences != null && shouldRunStep("generate_recombined_sequences", config)) {
-                logger.info("=".repeat(80))
-                logger.info("STEP 8: Generate Recombined Sequences")
-                logger.info("=".repeat(80))
+                logBanner(logger, "STEP 8: Generate Recombined Sequences")
 
                 // Use founder key input from previous step (convert_coordinates)
                 if (coordinatesOutputDir == null) {
@@ -713,9 +695,7 @@ class OrchestrateV1(
 
             // Step 9: Format Recombined Fastas (if configured and should run)
             if (config.format_recombined_fastas != null && shouldRunStep("format_recombined_fastas", config)) {
-                logger.info("=".repeat(80))
-                logger.info("STEP 9: Format Recombined Fastas")
-                logger.info("=".repeat(80))
+                logBanner(logger, "STEP 9: Format Recombined Fastas")
 
                 // Determine input (custom or from previous step)
                 val fastaInput = config.format_recombined_fastas.input?.let { Path.of(it) } ?: recombinedFastasDir
@@ -769,9 +749,7 @@ class OrchestrateV1(
 
             // Step 10: Align Mutated Assemblies (if configured and should run)
             if (config.align_mutated_assemblies != null && shouldRunStep("align_mutated_assemblies", config)) {
-                logger.info("=".repeat(80))
-                logger.info("STEP 10: Align Mutated Assemblies")
-                logger.info("=".repeat(80))
+                logBanner(logger, "STEP 10: Align Mutated Assemblies")
 
                 // Determine ref_gff (config value or from step 1)
                 val step10RefGff = config.align_mutated_assemblies.ref_gff?.let { Path.of(it) } ?: refGff
@@ -854,9 +832,7 @@ class OrchestrateV1(
 
             // Step 11: Mutated MAF to GVCF (if configured and should run)
             if (config.mutated_maf_to_gvcf != null && shouldRunStep("mutated_maf_to_gvcf", config)) {
-                logger.info("=".repeat(80))
-                logger.info("STEP 11: Mutated MAF to GVCF Conversion")
-                logger.info("=".repeat(80))
+                logBanner(logger, "STEP 11: Mutated MAF to GVCF Conversion")
 
                 // Determine reference file (custom or from step 1) - resolve to absolute path
                 val step11RefFasta = config.mutated_maf_to_gvcf.reference_file?.let { 
@@ -936,9 +912,7 @@ class OrchestrateV1(
 
             // Step 12: RopeBWT Chr Index (if configured and should run)
             if (config.rope_bwt_chr_index != null && shouldRunStep("rope_bwt_chr_index", config)) {
-                logger.info("=".repeat(80))
-                logger.info("STEP 12: RopeBWT Chr Index")
-                logger.info("=".repeat(80))
+                logBanner(logger, "STEP 12: RopeBWT Chr Index")
 
                 // Determine output directory (custom or default) - resolve to absolute path
                 val customOutput = config.rope_bwt_chr_index.output?.let { 
@@ -1063,9 +1037,7 @@ class OrchestrateV1(
 
             // Step 13: RopeBWT MEM Alignment (if configured and should run)
             if (config.ropebwt_mem != null && shouldRunStep("ropebwt_mem", config)) {
-                logger.info("=".repeat(80))
-                logger.info("STEP 13: RopeBWT MEM Alignment")
-                logger.info("=".repeat(80))
+                logBanner(logger, "STEP 13: RopeBWT MEM Alignment")
 
                 // fastq_input is required when this step is configured
                 val fastqInput = Path.of(config.ropebwt_mem.fastq_input).toAbsolutePath().normalize()
@@ -1146,9 +1118,7 @@ class OrchestrateV1(
 
             // Step 14: Build Spline Knots (if configured and should run)
             if (config.build_spline_knots != null && shouldRunStep("build_spline_knots", config)) {
-                logger.info("=".repeat(80))
-                logger.info("STEP 14: Build Spline Knots")
-                logger.info("=".repeat(80))
+                logBanner(logger, "STEP 14: Build Spline Knots")
 
                 // Determine VCF input directory. Prefer config.vcf_dir; otherwise
                 // chain from step 11 (mutated GVCFs) when available.
@@ -1235,9 +1205,7 @@ class OrchestrateV1(
 
             // Step 15: Convert RopeBWT to PS4G (if configured and should run)
             if (config.convert_ropebwt2ps4g != null && shouldRunStep("convert_ropebwt2ps4g", config)) {
-                logger.info("=".repeat(80))
-                logger.info("STEP 15: Convert RopeBWT to PS4G")
-                logger.info("=".repeat(80))
+                logBanner(logger, "STEP 15: Convert RopeBWT to PS4G")
 
                 // BED input: explicit override, else chain from step 13
                 val bedInput = config.convert_ropebwt2ps4g.bed_input?.let {
@@ -1298,17 +1266,13 @@ class OrchestrateV1(
             }
 
             // Pipeline completed successfully
-            logger.info("=".repeat(80))
-            logger.info("PIPELINE COMPLETED SUCCESSFULLY!")
-            logger.info("=".repeat(80))
+            logBanner(logger, "PIPELINE COMPLETED SUCCESSFULLY!")
             logger.info("All configured steps have been executed")
             logger.info("Working directory: $workDir")
             logger.info("Outputs are available in: ${workDir.resolve("output")}")
 
         } catch (e: Exception) {
-            logger.error("=".repeat(80))
-            logger.error("PIPELINE FAILED")
-            logger.error("=".repeat(80))
+            logBanner(logger, "PIPELINE FAILED", error = true)
             logger.error("Error: ${e.message}", e)
             exitProcess(1)
         }

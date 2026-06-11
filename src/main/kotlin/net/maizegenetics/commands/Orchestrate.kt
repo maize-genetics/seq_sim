@@ -39,7 +39,8 @@ data class PipelineConfig(
     val rope_bwt_chr_index: RopeBwtChrIndexConfig? = null,
     val ropebwt_mem: RopebwtMemConfig? = null,
     val build_spline_knots: BuildSplineKnotsConfig? = null,
-    val convert_ropebwt2ps4g: ConvertRopebwt2Ps4gConfig? = null
+    val convert_ropebwt2ps4g: ConvertRopebwt2Ps4gConfig? = null,
+    val ropebwt: RopebwtConfig? = null
 )
 
 data class AlignAssembliesConfig(
@@ -100,6 +101,7 @@ data class DownsampleGvcfConfig(
 )
 
 data class ConvertToFastaConfig(
+    val reference_file: String? = null,  // Optional: Reference FASTA (uses align_assemblies.ref_fasta if not specified)
     val missing_records_as: String? = null,
     val missing_genotype_as: String? = null,
     val ignore_contig: String? = null,  // Comma-separated list of string patterns to ignore
@@ -197,6 +199,17 @@ data class ConvertRopebwt2Ps4gConfig(
     val output: String? = null            // Optional: Custom output directory
 )
 
+data class RopebwtConfig(
+    val fastq_input: String,                // Required: user FASTQ file, directory, or text list
+    val fasta_input: String? = null,        // Optional: recombined FASTAs to index (defaults to convert_to_fasta output)
+    val index_file_prefix: String? = null,  // Optional: Prefix for index files (default: "phgIndex")
+    val threads: Int? = null,               // Optional: threads for index creation and mem alignment
+    val delete_fmr_index: Boolean? = null,  // Optional: Delete .fmr files after conversion
+    val l_value: Int? = null,               // Optional: -l (defaults to 2 x FASTA count from generated keyfile)
+    val p_value: Int? = null,               // Optional: -p (default: 168)
+    val output: String? = null              // Optional: Custom output directory
+)
+
 /**
  * Helpers and constants shared by both pipeline versions ([OrchestrateV1]
  * and [OrchestrateV2]). Kept separate from the [Orchestrate] command so
@@ -204,6 +217,23 @@ data class ConvertRopebwt2Ps4gConfig(
  */
 object OrchestrateShared {
     const val LOG_FILE_NAME = "00_orchestrate.log"
+
+    // Width of the "=" borders used for orchestrate banner logging
+    const val BANNER_WIDTH = 80
+
+    /**
+     * Logs a banner: a "=" border line, one line per [lines] message, then a
+     * closing "=" border. Logs at error level when [error] is true, otherwise
+     * info level. Replaces the repeated three-line banner idiom in the
+     * orchestrators.
+     */
+    fun logBanner(logger: Logger, vararg lines: String, error: Boolean = false) {
+        val border = "=".repeat(BANNER_WIDTH)
+        val log: (String) -> Unit = if (error) logger::error else logger::info
+        log(border)
+        lines.forEach(log)
+        log(border)
+    }
 
     // Regex patterns reused across multiple operations
     val FASTA_FILE_PATTERN = Regex(".*\\.(fa|fasta|fna)(\\.gz)?$")
@@ -537,6 +567,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
             val convertToFastaMap = configMap["convert_to_fasta"] as? Map<String, Any>
             val convertToFasta = if (configMap.containsKey("convert_to_fasta")) {
                 ConvertToFastaConfig(
+                    reference_file = convertToFastaMap?.get("reference_file") as? String,
                     missing_records_as = convertToFastaMap?.get("missing_records_as") as? String,
                     missing_genotype_as = convertToFastaMap?.get("missing_genotype_as") as? String,
                     ignore_contig = convertToFastaMap?.get("ignore_contig") as? String,
@@ -691,6 +722,23 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 )
             } else null
 
+            // Parse ropebwt - fastq_input is required when the section is present
+            @Suppress("UNCHECKED_CAST")
+            val ropebwtMap = configMap["ropebwt"] as? Map<String, Any>
+            val ropebwt = if (configMap.containsKey("ropebwt")) {
+                RopebwtConfig(
+                    fastq_input = ropebwtMap?.get("fastq_input") as? String
+                        ?: throw IllegalArgumentException("ropebwt.fastq_input is required"),
+                    fasta_input = ropebwtMap["fasta_input"] as? String,
+                    index_file_prefix = ropebwtMap["index_file_prefix"] as? String,
+                    threads = ropebwtMap["threads"] as? Int,
+                    delete_fmr_index = ropebwtMap["delete_fmr_index"] as? Boolean,
+                    l_value = ropebwtMap["l_value"] as? Int,
+                    p_value = ropebwtMap["p_value"] as? Int,
+                    output = ropebwtMap["output"] as? String
+                )
+            } else null
+
             return PipelineConfig(
                 version = version,
                 work_dir = workDir,
@@ -713,7 +761,8 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                 rope_bwt_chr_index = ropeBwtChrIndex,
                 ropebwt_mem = ropebwtMem,
                 build_spline_knots = buildSplineKnots,
-                convert_ropebwt2ps4g = convertRopebwt2Ps4g
+                convert_ropebwt2ps4g = convertRopebwt2Ps4g,
+                ropebwt = ropebwt
             )
         } catch (e: Exception) {
             logger.error("Failed to parse configuration file: ${e.message}", e)
