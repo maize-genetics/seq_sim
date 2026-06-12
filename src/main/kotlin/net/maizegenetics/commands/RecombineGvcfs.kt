@@ -14,7 +14,9 @@ import htsjdk.variant.variantcontext.VariantContextBuilder
 import htsjdk.variant.variantcontext.writer.Options
 import htsjdk.variant.variantcontext.writer.VariantContextWriter
 import htsjdk.variant.variantcontext.writer.VariantContextWriterBuilder
+import htsjdk.variant.vcf.VCFContigHeaderLine
 import htsjdk.variant.vcf.VCFFileReader
+import htsjdk.variant.vcf.VCFHeaderLine
 import htsjdk.variant.vcf.VCFReader
 import net.maizegenetics.Constants
 import net.maizegenetics.utils.Position
@@ -69,8 +71,12 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
         val (recombinationMap, sampleNames) = buildRecombinationMap(inputBedDir)
 
         println("Building the Initial output GVCF Writers.")
+        // Declare contig lines from the reference so the recombined gVCFs carry
+        // ##contig header lines; bcftools (step 08 sort) refuses to parse records
+        // whose contig is not declared in the header.
+        val contigLines = buildContigHeaderLines(refSeq)
         //Build Output writers for each sample name
-        val outputWriters = buildOutputWriterMap(sampleNames, outputDir)
+        val outputWriters = buildOutputWriterMap(sampleNames, outputDir, contigLines)
         println("Process GVCFs and write them out.")
         //Process GVCFs and write out recombined files
         processGvcfsAndWrite(recombinationMap, inputGvcfDir, outputWriters, refSeq)
@@ -108,11 +114,33 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
     }
 
     /**
-     * Build the output writer maps
+     * Build ##contig header lines (ID + length) from the reference sequences so
+     * the recombined gVCFs declare every contig their records reference.
+     * Without these, bcftools sort (v2 step 08) fails to parse the records.
      */
-    fun buildOutputWriterMap(sampleNames: List<String>, outputDir: Path): Map<String, VariantContextWriter> {
+    fun buildContigHeaderLines(refSeq: Map<String, NucSeqRecord>): Set<VCFHeaderLine> =
+        refSeq.entries.mapIndexed { index, (contig, record) ->
+            VCFContigHeaderLine(
+                linkedMapOf("ID" to contig, "length" to record.sequence.size().toString()),
+                index
+            )
+        }.toSet()
+
+    /**
+     * Build the output writer maps. The map is keyed by, and each writer's
+     * header/genotypes use, the bare target name. PHG keys spline knots by the
+     * gVCF sample name and the ropebwt index by the recombined FASTA basename
+     * (derived from the output file name), and parses index contigs as
+     * `{refContig}_{gamete}` -- so the sample/file name must contain no
+     * underscores for convert-ropebwt2ps4g to resolve a gamete.
+     */
+    fun buildOutputWriterMap(
+        sampleNames: List<String>,
+        outputDir: Path,
+        contigLines: Set<VCFHeaderLine> = emptySet()
+    ): Map<String, VariantContextWriter> {
         return sampleNames.associateWith { sampleName ->
-            val outputFile = outputDir.resolve("${sampleName}_recombined.gvcf")
+            val outputFile = outputDir.resolve("$sampleName.gvcf")
             val writer = VariantContextWriterBuilder()
                 .unsetOption(Options.INDEX_ON_THE_FLY)
                 .setOutputFile(outputFile.toFile())
@@ -120,7 +148,7 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
                 .setOption(Options.ALLOW_MISSING_FIELDS_IN_HEADER)
                 .build()
 
-            writer.writeHeader(VariantContextUtils.createGenericHeader(listOf(sampleName), emptySet()))
+            writer.writeHeader(VariantContextUtils.createGenericHeader(listOf(sampleName), contigLines))
             writer
         }
     }
