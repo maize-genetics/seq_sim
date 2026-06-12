@@ -188,6 +188,7 @@ data class BuildSplineKnotsConfig(
     val num_bps_per_knot: Int? = null,  // Optional: knot density
     val contig_list: String? = null,    // Optional: comma-separated chromosomes
     val random_seed: Int? = null,       // Optional: deterministic downsampling seed
+    val disable_asm_coordinates: Boolean? = null, // Optional: use a per-chromosome running count instead of ASM_Start/ASM_End
     val output: String? = null          // Optional: Custom output directory
 )
 
@@ -705,6 +706,7 @@ class Orchestrate : CliktCommand(name = "orchestrate") {
                     num_bps_per_knot = buildSplineKnotsMap?.get("num_bps_per_knot") as? Int,
                     contig_list = buildSplineKnotsMap?.get("contig_list") as? String,
                     random_seed = buildSplineKnotsMap?.get("random_seed") as? Int,
+                    disable_asm_coordinates = buildSplineKnotsMap?.get("disable_asm_coordinates") as? Boolean,
                     output = buildSplineKnotsMap?.get("output") as? String
                 )
             } else null
