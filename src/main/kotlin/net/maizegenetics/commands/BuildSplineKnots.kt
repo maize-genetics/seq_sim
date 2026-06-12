@@ -2,6 +2,7 @@ package net.maizegenetics.commands
 
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.parameters.options.default
+import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.options.required
 import com.github.ajalt.clikt.parameters.types.int
@@ -75,6 +76,12 @@ class BuildSplineKnots : CliktCommand(name = "build-spline-knots") {
     ).int()
         .default(DEFAULT_RANDOM_SEED)
 
+    private val disableAsmCoordinates by option(
+        "--disable-asm-coordinates",
+        help = "Build splines from a per-chromosome running count instead of ASM_Start/ASM_End " +
+            "coordinates (use for synthetic gVCFs that lack assembly coordinates)"
+    ).flag(default = false)
+
     override fun run() {
         // Validate working directory and PHG binary
         val phgBinary = ValidationUtils.validatePhgSetup(workDir, logger)
@@ -95,6 +102,7 @@ class BuildSplineKnots : CliktCommand(name = "build-spline-knots") {
         logger.info("Min indel length: $minIndelLength")
         logger.info("Num BPs per knot: $numBpsPerKnot")
         logger.info("Random seed: $randomSeed")
+        logger.info("Disable ASM coordinates: $disableAsmCoordinates")
         if (contigList != null) {
             logger.info("Contig list: $contigList")
         } else {
@@ -122,6 +130,12 @@ class BuildSplineKnots : CliktCommand(name = "build-spline-knots") {
         if (contigList != null) {
             commandArgs.add("--contig-list")
             commandArgs.add(contigList!!)
+        }
+
+        // Fall back to a per-chromosome running count when the gVCFs lack
+        // valid ASM_Start/ASM_End coordinates (e.g. synthetic recombined gVCFs).
+        if (disableAsmCoordinates) {
+            commandArgs.add("--disable-asm-coordinates")
         }
 
         // Run PHG build-spline-knots command
