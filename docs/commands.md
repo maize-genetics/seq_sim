@@ -713,7 +713,6 @@ seq_sim recombine-gvcfs [OPTIONS]
 - `--input-gvcf-dir`: Directory of parent GVCF files (required)
 - `--ref-file`: Reference FASTA (required)
 - `--output-dir`: Output directory for the recombined GVCFs (required)
-- `--output-bed-dir`: Output directory for the resized BED files (required)
 
 **Example:**
 ```bash
@@ -721,8 +720,7 @@ seq_sim recombine-gvcfs \
     --input-bed-dir ancestry_beds/ \
     --input-gvcf-dir parent_gvcfs/ \
     --ref-file ref.fa \
-    --output-dir recombined_gvcfs/ \
-    --output-bed-dir recombined_beds/
+    --output-dir recombined_gvcfs/ 
 ```
 
 ### sort-gvcfs

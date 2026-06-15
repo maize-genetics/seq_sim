@@ -143,7 +143,7 @@ recombine_gvcfs:
   # input_bed: "/custom/crossover/beds/"  # Optional: Defaults to pick_crossovers output (step 06)
   # input_gvcf: "/custom/mutated/gvcfs/"  # Optional: Defaults to mutate_assemblies output (step 05)
   # output: "/custom/recombined/output/"  # Optional: Custom output directory for recombined gVCFs
-  # output_bed: "/custom/resized/beds/"   # Optional: Custom output directory for resized BEDs
+  
 
 # Step 8: Sort GVCFs
 # Sorts the recombined gVCFs from step 07 into coordinate order using
