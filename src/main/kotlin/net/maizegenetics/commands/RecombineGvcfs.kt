@@ -127,12 +127,21 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
         }.toSet()
 
     /**
-     * Build the output writer maps. The map is keyed by, and each writer's
-     * header/genotypes use, the bare target name. PHG keys spline knots by the
-     * gVCF sample name and the ropebwt index by the recombined FASTA basename
-     * (derived from the output file name), and parses index contigs as
-     * `{refContig}_{gamete}` -- so the sample/file name must contain no
-     * underscores for convert-ropebwt2ps4g to resolve a gamete.
+     * Build the output writer maps. The map is keyed by the bare target name
+     * (so callers can look a writer up by the BED target sample), but each
+     * writer's output file, header sample, and genotypes all use the
+     * "{target}-recombined" name. This keeps the recombined identity consistent
+     * end-to-end: convert-to-fasta derives the FASTA basename (and therefore the
+     * ropebwt index/keyfile sample name) from the gVCF file name, while
+     * build-spline-knots keys its gametes by the gVCF sample column. Both must
+     * agree on "{target}-recombined" for convert-ropebwt2ps4g to resolve a
+     * gamete and emit non-empty PS4G counts.
+     *
+     * The suffix uses a HYPHEN, not an underscore: PHG's ropebwt index renames
+     * contigs to "{sampleName}_{refContig}" and convert-ropebwt2ps4g recovers
+     * the gamete by splitting that on "_". An underscore in the sample name
+     * (e.g. "{target}_recombined") adds an extra token, so PHG parses the gamete
+     * as "recombined" and throws. A hyphen keeps the sample name a single token.
      */
     fun buildOutputWriterMap(
         sampleNames: List<String>,
@@ -140,7 +149,8 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
         contigLines: Set<VCFHeaderLine> = emptySet()
     ): Map<String, VariantContextWriter> {
         return sampleNames.associateWith { sampleName ->
-            val outputFile = outputDir.resolve("$sampleName.gvcf")
+            val recombinedName = recombinedSampleName(sampleName)
+            val outputFile = outputDir.resolve("$recombinedName.gvcf")
             val writer = VariantContextWriterBuilder()
                 .unsetOption(Options.INDEX_ON_THE_FLY)
                 .setOutputFile(outputFile.toFile())
@@ -148,10 +158,20 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
                 .setOption(Options.ALLOW_MISSING_FIELDS_IN_HEADER)
                 .build()
 
-            writer.writeHeader(VariantContextUtils.createGenericHeader(listOf(sampleName), contigLines))
+            writer.writeHeader(VariantContextUtils.createGenericHeader(listOf(recombinedName), contigLines))
             writer
         }
     }
+
+    /**
+     * The recombined sample/file name for a BED target: the bare target name
+     * with a "-recombined" suffix. Used for the output gVCF file name, the gVCF
+     * header sample, and every genotype written so the recombined identity
+     * propagates consistently through the downstream pipeline. The hyphen (not
+     * an underscore) is required so PHG's convert-ropebwt2ps4g can resolve the
+     * gamete from the "{sampleName}_{refContig}" index contig.
+     */
+    fun recombinedSampleName(target: String): String = "${target}-recombined"
 
     /**
      * Process each gvcfs and write out the variants to the targets
@@ -219,11 +239,12 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
             val targetSampleName = startPosEntry.value.second
 
             val outputWriter = outputWriters[targetSampleName] ?: continue
+            val recombinedName = recombinedSampleName(targetSampleName)
 
             if((vc.reference.length() == 1) &&  vc.reference.length() == vc.alternateAlleles[0].length()) {
                 // SNP polymorphism
                 //can write out directly as it is only 1 position and will not overlap but will need to change the genotype name
-                val newVc = changeSampleName(vc, targetSampleName)
+                val newVc = changeSampleName(vc, recombinedName)
                 outputWriter.add(newVc)
             }
             else if(vc.reference.length() == 1 && vc.alternateAlleles.first().displayString == "<NON_REF>"){
@@ -235,7 +256,7 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
             else if(vc.reference.length() == 1 && vc.alternateAlleles.first().baseString.length > 1) {
                 //Insertion
                 //we can just write it out as simple insertions only hit one bp of ref
-                val newVc = changeSampleName(vc, targetSampleName)
+                val newVc = changeSampleName(vc, recombinedName)
                 outputWriter.add(newVc)
             }
             else {
@@ -284,6 +305,7 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
             }
 
             val outputWriter = outputWriters[targetSampleName] ?: break
+            val recombinedName = recombinedSampleName(targetSampleName)
             val refAllele = refSeq[vc.contig]!!.get(currentStartPos.position - 1).char
 
             if (endPos <= rangeEnd) {
@@ -293,7 +315,7 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
                     currentStartPos.position,
                     endPos.position,
                     "$refAllele",
-                    targetSampleName
+                    recombinedName
                 )
                 outputWriter.add(newVc)
                 break
@@ -304,7 +326,7 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
                     currentStartPos.position,
                     rangeEnd.position,
                     "$refAllele",
-                    targetSampleName
+                    recombinedName
                 )
                 outputWriter.add(newVc)
                 currentStartPos = Position(vc.contig, rangeEnd.position + 1)
@@ -327,10 +349,11 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
     ) {
         //Get out the region that this vc hits using startPos
         val entry = ranges.getEntry(startPos) ?: return
+        val recombinedName = recombinedSampleName(entry.value.second)
 
         if(endPos in entry.key..entry.value.first) {
             //This means its fully contained so we can just write out
-            val newVc = changeSampleName(vc, entry.value.second)
+            val newVc = changeSampleName(vc, recombinedName)
             outputWriter.add(newVc)
         }
         else {
@@ -352,7 +375,7 @@ class RecombineGvcfs : CliktCommand(name = "recombine-gvcfs") {
                 println((entry.value.first.position - vc.start) + 1)
                 println(resizedRefSeq.length)
             }
-            val newDel = buildDel(vc.contig, vc.start, entry.value.first.position, resizedRefSeq, resizedAltSeq, entry.value.second )
+            val newDel = buildDel(vc.contig, vc.start, entry.value.first.position, resizedRefSeq, resizedAltSeq, recombinedName )
             outputWriter.add(newDel)
 
         }

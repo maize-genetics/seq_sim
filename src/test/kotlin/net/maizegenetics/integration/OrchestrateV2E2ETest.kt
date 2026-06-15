@@ -225,6 +225,7 @@ class OrchestrateV2E2ETest {
               vcf_type: "gvcf"
               num_bps_per_knot: 1000
               random_seed: 42
+              disable_asm_coordinates: true
 
             ropebwt:
               fastq_input: "${fastqDir.toString()}"
@@ -373,19 +374,15 @@ class OrchestrateV2E2ETest {
         // ---------------------------------------------------------------
         val step7Dir = workDir.resolve("output/07_recombine_gvcfs_results").toFile()
         assertTrue(step7Dir.exists() && step7Dir.isDirectory, "Step 7 output directory must exist")
-        val recombinedGvcfs = step7Dir.listFiles { f -> f.name.endsWith("_recombined.gvcf") }?.toList().orEmpty()
+        val recombinedGvcfs = step7Dir.listFiles { f -> f.name.endsWith("-recombined.gvcf") }?.toList().orEmpty()
         assertTrue(
             recombinedGvcfs.isNotEmpty(),
-            "At least one {target}_recombined.gvcf should be produced (got: ${step7Dir.listFiles()?.map { it.name } ?: emptyList()})"
+            "At least one {target}-recombined.gvcf should be produced (got: ${step7Dir.listFiles()?.map { it.name } ?: emptyList()})"
         )
         assertTrue(
             recombinedGvcfs.all { it.length() > 0 },
             "Every recombined gVCF must be non-empty"
         )
-        val resizedBedsDir = File(step7Dir, "resized_beds")
-        assertTrue(resizedBedsDir.exists() && resizedBedsDir.isDirectory, "Step 7 resized_beds/ subdir must exist")
-        val resizedBeds = resizedBedsDir.listFiles { f -> f.name.endsWith(".bed") }?.toList().orEmpty()
-        assertTrue(resizedBeds.isNotEmpty(), "At least one resized BED should be produced")
 
         // ---------------------------------------------------------------
         // Step 8: sort_gvcfs -> 08_sort_gvcfs_results/
@@ -532,7 +529,7 @@ class OrchestrateV2E2ETest {
             "05_mutate_assemblies.log",
             "06_pick_base_crossovers.log",
             "08_sort_gvcfs.log",
-            "12_convert_ropebwt2ps4g.log"
+            "15_convert_ropebwt2ps4g.log"
         ).forEach { expected ->
             assertTrue(
                 expected in logNames,

@@ -133,7 +133,7 @@ pick_crossovers:
 # Step 7: Recombine GVCFs
 # Recombines the mutated base gVCFs (step 05) by stitching segments together
 # along the crossover breakpoints from the pick-crossovers BEDs (step 06),
-# writing one recombined gVCF per target sample ("{target}_recombined.gvcf")
+# writing one recombined gVCF per target sample ("{target}-recombined.gvcf")
 # plus the resized BED files. A mutated gVCF named "{base}__{donor}_mutated.g.vcf"
 # is matched to its "{base}_refkey.bed" by its base sample name.
 # NOTE: if a base has multiple mutated donors, their variants merge into the
@@ -229,8 +229,8 @@ convert_ropebwt2ps4g:
 #   04_downsample_results/          downsampled mutation-donor gVCFs
 #   05_mutate_assemblies_results/   mutated base gVCFs + mutated_gvcf_file_paths.txt
 #   06_crossovers_results/          base_assembly_list.txt + {assembly}_refkey.bed
-#   07_recombine_gvcfs_results/     {target}_recombined.gvcf + resized_beds/
-#   08_sort_gvcfs_results/          {target}_recombined.g.vcf.gz (+ .csi) + sorted_gvcf_paths.txt
+#   07_recombine_gvcfs_results/     {target}-recombined.gvcf
+#   08_sort_gvcfs_results/          {target}-recombined.g.vcf.gz (+ .csi) + sorted_gvcf_paths.txt
 #   09_convert_to_fasta_results/    {sample}.fasta + fasta_file_paths.txt
 #   10_build_spline_knots_results/  spline knot files for PHGv2 imputation
 #   11_ropebwt_results/             index/ (.fmd + phg_keyfile.txt) + {sample}_ropebwt.bed + bed_file_paths.txt
