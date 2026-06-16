@@ -54,7 +54,7 @@
 - [ ] I have tested these changes locally
 - [ ] I have added/updated tests for new functionality
 - [ ] I have updated documentation (if applicable)
-- [ ] Breaking changes are clearly documented above
+- [ ] Breaking changes are clearly documented above (if applicable)
 
 
 <!--
