@@ -75,29 +75,41 @@ class AddAsmTagsToGvcf: CliktCommand(name = "add-asm-tags-to-gvcf") {
 
         fileReader.forEach { variant ->
             // Process the variant and add the ASM tags based on the missing category
-            currentStart = extractOutASMStart(prevVariant, variant, currentStart, missingCategory)
+            val (newVariant, newStart) = buildNewVariantContext(currentStart, prevVariant, variant, missingCategory)
 
-
-            val refLength = variant.end - variant.start + 1
-            val asmEnd = currentStart + refLength
-
-            val newVariant = VariantContextBuilder(variant)
-                .attribute("ASM_START", currentStart)
-                .attribute("ASM_END", asmEnd)
-                .attribute("ASM_Strand","+")
-                .make()
-
-            currentStart = asmEnd+1
-
-            // Add the ASM tags based on the missing category
-            // This is a placeholder for the actual implementation
+            //Write out and update running variables
             outputWriter.add(newVariant)
+            currentStart = newStart
             prevVariant = newVariant
         }
-
-
+        outputWriter.close()
+        fileReader.close()
     }
 
+    fun buildNewVariantContext(
+        currentStart: Int,
+        prevVariant: VariantContext?,
+        variant: VariantContext,
+        missingCategory: MissingCategory
+    ): Pair<VariantContext, Int> {
+        val newStart = extractOutASMStart(prevVariant, variant, currentStart, missingCategory)
+        val refLength = variant.end - variant.start
+        val asmEnd = newStart + refLength
+
+        val newVariant = VariantContextBuilder(variant)
+            .attribute("ASM_Chr", variant.contig)
+            .attribute("ASM_Start", newStart)
+            .attribute("ASM_End", asmEnd)
+            .attribute("ASM_Strand", "+")
+            .make()
+
+        return Pair(newVariant, asmEnd + 1) //Add 1 to the end so we are on the next start position
+    }
+
+
+    /**
+     * Function to determine the correct starting value based on the missing category and the input value
+     */
     fun extractOutASMStart(
         prevVariant: VariantContext?,
         variant: VariantContext,
