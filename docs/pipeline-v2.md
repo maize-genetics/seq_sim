@@ -11,7 +11,9 @@ For the per-command option reference (every flag, output, and example), see
 [`commands.md`](commands.md). For the full annotated configuration schema, see
 [`pipeline_config_v2.example.yaml`](../pipeline_config_v2.example.yaml).
 
-<img src="images/grits_v2_seq_sim_pipeline.svg" alt="seqSim v2 pipeline" height="800" style="max-width: 100%; width: auto;" />
+<p align="center">
+  <img src="images/grits_v2_seq_sim_pipeline.svg" alt="seqSim v2 pipeline" width="500" style="max-width: 100%; height: auto;" />
+</p>
 
 ## Pipeline Overview
 
