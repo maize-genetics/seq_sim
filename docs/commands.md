@@ -1,10 +1,71 @@
 # Commands
 
 All commands share the same invocation pattern: `seq_sim <command> [OPTIONS]`.
-Each pipeline step is numbered to match the full 15-step pipeline (see
-[Pipeline Overview](../README.md#pipeline-overview)).
+seqSim ships two pipeline versions, both run through the same
+[`orchestrate`](#orchestrate-recommended) command and selected by the `version`
+field in the YAML config. Many commands are shared between the two pipelines;
+some are specific to one. The tables below map each command to its step in each
+pipeline (see the [v1 Pipeline](pipeline-v1.md#pipeline-overview) and
+[v2 Pipeline](pipeline-v2.md#pipeline-overview) overviews for the full context).
 
-## orchestrate (Recommended)
+### v1 Pipeline Commands (default)
+
+The 15-step FASTA-level pipeline (`version: "v1"`, or omitted).
+
+| Step | Command | Description |
+|------|---------|-------------|
+| 00 | [`setup-environment`](#setup-environment-step-00) | Initialize environment and download tools |
+| 01 | [`align-assemblies`](#align-assemblies-step-01) | Align query assemblies to reference |
+| 02 | [`maf-to-gvcf`](#maf-to-gvcf-step-02) | Convert MAF alignments to GVCF |
+| 03 | [`downsample-gvcf`](#downsample-gvcf-step-03) | Downsample variants per chromosome |
+| 04 | [`convert-to-fasta`](#convert-to-fasta-step-04) | Generate mutated FASTAs from variants |
+| 05 | [`pick-crossovers`](#pick-crossovers-step-05) | Pick crossover breakpoints (reference coords) |
+| 06 | [`create-chain-files`](#create-chain-files-step-06) | Convert MAF alignments to CHAIN format |
+| 07 | [`convert-coordinates`](#convert-coordinates-step-07) | Convert reference coords to assembly coords |
+| 08 | [`generate-recombined-sequences`](#generate-recombined-sequences-step-08) | Concatenate parent segments into FASTAs |
+| 09 | [`format-recombined-fastas`](#format-recombined-fastas-step-09) | Normalize recombined FASTA line widths |
+| 10 | [`align-mutated-assemblies`](#align-mutated-assemblies-step-10) | Realign recombined FASTAs to reference |
+| 11 | [`mutated-maf-to-gvcf`](#mutated-maf-to-gvcf-step-11-orchestrate-only) | Convert mutated MAFs to GVCF (reuses maf-to-gvcf) |
+| 12 | [`rope-bwt-chr-index`](#rope-bwt-chr-index-step-12) | Build PHGv2 ropebwt3 index |
+| 13 | [`ropebwt-mem`](#ropebwt-mem-step-13) | Align FASTQ reads to the ropebwt3 index |
+| 14 | [`build-spline-knots`](#build-spline-knots-step-14) | Build spline knots for imputation |
+| 15 | [`convert-ropebwt2ps4g`](#convert-ropebwt2ps4g-step-15) | Convert ropebwt BED alignments to PS4G |
+
+### v2 Pipeline Commands
+
+The 12-step gVCF-level pipeline (`version: "v2"`).
+
+| Step | Command | Description |
+|------|---------|-------------|
+| 00 | [`setup-environment`](#setup-environment-step-00) | Initialize environment and download tools |
+| 01 | [`align-assemblies`](#align-assemblies-step-01) | Align query assemblies to reference |
+| 02 | [`maf-to-gvcf`](#maf-to-gvcf-step-02) | Convert MAF alignments to GVCF |
+| 03 | [`split-gvcfs`](#split-gvcfs-v2-step-03) | Split gVCFs into base / mutation-donor sets |
+| 04 | [`downsample-gvcf`](#downsample-gvcf-step-03) | Downsample the mutation-donor gVCFs |
+| 05 | [`mutate-assemblies`](#mutate-assemblies-v2-step-05) | Mutate base gVCFs with downsampled donors |
+| 06 | [`pick-base-crossovers`](#pick-base-crossovers-v2-step-06) | Pick crossovers on the base assemblies |
+| 07 | [`recombine-gvcfs`](#recombine-gvcfs-v2-step-07) | Recombine mutated base gVCFs along crossovers |
+| 08 | [`sort-gvcfs`](#sort-gvcfs-v2-step-08) | Sort recombined gVCFs with bcftools |
+| 09 | [`convert-to-fasta`](#convert-to-fasta-step-04) | Convert sorted gVCFs back to FASTA |
+| 10 | [`build-spline-knots`](#build-spline-knots-step-14) | Build spline knots from sorted gVCFs |
+| 11 | `ropebwt` = [`rope-bwt-chr-index`](#rope-bwt-chr-index-step-12) + [`ropebwt-mem`](#ropebwt-mem-step-13) | Build index and align FASTQ reads (combined step) |
+| 12 | [`convert-ropebwt2ps4g`](#convert-ropebwt2ps4g-step-15) | Convert ropebwt BED alignments to PS4G |
+
+> **Note:** The step numbers in the command headings below follow the **v1**
+> pipeline ordering. Where a command is also used by v2 (at a different step
+> number), that role is noted in the command's description and in the table
+> above. v2-only commands are documented under
+> [v2 Pipeline Commands](#v2-pipeline-commands-1).
+
+### Helper Commands
+
+Standalone utilities that are not part of either `orchestrate` pipeline.
+
+| Command | Description |
+|---------|-------------|
+| [extract-chrom-ids](#extract-chrom-ids) | Extract unique chromosome IDs from GVCF files |
+
+## `orchestrate` (Recommended)
 
 **Runs the entire pipeline from a YAML configuration file with automatic environment setup.**
 
@@ -73,7 +134,7 @@ seq_sim orchestrate --config pipeline.yaml
 
 ---
 
-## setup-environment (Step 00)
+## `setup-environment` (Step `00`)
 
 Initializes the environment and downloads dependencies. **Note: This runs automatically with orchestrate!**
 
@@ -108,7 +169,7 @@ seq_sim setup-environment -w my_workdir
 
 ---
 
-## align-assemblies (Step 01)
+## `align-assemblies` (Step `01`)
 
 Aligns multiple query assemblies to a reference genome via the PHGv2
 [`align-assemblies`](https://phg.maizegenetics.net/build_and_load/#align-assemblies-parameters)
@@ -168,7 +229,7 @@ seq_sim align-assemblies -g ref.gff -r ref.fa -q queries.txt --just-ref-prep
 
 ---
 
-## maf-to-gvcf (Step 02)
+## `maf-to-gvcf` (Step `02`)
 
 Converts MAF alignment files to compressed GVCF format using biokotlin-tools.
 
@@ -206,7 +267,7 @@ seq_sim maf-to-gvcf -r ref.fa \
 
 ---
 
-## downsample-gvcf (Step 03)
+## `downsample-gvcf` (Step `03`)
 
 Downsamples GVCF files at specified rates using MLImpute's `DownsampleGvcf`.
 
@@ -237,7 +298,7 @@ seq_sim downsample-gvcf -g seq_sim_work/output/02_gvcf_results/ --rates 0.1,0.2,
 
 ---
 
-## convert-to-fasta (Step 04)
+## `convert-to-fasta` (Step `04`)
 
 Generates FASTA files from downsampled GVCF files using MLImpute's `ConvertToFasta`.
 
@@ -265,7 +326,7 @@ seq_sim convert-to-fasta -r ref.fa -g seq_sim_work/output/03_downsample_results/
 
 ---
 
-## pick-crossovers (Step 05)
+## `pick-crossovers` (Step `05`)
 
 Simulates crossover events in reference coordinates and writes refkey BED files
 that track which parent each genomic region comes from.
@@ -278,7 +339,7 @@ seq_sim pick-crossovers [OPTIONS]
 **Options:**
 - `--work-dir`, `-w`: Working directory (default: `seq_sim_work`)
 - `--ref-fasta`, `-r`: Reference FASTA file (required)
-- `--assembly-list`, `-a`: Tab-separated file with `path<TAB>name` (required) — **must contain an even number of assemblies** (they are paired for crossover simulation)
+- `--assembly-list`, `-a`: Tab-separated file with `path<TAB>name` (required) - **must contain an even number of assemblies** (they are paired for crossover simulation)
 
 **Output:**
 - `<work-dir>/output/05_crossovers_results/{founder}_refkey.bed`
@@ -300,7 +361,7 @@ seq_sim pick-crossovers -r reference.fa -a assembly_list.txt
 
 ---
 
-## create-chain-files (Step 06)
+## `create-chain-files` (Step `06`)
 
 Converts MAF alignment files to UCSC CHAIN format for coordinate conversion.
 
@@ -330,7 +391,7 @@ seq_sim create-chain-files -m mafs/ -j 8
 
 ---
 
-## convert-coordinates (Step 07)
+## `convert-coordinates` (Step `07`)
 
 Converts reference-coordinate refkey BED files to assembly coordinates using
 chain files (via CrossMap).
@@ -360,7 +421,7 @@ seq_sim convert-coordinates -a assembly_list.txt -c seq_sim_work/output/06_chain
 
 ---
 
-## generate-recombined-sequences (Step 08)
+## `generate-recombined-sequences` (Step `08`)
 
 Generates recombined FASTA sequences by concatenating segments from parent
 assemblies based on the founder key files from step 07.
@@ -397,7 +458,7 @@ chr3
 
 ---
 
-## format-recombined-fastas (Step 09)
+## `format-recombined-fastas` (Step `09`)
 
 Reformats recombined FASTA files to a consistent line width using seqkit.
 
@@ -426,7 +487,7 @@ seq_sim format-recombined-fastas \
 
 ---
 
-## align-mutated-assemblies (Step 10)
+## `align-mutated-assemblies` (Step `10`)
 
 Realigns the formatted recombined (or otherwise mutated) FASTA files back to
 the reference genome via the PHGv2
@@ -477,10 +538,10 @@ seq_sim align-mutated-assemblies \
 
 ---
 
-## mutated-maf-to-gvcf (Step 11, orchestrate only)
+## `mutated-maf-to-gvcf` (Step `11`, orchestrate only)
 
 Converts the mutated MAF files from `align-mutated-assemblies` into GVCFs. This
-step has no dedicated clikt subcommand — `orchestrate` runs the
+step has no dedicated clikt subcommand - `orchestrate` runs the
 [`maf-to-gvcf`](#maf-to-gvcf-step-02) command under the hood with different
 inputs and directs output to `<work-dir>/output/11_mutated_gvcf_results/`.
 
@@ -498,13 +559,13 @@ seq_sim maf-to-gvcf -r ref.fa \
 
 ---
 
-## rope-bwt-chr-index (Step 12)
+## `rope-bwt-chr-index` (Step `12`)
 
 Builds a PHGv2 ropebwt3 index from FASTA files for downstream genotype imputation.
 
 In the v2 `orchestrate` pipeline this runs as the first half of the combined
-Step 11 (`ropebwt`), where the orchestrator invokes it on the recombined FASTAs
-from `convert-to-fasta` (Step 09) and writes the index into the `index/`
+Step `11` (`ropebwt`), where the orchestrator invokes it on the recombined FASTAs
+from `convert-to-fasta` (Step `09`) and writes the index into the `index/`
 subdirectory of `11_ropebwt_results/`.
 
 **Usage:**
@@ -541,13 +602,13 @@ seq_sim rope-bwt-chr-index -k my_keyfile.txt -p myIndex -t 40
 
 ---
 
-## ropebwt-mem (Step 13)
+## `ropebwt-mem` (Step `13`)
 
 Aligns FASTQ reads to the ropebwt3 index from step 12 and writes per-sample BED
 alignment files.
 
 In the v2 `orchestrate` pipeline this runs as the second half of the combined
-Step 11 (`ropebwt`): after building the index from the recombined FASTAs, the
+Step `11` (`ropebwt`): after building the index from the recombined FASTAs, the
 orchestrator aligns the user-provided FASTQ reads to it, passing the generated
 `.fmd` and `-l` explicitly and writing the BED alignments to
 `11_ropebwt_results/`.
@@ -582,7 +643,7 @@ seq_sim ropebwt-mem -f samples.txt -i my_index.fmd -l 100 -p 200 -t 40
 
 ---
 
-## build-spline-knots (Step 14)
+## `build-spline-knots` (Step `14`)
 
 Builds spline knots from hVCF or gVCF files for PHGv2 ML-based imputation. This
 step is independent of the earlier steps and only requires a directory of VCFs.
@@ -617,7 +678,7 @@ seq_sim build-spline-knots -v vcf_files/ -t hvcf -n 100000 -c chr1,chr2,chr3
 
 ---
 
-## convert-ropebwt2ps4g (Step 15)
+## `convert-ropebwt2ps4g` (Step `15`)
 
 Converts the RopeBWT3 BED alignments from step 13 into PS4G files, using the
 spline knots from step 14 for assembly-to-reference coordinate mapping.
@@ -651,30 +712,71 @@ seq_sim convert-ropebwt2ps4g -b bed_files/ -s spline_knots/ -m 148 -x 50
 
 ---
 
-## Helpers
+## v2 Pipeline Commands
 
-These commands are standalone utilities; they are not part of `orchestrate`.
+These commands implement the v2-specific steps of the `orchestrate` pipeline
+(see [v2 Pipeline](pipeline-v2.md)). They are run automatically by
+`orchestrate` when `version: "v2"`, and several can also be run standalone. The
+v2 pipeline also reuses several v1 commands at different step numbers
+([align-assemblies](#align-assemblies-step-01), [maf-to-gvcf](#maf-to-gvcf-step-02),
+[downsample-gvcf](#downsample-gvcf-step-03), [convert-to-fasta](#convert-to-fasta-step-04),
+[build-spline-knots](#build-spline-knots-step-14), [rope-bwt-chr-index](#rope-bwt-chr-index-step-12),
+[ropebwt-mem](#ropebwt-mem-step-13), and [convert-ropebwt2ps4g](#convert-ropebwt2ps4g-step-15)).
 
-### extract-chrom-ids
+### `split-gvcfs` (v2 Step `03`)
 
-Extract unique chromosome IDs from one or more GVCF files.
+Splits the [maf-to-gvcf](#maf-to-gvcf-step-02) output gVCFs into a "base" set and
+a "mutation donor" set, driven by a required tab-delimited keyfile. Each "full"
+row (both columns present and resolvable to a gVCF) defines a
+(base, mutation-donor) pair that flows downstream into
+[mutate-assemblies](#mutate-assemblies-v2-step-05); rows that are not full are
+logged and excluded.
 
+**Usage:**
 ```bash
-seq_sim extract-chrom-ids [OPTIONS]
+seq_sim split-gvcfs [OPTIONS]
 ```
 
-- `--gvcf-file`, `-g`: GVCF input (required) - single file, directory, or text list
-- `--output-file`, `-o`: Output file path (default: `chromosome_ids.txt`)
+**Options:**
+- `--work-dir`, `-w`: Working directory (default: `seq_sim_work`)
+- `--keyfile`, `-k`: Tab-delimited keyfile with header columns `Base` and `MutationDonor` (required)
+- `--gvcf-dir`, `-g`: GVCF file, directory, or text list (optional, auto-detected from step 02)
+- `--output-dir`, `-o`: Custom output directory (default: `work_dir/output/03_split_gvcfs_results`)
+
+**Keyfile format:**
+- Tab-delimited with a header row containing `Base` and `MutationDonor`.
+- Values are sample names matching the step-02 gVCF base names (`{sample}.g.vcf.gz`).
+- If the header lacks those columns, the first two columns are assumed to be
+  `Base` and `MutationDonor` (the first row is treated as a header and skipped).
+
+```text
+Base	MutationDonor
+B73	Mo17
+B73	W22
+Ki3	Mo17
+```
+
+**Output:**
+- `<output-dir>/base/` (base gVCFs + `base_gvcf_paths.txt`)
+- `<output-dir>/mutation_donor/` (deduped mutation-donor gVCFs + `mutation_donor_gvcf_paths.txt`)
+- `<output-dir>/pairs.tsv` (normalized, full/resolved rows only; consumed by step 05)
+- `<work-dir>/logs/03_split_gvcfs.log`
 
 **Example:**
 ```bash
-seq_sim extract-chrom-ids -g gvcf_files/ -o chroms.txt
+seq_sim split-gvcfs -k split_keyfile.txt -g seq_sim_work/output/02_gvcf_results/
 ```
 
-### mutate-assemblies
+### `mutate-assemblies` (v2 Step `05`)
 
-Inject the variants from a donor GVCF into a base GVCF to produce a new mutated
-GVCF. Useful for quickly building synthetic mutation test cases without
+Injects the variants from a donor GVCF into a base GVCF to produce a new mutated
+GVCF.
+
+In the v2 `orchestrate` pipeline this runs as Step `05`, mutating each base gVCF
+from [split-gvcfs](#split-gvcfs-v2-step-03) with every downsampled variant of its
+paired mutation donor from [downsample-gvcf](#downsample-gvcf-step-03), writing
+one mutated base gVCF per pairing (`{base}__{donorVariant}_mutated.g.vcf`). It is
+also useful standalone for quickly building synthetic mutation test cases without
 re-running the full variant pipeline.
 
 ```bash
@@ -693,16 +795,52 @@ seq_sim mutate-assemblies \
     --output-dir mutated/
 ```
 
-### recombine-gvcfs
+### `pick-base-crossovers` (v2 Step `06`)
+
+Runs `pick-crossovers` on the **base** assemblies. The base samples designated by
+[split-gvcfs](#split-gvcfs-v2-step-03) (the `base/` directory) are resolved and
+mapped to their assembly FASTA counterparts from the original
+[align-assemblies](#align-assemblies-step-01) query input (matched by base name,
+e.g. base sample `B73` ↔ `B73.fa`). It then writes a `pick-crossovers` assembly
+list and delegates to the same shared crossover logic used by the v1 pipeline.
+
+A base sample without a matching assembly FASTA is a hard error, and the matched
+assembly count must be even (assemblies are paired for crossover simulation).
+
+**Usage:**
+```bash
+seq_sim pick-base-crossovers [OPTIONS]
+```
+
+**Options:**
+- `--work-dir`, `-w`: Working directory (default: `seq_sim_work`)
+- `--ref-fasta`, `-r`: Reference FASTA file (required)
+- `--query-fasta`, `-q`: Original assembly FASTA file, directory, or text list - the align-assemblies query input (required)
+- `--base-input`, `-b`: Base gVCF file, directory, or text list (optional, auto-detected from step 03 `base/` output)
+- `--output-dir`, `-o`: Custom output directory (default: `work_dir/output/06_crossovers_results`)
+
+**Output:**
+- `<output-dir>/base_assembly_list.txt`
+- `<output-dir>/{assemblyName}_refkey.bed`
+- `<work-dir>/logs/06_pick_base_crossovers.log`
+
+**Example:**
+```bash
+seq_sim pick-base-crossovers -r reference.fa -q assemblies/ \
+    -b seq_sim_work/output/03_split_gvcfs_results/base/
+```
+
+### `recombine-gvcfs` (v2 Step `07`)
 
 Build recombined per-sample GVCFs from a directory of ancestry BED files and
 matching per-parent GVCFs. Acts as a GVCF-level counterpart to
-`generate-recombined-sequences`.
+[generate-recombined-sequences](#generate-recombined-sequences-step-08).
 
-In the v2 `orchestrate` pipeline this runs as Step 07 (`recombine_gvcfs`), fed
-by the mutated base gVCFs from `mutate-assemblies` (Step 05) and the crossover
-BEDs from `pick-crossovers` (Step 06). A mutated gVCF named
-`{base}__{donor}_mutated.g.vcf` is matched to its `{base}_refkey.bed` by its
+In the v2 `orchestrate` pipeline this runs as Step `07` (`recombine_gvcfs`), fed
+by the mutated base gVCFs from [mutate-assemblies](#mutate-assemblies-v2-step-05)
+(Step `05`) and the crossover BEDs from
+[pick-base-crossovers](#pick-base-crossovers-v2-step-06) (Step `06`). A mutated gVCF
+named `{base}__{donor}_mutated.g.vcf` is matched to its `{base}_refkey.bed` by its
 base sample name.
 
 ```bash
@@ -723,20 +861,20 @@ seq_sim recombine-gvcfs \
     --output-dir recombined_gvcfs/ 
 ```
 
-### sort-gvcfs
+### `sort-gvcfs` (v2 Step `08`)
 
-Sort the recombined GVCFs from `recombine-gvcfs` into coordinate order using
-`bcftools sort` (run through `pixi` so the bioconda `bcftools` is used), then
-index each output. Recombination stitches segments from multiple parent gVCFs
-together, which can leave records out of position order; this step produces
-bgzip-compressed, indexed gVCFs (`{sample}.g.vcf.gz` + `{sample}.g.vcf.gz.csi`)
-ready for downstream tools.
+Sort the recombined GVCFs from [recombine-gvcfs](#recombine-gvcfs-v2-step-07) into
+coordinate order using `bcftools sort` (run through `pixi` so the bioconda
+`bcftools` is used), then index each output. Recombination stitches segments from
+multiple parent gVCFs together, which can leave records out of position order;
+this step produces bgzip-compressed, indexed gVCFs
+(`{sample}.g.vcf.gz` + `{sample}.g.vcf.gz.csi`) ready for downstream tools.
 
 This step requires the third-party tool [bcftools](https://github.com/samtools/bcftools),
 which is provided by the pixi environment (`setup-environment`).
 
-In the v2 `orchestrate` pipeline this runs as Step 08 (`sort_gvcfs`), fed by the
-recombined gVCFs from `recombine-gvcfs` (Step 07). When `--gvcf-input` is omitted
+In the v2 `orchestrate` pipeline this runs as Step `08` (`sort_gvcfs`), fed by the
+recombined gVCFs from `recombine-gvcfs` (Step `07`). When `--gvcf-input` is omitted
 it auto-detects the step 07 output directory (`07_recombine_gvcfs_results`).
 
 ```bash
@@ -760,4 +898,26 @@ seq_sim sort-gvcfs \
     --gvcf-input recombined_gvcfs/ \
     --output-dir sorted_gvcfs/ \
     --threads 8
+```
+
+---
+
+## Helpers
+
+These commands are standalone utilities; they are not part of `orchestrate`.
+
+### `extract-chrom-ids`
+
+Extract unique chromosome IDs from one or more GVCF files.
+
+```bash
+seq_sim extract-chrom-ids [OPTIONS]
+```
+
+- `--gvcf-file`, `-g`: GVCF input (required) - single file, directory, or text list
+- `--output-file`, `-o`: Output file path (default: `chromosome_ids.txt`)
+
+**Example:**
+```bash
+seq_sim extract-chrom-ids -g gvcf_files/ -o chroms.txt
 ```
