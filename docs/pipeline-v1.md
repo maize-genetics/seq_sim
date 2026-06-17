@@ -9,6 +9,8 @@ For the per-command option reference (every flag, output, and example), see
 [`commands.md`](commands.md). For the full annotated configuration schema, see
 [`pipeline_config.example.yaml`](../pipeline_config.example.yaml).
 
+<img src="images/grits_v1_seq_sim_pipeline.svg" alt="seqSim v1 pipeline" width="800" style="max-width: 100%; height: auto;" />
+
 ## Pipeline Overview
 
 The pipeline consists of three sequential workflows. `setup-environment` (step 00)
