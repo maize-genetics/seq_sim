@@ -63,6 +63,7 @@ manual step-by-step instructions.
 
 - **[v1 Pipeline](docs/pipeline-v1.md)** - overview, workflow examples, and output layout for the default 15-step pipeline.
 - **[v2 Pipeline](docs/pipeline-v2.md)** - overview, workflow examples, and output layout for the gVCF-level 12-step pipeline.
+- **[Configuration](docs/configuration.md)** - how to structure and set up the YAML pipeline configuration file.
 - **[Command Reference](docs/commands.md)** - every command's options, behavior, outputs, and examples.
 - **[Development](docs/development.md)** - tech stack, build commands, and running tests (including the Docker dev container).
 
