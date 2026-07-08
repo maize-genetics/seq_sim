@@ -780,6 +780,9 @@ class OrchestrateV2(
                     if (config.build_spline_knots.random_seed != null) {
                         add("--random-seed=${config.build_spline_knots.random_seed}")
                     }
+                    if (config.build_spline_knots.disable_asm_coordinates == true) {
+                        add("--disable-asm-coordinates")
+                    }
                     add("--output-dir=$outputBase")
                 }
 
